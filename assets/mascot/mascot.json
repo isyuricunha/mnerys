@@ -1,0 +1,22 @@
+{
+  "name": "Nery Mizuki",
+  "project": "Mnerys",
+  "role": "official mascot",
+  "style": "2D anime chibi",
+  "palette": {
+    "background": "#211915",
+    "surface": "#2A211D",
+    "accent": "#CC785C",
+    "cream": "#F0E9E3"
+  },
+  "traits": [
+    "copper-red hair",
+    "amber eyes",
+    "cream hair bows",
+    "charcoal hoodie",
+    "orange details"
+  ],
+  "avatar": "nery-mizuki-avatar.webp",
+  "assetStatus": "compact-preview",
+  "fullResolutionSource": "maintained separately from the repository"
+}

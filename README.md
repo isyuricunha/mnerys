@@ -32,6 +32,18 @@
 
 The goal is to bring conversations, agents, knowledge, tools, integrations, and everyday workflows into a workspace you can shape to fit your needs. Mnerys is open source, with an emphasis on ownership, extensibility, and control over how your AI works.
 
+## Meet Nery Mizuki
+
+<p align="center">
+  <img src="assets/mascot/nery-mizuki-avatar.webp" alt="Nery Mizuki — red-haired chibi mascot of Mnerys, with amber eyes, cream bows and a charcoal hoodie" width="128">
+</p>
+
+<p align="center"><strong>Nery Mizuki</strong> · Official Mnerys mascot</p>
+
+Nery is the friendly face of Mnerys: a curious red-haired chibi with a cozy charcoal-and-terracotta style, connected to the Mizuki family. You'll meet her in project artwork, documentation, and future interface illustrations. She is a distinct mascot, not a replacement for the Mnerys logo.
+
+See the [Nery Mizuki mascot guide](docs/mascot/README.md) for her visual identity and usage guidelines.
+
 > **Early development:** Mnerys has just imported its initial codebase. The interface, configuration, packages, and documentation are still being transitioned from Odysseus. This is a development foundation, **not yet a separately branded, production-ready Mnerys release**.
 
 ## Capabilities

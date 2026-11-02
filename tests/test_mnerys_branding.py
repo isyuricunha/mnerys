@@ -60,6 +60,23 @@ def test_preview_screenshots_are_real_files_referenced_by_readme() -> None:
         assert f"docs/screenshots/{filename}" in readme
 
 
+def test_official_mascot_assets_and_identity() -> None:
+    avatar = ROOT / "assets" / "mascot" / "nery-mizuki-avatar.webp"
+    metadata = ROOT / "assets" / "mascot" / "mascot.json"
+    guide = ROOT / "docs" / "mascot" / "README.md"
+    assert avatar.is_file() and avatar.stat().st_size > 2_000
+    raw = avatar.read_bytes()
+    assert raw[:4] == b"RIFF" and raw[8:12] == b"WEBP"
+    data = json.loads(metadata.read_text())
+    assert data["name"] == "Nery Mizuki"
+    assert data["project"] == "Mnerys"
+    assert "Nery Mizuki" in guide.read_text()
+    readme = (ROOT / "README.md").read_text()
+    assert "Nery Mizuki" in readme
+    assert "assets/mascot/nery-mizuki-avatar.webp" in readme
+    assert "docs/mascot/README.md" in readme
+
+
 def test_internal_storage_and_api_identifiers_are_unchanged() -> None:
     # The visual rebrand must not silently erase existing browser preferences.
     theme_js = (STATIC / "js/theme.js").read_text()
