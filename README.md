@@ -1,107 +1,106 @@
 <p align="center">
-  <img src="assets/branding/odysseus-wordmark.png" alt="Odysseus" width="238">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/mnerys-wordmark-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/branding/mnerys-wordmark-light.svg">
+    <img src="assets/branding/mnerys-wordmark-light.svg" alt="Mnerys" width="325">
+  </picture>
 </p>
 
 <p align="center">
-  A self-hosted AI workspace for chat, agents, research, documents, email, notes, calendar, and local model workflows.
+  <strong>Built to be yours.</strong>
 </p>
 
 <p align="center">
+  A self-hosted, open-source AI workspace for people who want to shape their own tools, workflows, and AI experience.
+</p>
+
+<p align="center">
+  <a href="#what-is-mnerys">Overview</a> ·
+  <a href="#capabilities">Capabilities</a> ·
   <a href="#quick-start">Quick Start</a> ·
-  <a href="website/setup.md">Setup Guide</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a> ·
-  <a href="ROADMAP.md">Roadmap</a>
+  <a href="#project-status">Project Status</a> ·
+  <a href="#license-and-credits">License</a>
 </p>
 
 <p align="center">
-  <a href="https://repology.org/project/odysseus-ai/versions"><img src="https://repology.org/badge/vertical-allrepos/odysseus-ai.svg" alt="Packaging status"></a>
+  <img src="assets/branding/mnerys-hero.svg" alt="Mnerys brand illustration showing agents, models, knowledge, and tools connected around a customizable workspace. Not an application screenshot." width="100%">
 </p>
 
-<p align="center">
-  <img src="assets/branding/odysseus-browser.jpg" alt="Odysseus interface">
-</p>
+## What is Mnerys?
 
----
+**Mnerys** is an independent, self-hosted AI workspace designed around a simple idea: your AI should adapt to you, not the other way around.
+
+The goal is to bring conversations, agents, knowledge, tools, integrations, and everyday workflows into a workspace you can shape to fit your needs. Mnerys is open source, with an emphasis on ownership, extensibility, and control over how your AI works.
+
+> **Early development:** Mnerys has just imported its initial codebase. The interface, configuration, packages, and documentation are still being transitioned from Odysseus. This is a development foundation, **not yet a separately branded, production-ready Mnerys release**.
+
+## Capabilities
+
+The imported foundation already includes:
+
+- **Chat and agents** — conversations, model providers, tool execution, MCP integrations, files, skills, and memory.
+- **Research and knowledge** — multi-step research, document editing, notes, uploads, and search.
+- **Everyday workspace** — tasks, calendar, email, reminders, and scheduled agent workflows.
+- **Model flexibility** — connections to API providers and local model workflows.
+- **Creative and utility tools** — image gallery, model comparison, themes, and customizable presets.
+- **Self-hosting** — run the workspace on your own infrastructure and decide which integrations to enable.
+
+These are capabilities inherited from the initial codebase. They are being reviewed and will evolve as Mnerys develops its own architecture.
 
 ## Quick Start
 
-> `dev` is the default branch and gets the newest changes first. Use [`main`](https://github.com/odysseus-dev/odysseus/tree/main) if you want the more curated branch.
+### Docker Compose (development preview)
+
+**Requirements:** Git and Docker with the Compose plugin. The repository is currently private, so cloning requires access.
 
 ```bash
-git clone https://github.com/odysseus-dev/odysseus.git
-cd odysseus
+git clone https://github.com/isyuricunha/mnerys.git
+cd mnerys
 cp .env.example .env
-docker compose up -d --build
+ODYSSEUS_IMAGE=mnerys:local docker compose up -d --build
 ```
 
-Open `http://localhost:7011` when the containers are healthy. The first admin password is printed in `docker compose logs odysseus`.
-
-The compose files pull the official multi-arch image `ghcr.io/odysseus-dev/odysseus` (published by CI on every push to `main` and `dev`) and only build locally if the pull fails — so this also works on hosts without a build toolchain, e.g. as a [Portainer](https://www.portainer.io/) stack.
-
-**Production deployments:** pin the immutable tag instead of `:latest`. `:latest` and bare `:X.Y.Z` tags move on every push to `main`, but `:X.Y.Z-<sha>` (e.g. `1.0.2-7c8070f`) always refers to one specific build:
+Open **http://localhost:7011** after the containers have started. The initial admin credentials are printed in the application's logs:
 
 ```bash
-ODYSSEUS_IMAGE=ghcr.io/odysseus-dev/odysseus:1.0.2-7c8070f docker compose up -d
+docker compose logs odysseus
 ```
 
-Native installs, GPU notes, Windows/macOS instructions, HTTPS, and configuration live in the [setup guide](website/setup.md).
+**Why the legacy names?** The first import still uses the upstream Compose service name `odysseus` and the `ODYSSEUS_IMAGE` variable. Using `mnerys:local` above forces a local build under a Mnerys image tag rather than presenting the upstream project's published image as an official Mnerys release. These implementation details will be renamed during the application rebranding.
 
-## Features
+The initial Compose stack also includes ChromaDB, SearXNG, and ntfy. Review `docker-compose.yml` and `.env.example` before deployment; external-service options and a more modular setup are part of the planned architecture work.
 
-- **Chat + Agents** — local/API models, tools, MCP, files, shell, skills, and memory.
-- **Cookbook** — hardware-aware model recommendations, downloads, and serving.
-- **Deep Research** — multi-step web research with source reading and report generation.
-- **Compare** — blind side-by-side model testing and synthesis.
-- **Documents** — writing-first editor with AI edits, suggestions, Markdown, HTML, CSV, and syntax highlighting.
-- **Email** — IMAP/SMTP inbox with triage, tags, summaries, reminders, and reply drafts.
-- **Notes, Tasks + Calendar** — reminders, todos, scheduled agent tasks, and CalDAV sync.
-- **Extras** — gallery/image editor, themes, uploads, web search, presets, sessions, and 2FA.
+**Security:** The default Compose web port binds to localhost. Keep authentication enabled, do not publish internal service ports, and use an HTTPS reverse proxy or trusted VPN for remote access. The application currently supports powerful local tools, so only grant permissions you understand.
 
-## Demo
+The existing [setup guide](website/setup.md) describes more installation options, but it still contains upstream-era instructions and names while migration is in progress.
 
-A full hover-to-play tour lives on the [Odysseus landing page](https://odysseus-dev.github.io/odysseus/). Its source lives under [`website/`](website/).
+## Project Status
+
+Mnerys is at the **foundation and rebranding** stage.
+
+The immediate priorities are:
+
+1. Establish a consistent Mnerys identity across the repository, interface, and documentation.
+2. Validate installation, core functionality, security boundaries, and tests against the imported baseline.
+3. Review the agent runtime, memory, integrations, configuration, and permissions.
+4. Evolve the codebase into an independent, maintainable, modular platform.
+
+There is no requirement to retain compatibility with future Odysseus releases, and there is no automatic upstream synchronization. The current code is a starting point, not a constraint on Mnerys's direction.
+
+**Screenshots:** New product screenshots will be added after the application UI is rebranded. The illustration above is artwork, not a screenshot of the current application.
 
 ## Contributing
 
-Help is welcome. The best entry points are fresh-install testing, provider setup bugs, mobile/editor polish, docs, and small focused refactors. See [CONTRIBUTING.md](CONTRIBUTING.md) and [ROADMAP.md](ROADMAP.md).
+Mnerys is in early development and the contributor workflow is being defined. You can follow the project or open an issue in the [GitHub repository](https://github.com/isyuricunha/mnerys) when access is available.
 
-## Security
+Some imported documentation, including `CONTRIBUTING.md` and `ROADMAP.md`, still describes the former project's workflow and should not be taken as Mnerys policy until updated.
 
-Odysseus is a self-hosted workspace with powerful local tools. Keep auth enabled, keep private data out of Git, and do not expose raw model/service ports publicly.
+## License and Credits
 
-- Keep `AUTH_ENABLED=true` for any network-accessible deployment.
-- Keep `LOCALHOST_BYPASS=false` outside local development.
+Mnerys's initial codebase was imported from the [Odysseus](https://github.com/odysseus-dev/odysseus) `main` branch at commit [`9d0d3720`](https://github.com/odysseus-dev/odysseus/commit/9d0d3720f4ca181d87bef94da826d730acc6d483). The original Git history is preserved.
 
-Deployment details are in the [setup guide](website/setup.md#security-notes).
+Mnerys is an independent project, not an official Odysseus release. Original authors retain their respective copyrights. See [LICENSE](LICENSE) for the GNU Affero General Public License and [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for additional contributors, dependencies, and license notices.
 
-## Community & Growth
+---
 
-<p align="center">
-  <a href="https://trendshift.io/repositories/43167">
-      <a href="https://trendshift.io/repositories/43167?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-43167" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/43167/monthly" alt="odysseus-dev%2Fodysseus | Trendshift" width="230"/></a>
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://star-history.dera.page/#odysseus-dev/odysseus&type=date&legend=top-left">
-    <picture>
-      <source
-        media="(prefers-color-scheme: dark)"
-        srcset="https://star-history.dera.page/svg?repos=odysseus-dev/odysseus&type=date&theme=dark&legend=top-left"
-      />
-      <source
-        media="(prefers-color-scheme: light)"
-        srcset="https://star-history.dera.page/svg?repos=odysseus-dev/odysseus&type=date&legend=top-left"
-      />
-      <img
-        src="https://star-history.dera.page/svg?repos=odysseus-dev/odysseus&type=date&legend=top-left"
-        alt="Odysseus GitHub star history"
-        width="100%"
-      />
-    </picture>
-  </a>
-</p>
-
-## License
-
-AGPL-3.0-or-later -- see [LICENSE](LICENSE) and [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md).
+<p align="center"><strong>Mnerys</strong> · Built to be yours.</p>

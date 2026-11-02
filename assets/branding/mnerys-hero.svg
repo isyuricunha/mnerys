@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="520" viewBox="0 0 1280 520" role="img" aria-labelledby="title desc">
+  <title id="title">Mnerys — Built to be yours</title>
+  <desc id="desc">Brand illustration with agents, models, tools, and knowledge connected to a customizable workspace. This is an illustration, not a screenshot of the application.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#080B16"/>
+      <stop offset=".55" stop-color="#0D1022"/>
+      <stop offset="1" stop-color="#12102A"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#B7AFFF"/>
+      <stop offset=".65" stop-color="#897AFF"/>
+      <stop offset="1" stop-color="#6AD3E8"/>
+    </linearGradient>
+    <radialGradient id="halo">
+      <stop offset="0" stop-color="#7966DC" stop-opacity=".29"/>
+      <stop offset=".65" stop-color="#7966DC" stop-opacity=".07"/>
+      <stop offset="1" stop-color="#7966DC" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="39" height="39" patternUnits="userSpaceOnUse">
+      <path d="M39 0H0V39" stroke="#C6C1FE" stroke-opacity=".048" fill="none"/>
+    </pattern>
+    <filter id="blur"><feGaussianBlur stdDeviation="20"/></filter>
+  </defs>
+  <rect width="1280" height="520" rx="26" fill="url(#background)"/>
+  <rect width="1280" height="520" rx="26" fill="url(#grid)"/>
+  <circle cx="970" cy="260" r="305" fill="url(#halo)"/>
+  <circle cx="1120" cy="90" r="100" fill="#8C7BFF" opacity=".08" filter="url(#blur)"/>
+  <path d="M68 446 H515" stroke="#8F84D3" stroke-opacity=".27" stroke-width="1"/>
+  <g fill="#C5BEFF" opacity=".72">
+    <circle cx="78" cy="80" r="1.4"/><circle cx="548" cy="94" r="2"/><circle cx="615" cy="390" r="1.5"/>
+    <circle cx="1210" cy="72" r="1.9"/><circle cx="1154" cy="438" r="1.3"/><circle cx="746" cy="50" r="1.8"/>
+  </g>
+  <g font-family="Inter, 'Segoe UI', system-ui, sans-serif">
+    <text x="90" y="117" fill="#ABA3E8" font-size="15" letter-spacing="3" font-weight="700">SELF-HOSTED  /  OPEN SOURCE</text>
+    <text x="86" y="205" fill="#FFFFFF" font-size="62" font-weight="650" letter-spacing="-2.8">Your workspace.</text>
+    <text x="86" y="275" fill="url(#brand)" font-size="62" font-weight="650" letter-spacing="-2.8">Your rules.</text>
+    <text x="90" y="338" fill="#B9B8CB" font-size="20">Agents, knowledge, models and tools.</text>
+    <text x="90" y="373" fill="#B9B8CB" font-size="20">Connected around the way you work.</text>
+    <rect x="90" y="411" width="194" height="3" rx="2" fill="url(#brand)"/>
+    <text x="90" y="474" fill="#A6A0D6" font-size="14" letter-spacing="1.7">mnerys  •  BUILT TO BE YOURS</text>
+  </g>
+  <!-- An abstract constellation of capabilities, not a product screenshot. -->
+  <g stroke="#9F97FF" fill="none" stroke-width="1.7" stroke-opacity=".43">
+    <path d="M907 227 L802 138"/>
+    <path d="M1029 220 L1136 136"/>
+    <path d="M901 326 L798 400"/>
+    <path d="M1032 327 L1128 408"/>
+    <path d="M970 191 L970 106" stroke-dasharray="4 8"/>
+    <path d="M968 356 L968 440" stroke-dasharray="4 8"/>
+    <circle cx="970" cy="261" r="164" stroke-dasharray="3 12" stroke-opacity=".23"/>
+    <circle cx="970" cy="261" r="216" stroke-opacity=".12"/>
+  </g>
+  <g font-family="Inter, 'Segoe UI', system-ui, sans-serif">
+    <g>
+      <rect x="711" y="90" width="176" height="70" rx="17" fill="#171B34" stroke="#575585" stroke-opacity=".85"/>
+      <circle cx="739" cy="124" r="9" fill="#9F90FF" fill-opacity=".25" stroke="#A99CFD"/>
+      <path d="M736 124h6M739 121v6" stroke="#DFD7FF" stroke-width="1.5"/>
+      <text x="761" y="132" font-size="19" fill="#E9E7FF" font-weight="550">Agents</text>
+    </g>
+    <g>
+      <rect x="1061" y="90" width="165" height="70" rx="17" fill="#171B34" stroke="#575585" stroke-opacity=".85"/>
+      <circle cx="1090" cy="124" r="9" fill="#6BD1EB" fill-opacity=".2" stroke="#6BD1EB"/>
+      <path d="M1086 124h8M1090 120v8" stroke="#B8F0FB" stroke-width="1.5"/>
+      <text x="1112" y="132" font-size="19" fill="#E9E7FF" font-weight="550">Models</text>
+    </g>
+    <g>
+      <rect x="700" y="367" width="179" height="70" rx="17" fill="#171B34" stroke="#575585" stroke-opacity=".85"/>
+      <circle cx="728" cy="402" r="9" fill="#6BD1EB" fill-opacity=".2" stroke="#6BD1EB"/>
+      <path d="M724 402h8M728 398v8" stroke="#B8F0FB" stroke-width="1.5"/>
+      <text x="750" y="410" font-size="19" fill="#E9E7FF" font-weight="550">Knowledge</text>
+    </g>
+    <g>
+      <rect x="1077" y="367" width="141" height="70" rx="17" fill="#171B34" stroke="#575585" stroke-opacity=".85"/>
+      <circle cx="1105" cy="402" r="9" fill="#9F90FF" fill-opacity=".25" stroke="#A99CFD"/>
+      <path d="M1101 402h8M1105 398v8" stroke="#DFD7FF" stroke-width="1.5"/>
+      <text x="1127" y="410" font-size="19" fill="#E9E7FF" font-weight="550">Tools</text>
+    </g>
+    <g>
+      <rect x="870" y="194" width="206" height="140" rx="24" fill="#1D1B3A" stroke="#9587F4" stroke-width="1.8"/>
+      <rect x="881" y="205" width="184" height="118" rx="18" fill="#231F47" opacity=".6"/>
+      <circle cx="972" cy="252" r="34" fill="#8172DA" opacity=".12"/>
+      <path d="M970 219 L976 245 L1002 252 L976 259 L970 285 L964 259 L938 252 L964 245Z" fill="url(#brand)"/>
+      <circle cx="970" cy="252" r="4" fill="#FFFFFF"/>
+      <text x="970" y="308" font-size="16" fill="#F1EDFF" letter-spacing="3" text-anchor="middle" font-weight="650">mnerys</text>
+    </g>
+  </g>
+</svg>
