@@ -12,7 +12,7 @@ Nery is the friendly face of Mnerys. She belongs to the Mizuki family, while rem
 - **Outfit:** charcoal hoodie with copper/terracotta accents, comfortable casual clothing.
 - **Personality:** curious, clever, welcoming, slightly playful; comfortable around computers and creative tools.
 - **Visual language:** cozy, friendly 2D anime/chibi illustration. Dark charcoal backgrounds, terracotta/orange highlights, cream details.
-- **Avoid:** purple as a brand accent, generic robot motifs, dramatically different hairstyles/colors, or replacing the character with the application's star icon.
+- **Avoid:** purple as a brand accent, generic robot motifs, dramatically different hairstyles/colors, or confusing Nery with the application's neutral geometric M icon.
 
 ## Using Nery
 
@@ -50,7 +50,7 @@ The mascot's outfit and illustrations use a **warm terracotta palette**, intende
 | Soft cream | `#F0E9E3` |
 | Muted text | `#B9A195` |
 
-These are **visual guidance**, not a claim that every current UI theme has already been migrated. Mnerys is transitioning away from its original purple theme in a separate design pass.
+These colors inform the default dark theme and branding artwork. Alternate themes and user-saved custom themes remain available.
 
 ## Relationship to the original project
 

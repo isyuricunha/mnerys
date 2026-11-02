@@ -504,6 +504,7 @@ body.bg-pattern-ascii-fireflies {
       top: 0;
       left: -10px;
     }
+    .mnerys-welcome-mascot { display: block; width: 88px; height: 88px; border-radius: 22px; object-fit: cover; margin-bottom: 14px; }
     .mnerys-brand-mark {
        width: 16px;
        height: 16px;
@@ -1930,6 +1931,7 @@ body.bg-pattern-ascii-fireflies {
       .incognito-btn { margin-top: 8px; }
     }
     @media (max-height: 500px) {
+      #welcome-screen .mnerys-welcome-mascot { display: none; }
       #welcome-screen { top: 22%; }
       #welcome-screen .welcome-name { font-size: 1.4rem; margin-bottom: 0; }
       #welcome-screen .welcome-sub { opacity: 0; max-height: 0; margin: 0; }

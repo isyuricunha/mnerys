@@ -111,8 +111,8 @@
      localStorage — renders the login page in the same palette as the rest
      of the app instead of a different greys+offwhite scheme. */
   :root {
-    --bg: #0d1022; --fg: #ece9ff; --panel: #13172b; --border: #353455;
-    --red: #9585f4; --green: #50fa7b;
+    --bg: #15110f; --fg: #f3e8e2; --panel: #211915; --border: #3a2c26;
+    --red: #cc785c; --green: #50fa7b;
     --bg-effect-intensity: 1;
   }
   /* Background patterns — mirrors the main app "Background Patterns" styles
@@ -264,6 +264,7 @@
     border-color: color-mix(in srgb, var(--fg) 40%, transparent);
   }
   .logo-boat { width: 1.6rem; height: 1.6rem; margin-right: 0.4rem; vertical-align: -0.15em; color: var(--red); }
+  .mnerys-login-mascot { display: block; width: 78px; height: 78px; border-radius: 19px; object-fit: cover; margin: 0 auto 14px; }
   .mnerys-tagline { margin: -0.8rem 0 1.5rem; text-align: center; color: var(--fg); opacity: .66; font-size: .81rem; letter-spacing: .018em; }
   .version-label {
     position: fixed; bottom: 12px; right: 16px;
@@ -275,8 +276,9 @@
 </head>
 <body>
 <main class="card">
+  <img class="mnerys-login-mascot" src="static/icons/nery-mizuki-avatar.webp" alt="Nery Mizuki, Mnerys mascot" width="78" height="78" decoding="async">
   <h1 class="logo">
-    <svg class="logo-boat" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M16 2 L19.2 12.8 L30 16 L19.2 19.2 L16 30 L12.8 19.2 L2 16 L12.8 12.8 Z" fill="currentColor"/><circle cx="16" cy="16" r="2.5" fill="currentColor"/></svg><span>Mnerys</span>
+    <svg class="logo-boat" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M6 25.2 9.8 8.2 16 17.8 22.2 8.2 26 25.2" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Mnerys</span>
   </h1>
    <p class="mnerys-tagline">Built to be yours.</p>
   <p class="setup-note" id="setupNote" style="display:none"></p>

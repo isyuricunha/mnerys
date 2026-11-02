@@ -1,14 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="480" height="120" viewBox="0 0 480 120" role="img" aria-labelledby="title desc">
-  <title id="title">Mnerys</title>
-  <desc id="desc">Mnerys wordmark and eight-point star symbol</desc>
-  <g transform="translate(19,10)">
-    <circle cx="49" cy="50" r="37" fill="none" stroke="#9585F4" stroke-width="1.25" opacity=".34"/>
-    <circle cx="49" cy="50" r="27" fill="none" stroke="#9585F4" stroke-width="1.5" opacity=".48"/>
-    <path d="M49 13 L55.8 42.4 L85 50 L55.8 57.6 L49 87 L42.2 57.6 L13 50 L42.2 42.4 Z" fill="#8C7CF1"/>
-    <path d="M49 28 L53.1 46 L71 50 L53.1 54 L49 72 L44.9 54 L27 50 L44.9 46 Z" fill="#CBC5FF" opacity=".95"/>
-    <circle cx="49" cy="50" r="4" fill="#FFFFFF"/>
-    <circle cx="88" cy="15" r="2.1" fill="#8BCEFF"/>
-    <circle cx="15" cy="84" r="1.6" fill="#8BCEFF"/>
-  </g>
-  <text x="119" y="81" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="66" font-weight="650" letter-spacing="-3.7" fill="#F6F4FF">mnerys</text>
-</svg>
+<title id="title">Mnerys</title><desc id="desc">Neutral terracotta M and Mnerys wordmark</desc>
+<rect x="20" y="12" width="96" height="96" rx="24" fill="#211915"/>
+<g transform="translate(20 12) scale(3)"><path d="M6 25.2 9.8 8.2 16 17.8 22.2 8.2 26 25.2" fill="none" stroke="#CC785C" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></g>
+<text x="138" y="82" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="67" font-weight="650" letter-spacing="-3.6" fill="#F3E8E2">mnerys</text></svg>

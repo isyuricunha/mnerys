@@ -33,11 +33,11 @@
 
 :root {
   /* Core palette */
-  --bg: #0d1022;
-  --fg: #ece9ff;
-  --panel: #13172b;
-  --border: #353455;
-  --red: #9585f4;
+  --bg: #15110f;
+  --fg: #f3e8e2;
+  --panel: #211915;
+  --border: #3a2c26;
+  --red: #cc785c;
   /* Were `var(--green)` / `var(--warn)` — self-referential, so they
      resolved to invalid and every site fell back to its own literal
      (or, for sites with no fallback, painted as transparent/inherit).

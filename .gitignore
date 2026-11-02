@@ -75,6 +75,8 @@ output.txt.txt
 
 # …except shipped static assets
 !static/icons/*.png
+# Curated mascot preview served by the login and welcome screens
+!static/icons/nery-mizuki-avatar.webp
 
 # …except shipped demo assets in docs/ that the README links to.
 !docs/*.jpg
