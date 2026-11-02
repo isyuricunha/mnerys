@@ -87,7 +87,31 @@ The immediate priorities are:
 
 There is no requirement to retain compatibility with future Odysseus releases, and there is no automatic upstream synchronization. The current code is a starting point, not a constraint on Mnerys's direction.
 
-**Screenshots:** New product screenshots will be added after the application UI is rebranded. The illustration above is artwork, not a screenshot of the current application.
+## Interface preview
+
+These are **real screenshots** from a clean, isolated Mnerys development instance. They show the imported workspace with its first Mnerys branding pass; features and layout are still evolving. No example conversations or model configurations have been fabricated for the images.
+
+<p align="center">
+  <img src="docs/screenshots/mnerys-workspace-desktop.png" alt="Mnerys desktop workspace showing sidebar tools, welcome screen, and chat composer" width="100%">
+</p>
+
+<details>
+  <summary>Mobile workspace</summary>
+
+  <p align="center">
+    <img src="docs/screenshots/mnerys-workspace-mobile.png" alt="Mnerys mobile welcome screen and chat composer" width="360">
+  </p>
+</details>
+
+<details>
+  <summary>First-run administrator setup</summary>
+
+  <p align="center">
+    <img src="docs/screenshots/mnerys-login.png" alt="Mnerys first-run administrator setup with a branded login form" width="100%">
+  </p>
+</details>
+
+The image in the README header is a brand illustration, not an application screenshot.
 
 ## Contributing
 

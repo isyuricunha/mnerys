@@ -491,6 +491,9 @@ body.bg-pattern-ascii-fireflies {
       min-height: 24px;
     }
     .sidebar-brand-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       font-size: 1rem;
       font-weight: 600;
       line-height: 1.35;
@@ -500,6 +503,12 @@ body.bg-pattern-ascii-fireflies {
       position: relative;
       top: 0;
       left: -10px;
+    }
+    .mnerys-brand-mark {
+       width: 16px;
+       height: 16px;
+       flex: none;
+       color: var(--brand-color, var(--red));
     }
     .sidebar-sep {
       display: none;
@@ -1961,8 +1970,8 @@ body.bg-pattern-ascii-fireflies {
     }
     #welcome-screen .welcome-sub {
       font-size:0.85rem;
-      color:color-mix(in srgb, var(--fg) 60%, transparent);
-      opacity:0.6;
+      color:color-mix(in srgb, var(--fg) 86%, transparent);
+      opacity:0.88;
       line-height:1.5;
       max-width:300px;
     }
@@ -1976,7 +1985,7 @@ body.bg-pattern-ascii-fireflies {
     #welcome-screen .welcome-tip {
       font-size:0.75rem;
       color:var(--fg);
-      opacity:0.2;
+      opacity:0.52;
       margin-top:24px;
       max-width:320px;
       line-height:1.4;
