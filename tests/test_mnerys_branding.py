@@ -30,7 +30,7 @@ def test_public_app_identity() -> None:
 def test_branding_assets_and_manifest() -> None:
     manifest = json.loads((STATIC / "manifest.json").read_text())
     assert manifest["name"] == manifest["short_name"] == "Mnerys"
-    assert manifest["theme_color"] == "#0d1022"
+    assert manifest["theme_color"] == "#15110F"
     for icon in manifest["icons"]:
         path = STATIC / icon["src"]
         assert path.is_file(), str(path)
@@ -83,6 +83,6 @@ def test_internal_storage_and_api_identifiers_are_unchanged() -> None:
     storage_js = (STATIC / "js/storage.js").read_text()
     assert "odysseus-theme" in theme_js
     assert "odysseus-theme" in storage_js
-    assert "mnerys-v1-branding" in (STATIC / "sw.js").read_text()
+    assert "mnerys-v3-visual-refresh" in (STATIC / "sw.js").read_text()
     # Run ID HTTP header is intentionally unchanged until API migration.
     assert "X-Odysseus-Run-Id" in (STATIC / "js/chat.js").read_text()

@@ -102,7 +102,7 @@ button.hamburger {
 .msg h1 {
   font-size: 1.15em;
   font-weight: 700;
-  color: var(--hl-keyword, #c678dd);
+  color: var(--hl-keyword, #d89a7d);
 }
 
 .msg h2 {
@@ -152,7 +152,7 @@ button.hamburger {
 .msg b i, .msg i b,
 .msg b em, .msg em b,
 .msg strong i, .msg i strong {
-  color: var(--hl-keyword, #c678dd);
+  color: var(--hl-keyword, #d89a7d);
 }
 
 /* Strikethrough */
@@ -213,7 +213,7 @@ button.hamburger {
 }
 .msg a.is-loading {
   opacity: 0.65;
-  border-bottom-color: var(--accent, #bd93f9);
+  border-bottom-color: var(--accent, var(--red, #cc785c));
   cursor: progress;
 }
 
@@ -232,7 +232,7 @@ button.hamburger {
 }
 .msg th {
   background: color-mix(in srgb, var(--fg) 7%, transparent);
-  color: var(--hl-keyword, #c678dd);
+  color: var(--hl-keyword, #d89a7d);
   font-weight: 600;
   padding: 6px 12px;
   border: 1px solid var(--border);
@@ -2430,7 +2430,7 @@ details a:hover {
    away from the rendered glyph underneath. Color / background / text-
    decoration are safe — they don't change layout width. */
 .doc-editor-highlight .language-markdown .hljs-section {
-  color: var(--hl-keyword, #c678dd);
+  color: var(--hl-keyword, #d89a7d);
 }
 .doc-editor-highlight .language-markdown .hljs-strong {
   color: var(--hl-number, #d19a66);

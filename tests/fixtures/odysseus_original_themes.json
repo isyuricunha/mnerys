@@ -1,0 +1,135 @@
+{
+  "dark": {
+    "bg": "#282c34",
+    "fg": "#9cdef2",
+    "panel": "#111111",
+    "border": "#355a66",
+    "red": "#e06c75"
+  },
+  "light": {
+    "bg": "#f3f5f7",
+    "fg": "#26313a",
+    "panel": "#ffffff",
+    "border": "#cbd3da",
+    "red": "#b34d5c"
+  },
+  "midnight": {
+    "bg": "#0d1117",
+    "fg": "#c9d1d9",
+    "panel": "#161b22",
+    "border": "#30363d",
+    "red": "#f85149"
+  },
+  "cyberpunk": {
+    "bg": "#10121a",
+    "fg": "#9bdde0",
+    "panel": "#171a26",
+    "border": "#514b78",
+    "red": "#d45aa8"
+  },
+  "retrowave": {
+    "bg": "#1a1a2e",
+    "fg": "#e94560",
+    "panel": "#16213e",
+    "border": "#533483",
+    "red": "#e94560"
+  },
+  "forest": {
+    "bg": "#1b2a1b",
+    "fg": "#a8d5a2",
+    "panel": "#142414",
+    "border": "#3d6b3d",
+    "red": "#7cb871"
+  },
+  "ocean": {
+    "bg": "#0b1a2c",
+    "fg": "#64d2ff",
+    "panel": "#091422",
+    "border": "#1e5074",
+    "red": "#4facfe"
+  },
+  "ume": {
+    "bg": "#271d2b",
+    "fg": "#f1d8e9",
+    "panel": "#1d1721",
+    "border": "#66475f",
+    "red": "#d98bb7"
+  },
+  "terminal": {
+    "bg": "#0b1110",
+    "fg": "#b8e6c1",
+    "panel": "#080d0c",
+    "border": "#28553a",
+    "red": "#6bd38b"
+  },
+  "organs": {
+    "bg": "#0a0406",
+    "fg": "#efe1c8",
+    "panel": "#15080a",
+    "border": "#3a1519",
+    "red": "#c83240"
+  },
+  "gpt": {
+    "bg": "#212121",
+    "fg": "#ececec",
+    "panel": "#171717",
+    "border": "#424242",
+    "red": "#949494"
+  },
+  "claude": {
+    "bg": "#1f1e1b",
+    "fg": "#f5f1e8",
+    "panel": "#2b2926",
+    "border": "#514b43",
+    "red": "#d97757"
+  },
+  "cute": {
+    "bg": "#fff4f7",
+    "fg": "#63394d",
+    "panel": "#fffafd",
+    "border": "#edc7d5",
+    "red": "#d65f88"
+  },
+  "eclipse": {
+    "bg": "#17191c",
+    "fg": "#e8e4dc",
+    "panel": "#0f1113",
+    "border": "#3c4248",
+    "red": "#46c2b3"
+  },
+  "porcelain": {
+    "bg": "#edf0f2",
+    "fg": "#252a30",
+    "panel": "#ffffff",
+    "border": "#c7cdd2",
+    "red": "#3478c9"
+  },
+  "arcade": {
+    "bg": "#15131d",
+    "fg": "#f4e85c",
+    "panel": "#0b1720",
+    "border": "#305f68",
+    "red": "#ff4f91"
+  },
+  "blueprint": {
+    "bg": "#10263b",
+    "fg": "#e8f1f5",
+    "panel": "#091a29",
+    "border": "#48758d",
+    "red": "#e6b84a"
+  },
+  "monolith": {
+    "bg": "#202020",
+    "fg": "#d8d8d2",
+    "panel": "#121212",
+    "border": "#50504b",
+    "red": "#b6e05c"
+  },
+  "yoyo": {
+    "bg": "#211f23",
+    "fg": "#dfdbd7",
+    "panel": "#141415",
+    "border": "#3e5146",
+    "red": "#e09d6c"
+  }
+}

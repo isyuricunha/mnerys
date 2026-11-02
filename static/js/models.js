@@ -126,7 +126,7 @@ function _buildModelRow(mid, url, displayName, endpointId, offline, modelType) {
     badge.className = 'model-type-badge';
     badge.textContent = 'IMG';
     badge.title = 'Image generation model';
-    badge.style.cssText = 'font-size:0.65em;padding:1px 4px;border-radius:3px;background:var(--accent,#7c3aed);color:#fff;margin-left:6px;vertical-align:middle;';
+    badge.style.cssText = 'font-size:0.65em;padding:1px 4px;border-radius:3px;background:var(--accent,var(--red,#cc785c));color:#fff;margin-left:6px;vertical-align:middle;';
     span.appendChild(badge);
   }
 

@@ -9,7 +9,9 @@ import { makeWindowDraggable } from './windowDrag.js';
 import { snapModalToZone } from './tileManager.js?v=20260910responsivebounds1';
 
 export const THEMES = {
+  // Mnerys default. The original Odysseus dark palette remains available as Classic Dark.
   dark:       { bg:'#15110f', fg:'#f3e8e2', panel:'#211915', border:'#3a2c26', red:'#cc785c' },
+  classic_dark: { bg:'#282c34', fg:'#9cdef2', panel:'#111111', border:'#355a66', red:'#e06c75' },
   light:      { bg:'#f3f5f7', fg:'#26313a', panel:'#ffffff', border:'#cbd3da', red:'#b34d5c' },
   midnight:   { bg:'#0d1117', fg:'#c9d1d9', panel:'#161b22', border:'#30363d', red:'#f85149' },
   // Spicy / fun themes
@@ -35,7 +37,7 @@ export const THEMES = {
 };
 
 const DEFAULT_THEME = 'dark';
-const THEME_DISPLAY_NAMES = { ocean: 'starfield' };
+const THEME_DISPLAY_NAMES = { ocean: 'starfield', classic_dark: 'Classic Dark' };
 const LS_KEY = 'odysseus-theme';
 const CUSTOM_THEMES_KEY = 'odysseus-custom-themes';
 
@@ -57,6 +59,7 @@ const MAX_CUSTOM_THEMES = 8;
 // Default background patterns for built-in themes
 const THEME_DEFAULT_PATTERN = {
   dark:       'none',
+  classic_dark: 'none',
   light:      'dots',
   midnight:   'rain',
   cyberpunk:  'synapse',

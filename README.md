@@ -42,7 +42,7 @@ The goal is to bring conversations, agents, knowledge, tools, integrations, and 
 
 Nery is the friendly face of Mnerys: a curious red-haired chibi with a cozy charcoal-and-terracotta style, connected to the Mizuki family. You'll meet her in project artwork, documentation, and future interface illustrations. She is a distinct mascot, not a replacement for the Mnerys logo.
 
-See the [Nery Mizuki mascot guide](docs/mascot/README.md) for her visual identity and usage guidelines.
+See the [Nery Mizuki mascot guide](docs/mascot/README.md) for her visual identity and usage guidelines, and the [Mnerys visual identity guide](docs/branding/README.md) for branding and inherited themes.
 
 > **Early development:** Mnerys has just imported its initial codebase. The interface, configuration, packages, and documentation are still being transitioned from Odysseus. This is a development foundation, **not yet a separately branded, production-ready Mnerys release**.
 
@@ -88,7 +88,7 @@ The existing [setup guide](website/setup.md) describes more installation options
 
 ## Project Status
 
-Mnerys is at the **foundation and rebranding** stage.
+Mnerys is at the **foundation and rebranding** stage. Its new default is charcoal and terracotta. All 19 original Odysseus theme palettes remain selectable; the original dark palette is named **Classic Dark**. Users' saved/custom themes are preserved.
 
 The immediate priorities are:
 
@@ -101,7 +101,7 @@ There is no requirement to retain compatibility with future Odysseus releases, a
 
 ## Interface preview
 
-These are **real screenshots** from a clean, isolated Mnerys development instance. They show the imported workspace with its first Mnerys branding pass; features and layout are still evolving. No example conversations or model configurations have been fabricated for the images.
+The desktop and mobile screenshots were captured from a **clean, isolated Mnerys development instance** using Chromium, without user data or configured models. The login screenshot uses the actual application login HTML and CSS in a standalone browser preview. No conversations or model configurations were invented. See the [screenshot provenance and limitations](docs/screenshots/README.md).
 
 <p align="center">
   <img src="docs/screenshots/mnerys-workspace-desktop.png" alt="Mnerys desktop workspace showing sidebar tools, welcome screen, and chat composer" width="100%">
@@ -116,10 +116,10 @@ These are **real screenshots** from a clean, isolated Mnerys development instanc
 </details>
 
 <details>
-  <summary>First-run administrator setup</summary>
+  <summary>Login UI preview</summary>
 
   <p align="center">
-    <img src="docs/screenshots/mnerys-login.png" alt="Mnerys first-run administrator setup with a branded login form" width="100%">
+    <img src="docs/screenshots/mnerys-login.png" alt="Mnerys login form, Nery mascot and dark terracotta palette" width="100%">
   </p>
 </details>
 

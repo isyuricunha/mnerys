@@ -1,4 +1,4 @@
-// static/sw.js — Odysseus PWA Service Worker
+// static/sw.js — Mnerys PWA Service Worker
 // Strategy:
 //   - HTML (navigation): network-first, cache fallback. Code graph updates
 //     need the current app shell on the reload the user actually performs.
@@ -7,7 +7,7 @@
 //   - Other static assets (images/fonts/libs): cache-first with bg refresh.
 //   - API / non-GET: never cached.
 // Bump CACHE_NAME whenever the precache list or SW logic changes.
-const CACHE_NAME = 'mnerys-v2-terracotta';
+const CACHE_NAME = 'mnerys-v3-visual-refresh';
 
 // KaTeX resolves these from its own stylesheet, so caching the CSS without them
 // gives offline math fallback glyphs instead of proper typesetting.
@@ -39,6 +39,7 @@ const KATEX_FONTS = [
 // exact URL the browser requests, query string included.
 const PRECACHE = [
   '/',
+  '/static/icons/nery-mizuki-avatar.webp',
   '/static/css/00-tokens.css?v=20260929csssplit',
   '/static/css/01-agent-chat.css?v=20260929csssplit',
   '/static/css/02-compare.css?v=20260929csssplit',

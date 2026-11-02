@@ -15,7 +15,7 @@
  * tests/test_css_computed_style_snapshot.py fail if that drifts.
  */
 /* ============================================ */
-/* Odysseus UI — Consolidated Stylesheet        */
+/* Mnerys UI — Consolidated Stylesheet          */
 /* ============================================ */
 
 
@@ -46,9 +46,9 @@
   --warn: #f0ad4e;
 
   /* Syntax highlighting */
-  --hl-bg: #1e2228;
-  --hl-fg: #9cdef2;
-  --hl-keyword: #c678dd;
+  --hl-bg: #110e0d;
+  --hl-fg: #f3e8e2;
+  --hl-keyword: #d89a7d;
   --hl-string: #e5c07b;
   --hl-comment: #828997;
   --hl-function: #61afef;
