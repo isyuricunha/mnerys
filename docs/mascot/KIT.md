@@ -34,4 +34,4 @@ Os fundos foram removidos a partir dos **pixels da arte aprovada**. Os recortes 
 
 ## Licenciamento e privacidade
 
-Este é um pacote derivado das imagens fornecidas pelo proprietário do projeto. Verificar e documentar os direitos de redistribuição das ilustrações antes de abrir o repositório ao público: a licença AGPL-3.0 do código não determina automaticamente a licença das artes. Nenhum IP interno, domínio privado, token ou credencial está incluído.
+**© 2026 Yuri Cunha. Todos os direitos reservados.** A licença oficial das ilustrações é [Nery Mizuki — Proprietary Mascot Asset License](../../assets/mascot/LICENSE.md). É permitido instalar e exibir a Nery dentro de uma instalação autorizada do Mnerys. Redistribuir, comercializar, modificar para outros usos ou reutilizar a arte fora do Mnerys depende de autorização expressa e escrita do titular. A licença **AGPL-3.0 do código não se aplica a essas artes proprietárias**; forks que redistribuam o código devem excluir/substituir os assets da Nery, salvo autorização. Nenhum IP interno, domínio privado, token ou credencial está incluído.

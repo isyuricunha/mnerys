@@ -18,6 +18,10 @@
   ],
   "avatar": "nery-mizuki-avatar.webp",
   "assetStatus": "approved-kit-v1",
+  "copyright": "Copyright (c) 2026 Yuri Cunha. All rights reserved.",
+  "license": "LicenseRef-Nery-Mizuki-Proprietary-1.0",
+  "licenseFile": "LICENSE.md",
+  "usagePermission": "Display only within a lawfully obtained Mnerys installation; redistribution and independent reuse require the rights holder's express written permission.",
   "fullResolutionSource": "kit-v1/source/approved-character-sheet.png (1536x1024 composition, individual crops are smaller)",
   "brandingRule": "Mnerys has a neutral geometric M logo; Nery Mizuki is a separate mascot."
 }

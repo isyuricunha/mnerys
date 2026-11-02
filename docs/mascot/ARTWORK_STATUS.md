@@ -17,6 +17,6 @@ O conjunto não depende de serviços externos; os arquivos estão versionados co
 
 A máscara de transparência foi extraída dos recortes aprovados e pode conter pequenas imperfeições de borda, principalmente em cabelos e roupas escuras. Os recortes de origem permanecem disponíveis para refinamento.
 
-O licenciamento específico de redistribuição das ilustrações deve ser definido pelo titular. Não interpretar automaticamente a AGPL-3.0 do código como licença da mascote.
+A licença proprietária da Nery foi definida: **© 2026 Yuri Cunha, todos os direitos reservados**. O [termo específico](../../assets/mascot/LICENSE.md) permite a exibição na própria instalação do Mnerys, mas proíbe redistribuição independente dos assets sem autorização expressa e escrita. A AGPL-3.0 do código **não** licencia a mascote.
 
 **Os temas originais do Odysseus não dependem dessas artes e permanecem preservados.**

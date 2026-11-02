@@ -37,7 +37,7 @@ Original theme colors are frozen in [the regression fixture](../../tests/fixture
 - Nery's complete [kit v1](../../assets/mascot/kit-v1/manifest.json) (approved sheet, 8 native-size poses, transparent PNG/WebP exports, square avatar alternatives)
 - [Desktop, mobile and login screenshots](../screenshots/README.md)
 
-The approved 1536 × 1024 character sheet is preserved in [the kit](../../assets/mascot/kit-v1/source/approved-character-sheet.png), but the individual figure crops are smaller (full body: 195 × 403 px). Do not present resized crops as new original high-resolution art. The art license for redistribution is separate from the AGPL code license.
+The approved 1536 × 1024 character sheet is preserved in [the kit](../../assets/mascot/kit-v1/source/approved-character-sheet.png), but the individual figure crops are smaller (full body: 195 × 403 px). Do not present resized crops as new original high-resolution art. **Nery artwork is proprietary, © 2026 Yuri Cunha, all rights reserved**: see the [separate mascot license](../../assets/mascot/LICENSE.md). Only use/display inside an authorized Mnerys installation is permitted without additional authorization; redistribution requires the rights holder's written permission. The AGPL software license does not license this artwork.
 
 ## Validation and boundaries
 

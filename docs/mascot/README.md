@@ -50,4 +50,4 @@ This is Mnerys's default brand palette. **Original inherited Odysseus themes and
 
 ## Provenance and licensing
 
-The Nery artworks are separate from Odysseus's branding and are supplied/approved for Mnerys. Keep the original code license and author attribution required by the inherited Odysseus implementation; artwork redistribution rights are documented separately and require a decision by the titular.
+**Nery's character and illustrations are © 2026 Yuri Cunha, all rights reserved.** The [proprietary mascot license](../../assets/mascot/LICENSE.md) permits installing and displaying these assets within an authorized Mnerys instance, but reserves redistribution, reuse outside Mnerys and derivative works to the rights holder or parties expressly authorized in writing. This is **not** an open-source image license. The software's AGPL-3.0 license and Odysseus copyright attributions are unaffected. Redistributors of the code must omit or replace proprietary mascot assets unless separately authorized.

@@ -17,7 +17,10 @@
   ],
   "contains_upscales": false,
   "alpha_mask_note": "Automatically extracted from supplied art via OpenCV + manual cleanup for full-body stockings; inspect fine edges before print/large deployment.",
-  "license_note": "User-supplied art: confirm applicable redistribution rights before publishing in a public repository; code license does not automatically determine image artwork license.",
+  "license_note": "Copyright (c) 2026 Yuri Cunha. All rights reserved. Limited use/display within Mnerys is permitted; independent redistribution, reuse or derivatives require express written authorization. Not AGPL-3.0 artwork.",
+  "license": "LicenseRef-Nery-Mizuki-Proprietary-1.0",
+  "license_file": "../LICENSE.md",
+  "rights_holder": "Yuri Cunha",
   "assets": [
     {
       "name": "portrait",

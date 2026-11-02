@@ -42,7 +42,7 @@ The goal is to bring conversations, agents, knowledge, tools, integrations, and 
 
 Nery is the friendly face of Mnerys: a curious red-haired chibi with a cozy charcoal-and-terracotta style, connected to the Mizuki family. You'll meet her in project artwork, documentation, and future interface illustrations. She is a distinct mascot, not a replacement for the Mnerys logo.
 
-See the [Nery Mizuki mascot guide](docs/mascot/README.md), the [complete Nery art kit v1](docs/mascot/KIT.md) with provenance and export sizes, and the [Mnerys visual identity guide](docs/branding/README.md).
+See the [Nery Mizuki mascot guide](docs/mascot/README.md), the [complete Nery art kit v1](docs/mascot/KIT.md), the [proprietary mascot license](assets/mascot/LICENSE.md) and the [Mnerys visual identity guide](docs/branding/README.md).
 
 <details>
   <summary>View Nery Mizuki's eight illustrations</summary>
@@ -142,7 +142,9 @@ Some imported documentation, including `CONTRIBUTING.md` and `ROADMAP.md`, still
 
 Mnerys's initial codebase was imported from the [Odysseus](https://github.com/odysseus-dev/odysseus) `main` branch at commit [`9d0d3720`](https://github.com/odysseus-dev/odysseus/commit/9d0d3720f4ca181d87bef94da826d730acc6d483). The original Git history is preserved.
 
-Mnerys is an independent project, not an official Odysseus release. Original authors retain their respective copyrights. See [LICENSE](LICENSE) for the GNU Affero General Public License and [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for additional contributors, dependencies, and license notices.
+Mnerys is an independent project, not an official Odysseus release. Original authors retain their respective copyrights. See [LICENSE](LICENSE) for the GNU Affero General Public License applicable to the software code and [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for contributors, dependencies and other license notices.
+
+**Exception — Nery Mizuki artwork:** The character and its supplied illustrations are **© 2026 Yuri Cunha, all rights reserved**, under a [separate proprietary asset license](assets/mascot/LICENSE.md). Authorized Mnerys installations may display the mascot within the application. Redistribution or independent reuse of the artwork is not authorized without written permission. **Forks and third-party distributions of AGPL-covered code must omit or replace Nery's proprietary artwork**, unless separately licensed.
 
 ---
 

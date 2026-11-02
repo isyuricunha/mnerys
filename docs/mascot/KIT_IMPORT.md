@@ -49,6 +49,6 @@ Com os assets versionados e intactos, o resultado esperado é `new_files: 0` e `
 
 As imagens foram inspecionadas e verificadas quanto a formato, tamanho e transparência. Não foram detectados metadados EXIF nos arquivos examinados. A remoção de fundo foi semiautomática; **podem existir imperfeições nos contornos**, especialmente em cabelos, roupa escura e bordas de recortes. Não alegar transparência perfeita ou arte original em alta resolução.
 
-A arte é fornecida e aprovada para o projeto, mas as condições específicas de redistribuição devem ser decididas/documentadas pelo titular. **A AGPL-3.0 do código não define automaticamente a licença das ilustrações.** Antes de publicar um pacote independente de imagens, explicitar sua licença.
+**Licença definida:** [Nery Mizuki — Proprietary Mascot Asset License](../../assets/mascot/LICENSE.md), © 2026 Yuri Cunha. É autorizado o uso/exibição das artes na instalação do Mnerys, **não** sua redistribuição ou reaproveitamento fora do aplicativo, salvo permissão expressa e escrita. As ilustrações não são AGPL-3.0, mesmo quando incluídas no repositório oficial. Redistribuições do código feitas por terceiros devem excluir ou substituir as artes proprietárias.
 
 Não colocar ZIPs privados, logs, arquivos de trabalho ou dados internos no Git. As imagens do kit são arte ilustrativa, não capturas da aplicação.
