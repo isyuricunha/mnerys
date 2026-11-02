@@ -35,7 +35,8 @@ Artwork should preserve a recognizable red-haired chibi silhouette and follow th
 ## Assets
 
 - [Nery Mizuki avatar](../../assets/mascot/nery-mizuki-avatar.webp) — compact in-repository preview of the approved illustration.
-- [Artwork status](ARTWORK_STATUS.md) — missing high-resolution master and planned expression set.
+- [Artwork status](ARTWORK_STATUS.md) — what is available in this checkout.
+- [Nery kit v1 import guide](KIT_IMPORT.md) — checksum, provenance, safe installation and usage.
 
 The approved original full-resolution character sheet is **not in this repository**. The bundled compact avatar is 128 × 157 px. Do not upscale it and call it high-resolution original art. The transparent-background and expression/pose kit remains pending the full-resolution source or verified reference. See [artwork status](ARTWORK_STATUS.md).
 
