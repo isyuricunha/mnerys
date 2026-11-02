@@ -106,6 +106,12 @@ output.txt.txt
 !assets/branding/**/*.tiff
 !assets/branding/**/*.pdf
 
+# Official Mnerys mascot artwork
+!assets/mascot/**/*.png
+!assets/mascot/**/*.jpg
+!assets/mascot/**/*.jpeg
+!assets/mascot/**/*.webp
+
 # Reports and temp files
 reports/
 tasks/
