@@ -42,7 +42,14 @@ The goal is to bring conversations, agents, knowledge, tools, integrations, and 
 
 Nery is the friendly face of Mnerys: a curious red-haired chibi with a cozy charcoal-and-terracotta style, connected to the Mizuki family. You'll meet her in project artwork, documentation, and future interface illustrations. She is a distinct mascot, not a replacement for the Mnerys logo.
 
-See the [Nery Mizuki mascot guide](docs/mascot/README.md) for her visual identity and usage guidelines, the [kit v1 import guide](docs/mascot/KIT_IMPORT.md) for available artwork and its installation status, and the [Mnerys visual identity guide](docs/branding/README.md) for branding and inherited themes.
+See the [Nery Mizuki mascot guide](docs/mascot/README.md), the [complete Nery art kit v1](docs/mascot/KIT.md) with provenance and export sizes, and the [Mnerys visual identity guide](docs/branding/README.md).
+
+<details>
+  <summary>View Nery Mizuki's eight illustrations</summary>
+  <p align="center">
+    <img src="assets/mascot/kit-v1/preview/nery-kit-preview.png" alt="Nery Mizuki character art kit with portrait, full body, happy, thinking, sleeping, coding, coffee and cat poses. Illustration preview, not a screenshot." width="100%">
+  </p>
+</details>
 
 > **Early development:** Mnerys has just imported its initial codebase. The interface, configuration, packages, and documentation are still being transitioned from Odysseus. This is a development foundation, **not yet a separately branded, production-ready Mnerys release**.
 

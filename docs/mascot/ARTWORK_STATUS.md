@@ -1,20 +1,22 @@
-# Mascot art kit — source and availability
+# Nery Mizuki — disponibilidade do kit
 
-Nery Mizuki is the official Mnerys mascot, **not** its logo. The neutral geometric M stays on favicons, PWA installs, product wordmarks and app chrome.
+**Nery é a mascote oficial do Mnerys, não o logotipo.** Favicon, PWA, wordmark e ícone do aplicativo continuam usando o M geométrico neutro.
 
-## Current approved source
+## Disponível no repositório
 
-- [128 × 157 avatar](../../assets/mascot/nery-mizuki-avatar.webp): the only approved character artwork available in this repository.
-- [Mascot usage and visual guide](README.md) describes her established hair, eyes, outfit and color direction.
+- [Avatar compacto já usado na interface](../../assets/mascot/nery-mizuki-avatar.webp), mantido por compatibilidade com login e welcome.
+- [Kit v1 completo](../../assets/mascot/kit-v1/manifest.json), com prancha aprovada de 1536 × 1024, oito recortes originais, oito poses em PNG/WebP transparentes, avatares alternativos de 128/256/512 e prévia.
+- [Prévia das oito poses](../../assets/mascot/kit-v1/preview/nery-kit-preview.png).
+- [Guia de utilização](KIT.md) e [registro de importação/integridade](KIT_IMPORT.md).
 
-## Prepared kit awaiting binary import
+O conjunto não depende de serviços externos; os arquivos estão versionados com o código. O avatar original da interface foi preservado nesta etapa.
 
-A separate official **kit v1** has been prepared from the approved 1536 × 1024 character sheet, with eight expressions/poses and transparent PNG/WebP exports. **The ZIP bytes have not yet been transferred into this repository**, so only the 128 × 157 preview remains available here. The full-resolution sheet is a multi-character composition; the individual cutouts are still limited by their own native sizes. See [kit import instructions](KIT_IMPORT.md) for SHA-256 verification and safe installation.
+## Limitações que permanecem
 
-## Artwork needed before a high-resolution kit is complete
+**A prancha é maior do que suas figuras individuais.** O corpo inteiro tem 195 × 403 px e não deve ser ampliado para banners ou impressão de grande formato. Não existe neste pacote uma arte original independente de corpo inteiro em 4K.
 
-The original full-resolution Nery master/character sheet needs to be recovered or recreated from a verified reference. Then export a transparent full-body PNG, high-resolution bust, and a consistent expression/pose set (welcome, success, thinking, troubleshooting, waiting, developer/coffee).
+A máscara de transparência foi extraída dos recortes aprovados e pode conter pequenas imperfeições de borda, principalmente em cabelos e roupas escuras. Os recortes de origem permanecem disponíveis para refinamento.
 
-**Do not** treat a resized version of the small avatar as original high-resolution artwork. The current welcome and login screens reuse the approved avatar safely at small display sizes.
+O licenciamento específico de redistribuição das ilustrações deve ser definido pelo titular. Não interpretar automaticamente a AGPL-3.0 do código como licença da mascote.
 
-Theme selection does not depend on Nery's artwork; the inherited Odysseus color themes are independent presets.
+**Os temas originais do Odysseus não dependem dessas artes e permanecem preservados.**

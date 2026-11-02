@@ -4,47 +4,41 @@
 **Role:** Official chibi mascot of [Mnerys](../../README.md)  
 **Tagline:** Built to be yours.
 
-Nery is the friendly face of Mnerys. She belongs to the Mizuki family, while remaining a distinct character rather than a depiction of any particular assistant.
+Nery is the friendly face of Mnerys, a cute, curious character in the Mizuki family. **She is the mascot, not the application logo, nor a chatbot persona.** The geometric M stays neutral across the UI, favicon, PWA and wordmark.
 
-## Character identity
+## Character reference
 
-- **Appearance:** cheerful chibi girl with copper-red hair, warm amber eyes, and cream bows.
-- **Outfit:** charcoal hoodie with copper/terracotta accents, comfortable casual clothing.
-- **Personality:** curious, clever, welcoming, slightly playful; comfortable around computers and creative tools.
-- **Visual language:** cozy, friendly 2D anime/chibi illustration. Dark charcoal backgrounds, terracotta/orange highlights, cream details.
-- **Avoid:** purple as a brand accent, generic robot motifs, dramatically different hairstyles/colors, or confusing Nery with the application's neutral geometric M icon.
+- **Appearance:** copper-red hair, amber eyes and cream hair bows.
+- **Clothes:** dark charcoal hoodie with warm terracotta/orange accents.
+- **Illustration language:** friendly 2D anime/chibi style, dark charcoal backgrounds, warm highlights.
+- **Avoid:** changing her hair and eyes, purple brand accents, generic robot motifs or replacing the geometric M with a mascot-shaped icon.
 
-## Using Nery
+Use the supplied/approved character sheet as the reference for any new expressions and poses. The assets are not freshly generated high-resolution paintings; cropping, transparency removal and resizing must be described accurately.
 
-Nery is a **mascot**, not the application's logo or a chatbot persona. The Mnerys name and application icon remain recognizable on their own.
+## Approved asset kit v1
 
-Suggested appearances:
+The repository contains the original character sheet, eight poses, matching transparent PNG/WebP exports, square alternative avatars and a preview:
 
-| Context | Nery's expression |
+- [Kit manifest](../../assets/mascot/kit-v1/manifest.json) — exact dimensions and provenance.
+- [Kit guide](KIT.md) — all files and usage recommendations.
+- [Preview](../../assets/mascot/kit-v1/preview/nery-kit-preview.png) — compositions of approved illustrations, not an app screenshot.
+- [Import integrity guide](KIT_IMPORT.md) — ZIP SHA-256 and repeatable verification.
+- [Art status and limitations](ARTWORK_STATUS.md) — native sizes, edge imperfections and licensing.
+- [Current UI avatar](../../assets/mascot/nery-mizuki-avatar.webp) — kept unchanged so existing welcome/login screens retain their approved appearance.
+
+| Context | Suggested expression |
 | --- | --- |
-| README / project introduction | Friendly, smiling |
-| Installation and onboarding | Welcoming |
-| Documentation / developer tools | With a laptop |
-| Completed tasks and successful workflows | Celebrating |
-| Help, troubleshooting and FAQs | Thinking |
-| Waiting / maintenance | Drinking coffee or resting |
-| Empty states | Gentle, curious |
-
-Artwork should preserve a recognizable red-haired chibi silhouette and follow the original approved character sheet. The art can be adapted to transparent stickers, small reaction images, and illustrations for UI states, but edits should remain consistent with the approved Nery.
-
-## Assets
-
-- [Nery Mizuki avatar](../../assets/mascot/nery-mizuki-avatar.webp) — compact in-repository preview of the approved illustration.
-- [Artwork status](ARTWORK_STATUS.md) — what is available in this checkout.
-- [Nery kit v1 import guide](KIT_IMPORT.md) — checksum, provenance, safe installation and usage.
-
-The approved original full-resolution character sheet is **not in this repository**. The bundled compact avatar is 128 × 157 px. Do not upscale it and call it high-resolution original art. The transparent-background and expression/pose kit remains pending the full-resolution source or verified reference. See [artwork status](ARTWORK_STATUS.md).
+| README / introduction | Portrait or happy |
+| Installation and onboarding | Happy |
+| Developer tools | Coding |
+| Successful task | Happy |
+| Help or troubleshooting | Thinking |
+| Waiting / break | Coffee or sleeping |
+| Friendly empty state | With cat |
 
 ## Brand palette
 
-The mascot's outfit and illustrations use a **warm terracotta palette**, intended for dark interfaces:
-
-| Usage | Suggested color |
+| Usage | Color |
 | --- | --- |
 | Dark charcoal | `#211915` |
 | Warm surface | `#2A211D` |
@@ -52,8 +46,8 @@ The mascot's outfit and illustrations use a **warm terracotta palette**, intende
 | Soft cream | `#F0E9E3` |
 | Muted text | `#B9A195` |
 
-These colors inform the default dark theme and branding artwork. Alternate themes and user-saved custom themes remain available.
+This is Mnerys's default brand palette. **Original inherited Odysseus themes and user-saved custom themes remain available** as optional configurations.
 
-## Relationship to the original project
+## Provenance and licensing
 
-The Nery mascot is Mnerys's own character and does not represent Odysseus or its authors. The Odysseus source-code attribution and AGPL obligations remain documented independently in the repository.
+The Nery artworks are separate from Odysseus's branding and are supplied/approved for Mnerys. Keep the original code license and author attribution required by the inherited Odysseus implementation; artwork redistribution rights are documented separately and require a decision by the titular.

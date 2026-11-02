@@ -1,0 +1,163 @@
+{
+  "kit": "Nery Mizuki • Mnerys mascot kit",
+  "version": "1.0",
+  "source": "User-provided, approved Mnerys chibi character sheet (1536×1024), with image crops supplied alongside it",
+  "logo_separation": "Nery Mizuki is the mascot, never the Mnerys geometric M logomark",
+  "palette": {
+    "background": "#15110F",
+    "surface": "#211915",
+    "elevated": "#2A211D",
+    "border": "#3A2C26",
+    "accent": "#CC785C",
+    "foreground": "#F3E8E2"
+  },
+  "original_sheet_dimensions": [
+    1536,
+    1024
+  ],
+  "contains_upscales": false,
+  "alpha_mask_note": "Automatically extracted from supplied art via OpenCV + manual cleanup for full-body stockings; inspect fine edges before print/large deployment.",
+  "license_note": "User-supplied art: confirm applicable redistribution rights before publishing in a public repository; code license does not automatically determine image artwork license.",
+  "assets": [
+    {
+      "name": "portrait",
+      "label_pt_br": "Retrato · programação",
+      "source_dimensions": [
+        745,
+        905
+      ],
+      "transparent_dimensions": [
+        745,
+        905
+      ],
+      "provenance": "alpha composited from approved original crop; not regenerated or upscaled",
+      "output_png": "transparent/nery-portrait.png",
+      "output_webp": "transparent/nery-portrait.webp"
+    },
+    {
+      "name": "fullbody",
+      "label_pt_br": "Corpo inteiro",
+      "source_dimensions": [
+        195,
+        403
+      ],
+      "transparent_dimensions": [
+        195,
+        403
+      ],
+      "provenance": "alpha composited from approved original crop; not regenerated or upscaled",
+      "output_png": "transparent/nery-fullbody.png",
+      "output_webp": "transparent/nery-fullbody.webp"
+    },
+    {
+      "name": "happy",
+      "label_pt_br": "Feliz",
+      "source_dimensions": [
+        222,
+        198
+      ],
+      "transparent_dimensions": [
+        222,
+        198
+      ],
+      "provenance": "alpha composited from approved original crop; not regenerated or upscaled",
+      "output_png": "transparent/nery-happy.png",
+      "output_webp": "transparent/nery-happy.webp"
+    },
+    {
+      "name": "thinking",
+      "label_pt_br": "Pensando",
+      "source_dimensions": [
+        214,
+        197
+      ],
+      "transparent_dimensions": [
+        214,
+        197
+      ],
+      "provenance": "alpha composited from approved original crop; not regenerated or upscaled",
+      "output_png": "transparent/nery-thinking.png",
+      "output_webp": "transparent/nery-thinking.webp"
+    },
+    {
+      "name": "sleeping",
+      "label_pt_br": "Dormindo",
+      "source_dimensions": [
+        312,
+        228
+      ],
+      "transparent_dimensions": [
+        312,
+        228
+      ],
+      "provenance": "alpha composited from approved original crop; not regenerated or upscaled",
+      "output_png": "transparent/nery-sleeping.png",
+      "output_webp": "transparent/nery-sleeping.webp"
+    },
+    {
+      "name": "coding",
+      "label_pt_br": "Programando",
+      "source_dimensions": [
+        225,
+        218
+      ],
+      "transparent_dimensions": [
+        225,
+        218
+      ],
+      "provenance": "alpha composited from approved original crop; not regenerated or upscaled",
+      "output_png": "transparent/nery-coding.png",
+      "output_webp": "transparent/nery-coding.webp"
+    },
+    {
+      "name": "coffee",
+      "label_pt_br": "Com café",
+      "source_dimensions": [
+        225,
+        222
+      ],
+      "transparent_dimensions": [
+        225,
+        222
+      ],
+      "provenance": "alpha composited from approved original crop; not regenerated or upscaled",
+      "output_png": "transparent/nery-coffee.png",
+      "output_webp": "transparent/nery-coffee.webp"
+    },
+    {
+      "name": "with-cat",
+      "label_pt_br": "Com gato",
+      "source_dimensions": [
+        294,
+        198
+      ],
+      "transparent_dimensions": [
+        294,
+        198
+      ],
+      "provenance": "alpha composited from approved original crop; not regenerated or upscaled",
+      "output_png": "transparent/nery-with-cat.png",
+      "output_webp": "transparent/nery-with-cat.webp"
+    }
+  ],
+  "avatars": {
+    "128": [
+      128,
+      128
+    ],
+    "256": [
+      256,
+      256
+    ],
+    "512": [
+      512,
+      512
+    ]
+  },
+  "limitations": [
+    "The source sheet is 1536×1024 overall, but individual character poses are smaller; no standalone 1024px full-body master is claimed.",
+    "No new original high-resolution expression source was produced.",
+    "Automatically removed backgrounds can have imperfections at hair tips/dark clothing; original opaque crops are included for reference.",
+    "These are visual assets, not real application screenshots."
+  ]
+}

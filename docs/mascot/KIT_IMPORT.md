@@ -1,41 +1,54 @@
-# Importação do kit oficial Nery Mizuki v1
+# Importação e integridade — Nery Mizuki Kit v1
 
-**Estado:** importador pronto, pacote binário **ainda não transferido** para este checkout. Não apresentar os arquivos de `kit-v1/` como publicados até confirmar sua presença e o commit.
+**Estado:** kit v1 importado para `assets/mascot/kit-v1/` e versionado no repositório. Este documento descreve como validar ou reinstalar a mesma versão; não é necessário executar o importador para usar os arquivos já publicados.
 
-O kit foi preparado a partir de uma prancha aprovada de 1536 × 1024 px e reúne oito recortes, oito variações transparentes (PNG/WebP), três tamanhos de avatar (PNG/WebP), previews, originais e manifesto. A resolução de cada ilustração individual varia: por exemplo, corpo inteiro tem apenas 195 × 403 px. Os avatares são redimensionamentos menores; não são pinturas originais em alta resolução.
+## Conteúdo
 
-## Integridade
+- **Prancha aprovada:** `assets/mascot/kit-v1/source/approved-character-sheet.png` (1536 × 1024 px).
+- **Oito recortes originais** em `source/original-crops/`.
+- **Oito poses/expressões com canal alfa**, em PNG e WebP: retrato, corpo inteiro, feliz, pensando, dormindo, programando, com café e com gato.
+- **Avatares quadrados** em 128, 256 e 512 px, PNG e WebP.
+- **Prévia:** `assets/mascot/kit-v1/preview/nery-kit-preview.png`; é uma composição de ilustrações, não screenshot real da aplicação.
+- **Manifesto:** `assets/mascot/kit-v1/manifest.json`; registra tamanho, origem, processos e limitações.
+- **Guia:** [KIT.md](KIT.md).
 
-- Arquivo de entrada: `nery-mizuki-kit-v1.zip`
-- SHA-256: `ec4ee4a77f1253d9b074e55ea8d2f0c138ca58fad34f6fa75f0fd35a846cb657`
-- 35 entradas no ZIP; 34 arquivos aprovados para instalação; o instalador anexado ao ZIP não é executado.
-- Origem: arte fornecida/aprovada pelo proprietário do Mnerys, com recortes e transparência extraídos dos pixels disponíveis. Não é uma nova pintura em 4K.
-- Direitos de redistribuição das artes devem ser documentados separadamente dos direitos do código AGPL.
+Os recortes mantêm suas resoluções nativas. Em especial, o corpo inteiro tem somente **195 × 403 px**; a prancha de 1536 × 1024 px **não** significa que cada pose tenha essa resolução. Os avatares usam recortes e redimensionamentos do retrato fornecido, não são pinturas originais novas.
 
-## Instalar depois que o ZIP estiver no servidor
+## Verificação do ZIP original (opcional)
 
-Coloque o ZIP em um caminho **privado**, fora do checkout Git; não coloque arquivos temporários ou o ZIP bruto na documentação pública. Rode na raiz do checkout:
+O ZIP **não é necessário para executar a aplicação**. Ele foi recebido separadamente e mantido fora do repositório.
+
+- Nome: `nery-mizuki-kit-v1.zip`
+- SHA-256 esperado: `ec4ee4a77f1253d9b074e55ea8d2f0c138ca58fad34f6fa75f0fd35a846cb657`
+- 35 entradas no ZIP; 34 arquivos instalados. O script de instalação embutido no ZIP **não é executado**.
+
+Em um checkout Mnerys, para verificar uma cópia local do ZIP:
 
 ```bash
 python3 scripts/import_nery_kit.py /path/to/nery-mizuki-kit-v1.zip
-python3 scripts/import_nery_kit.py /path/to/nery-mizuki-kit-v1.zip --apply
 ```
 
-O primeiro comando valida o hash e apresenta uma prévia sem escrita. O segundo instala os PNGs/WebPs em `assets/mascot/kit-v1/` e o README do kit em `docs/mascot/KIT.md`. O processo preserva os arquivos já existentes, rejeita ZIPs diferentes e é idempotente para cópias iguais.
+Com os assets versionados e intactos, o resultado esperado é `new_files: 0` e `installed: false`. A opção `--apply` só é necessária em um checkout sem esses arquivos; o importador confere o hash, bloqueia sobrescrita de conteúdo diferente e rejeita caminhos não autorizados.
 
-Depois, revise as transparências e as bordas (principalmente as meias do corpo inteiro), execute os testes, inspecione os novos arquivos e o diff em busca de dados internos, documente a licença de redistribuição e só então faça commit/push nos três remotes. O símbolo geométrico M e os temas antigos do Odysseus não devem ser alterados.
+## Uso indicado
 
-## Guia de uso, após a instalação
-
-| Situação | Arte sugerida |
+| Caso | Asset (relativo a `assets/mascot/kit-v1/`) |
 | --- | --- |
-| Boas-vindas / sucesso | `transparent/nery-happy.webp` |
-| Pensando / ajuda | `transparent/nery-thinking.webp` |
-| Ferramentas / programação | `transparent/nery-coding.webp` |
-| Descanso | `transparent/nery-sleeping.webp` |
+| Boas-vindas, sucesso | `transparent/nery-happy.webp` |
+| Processando, ajuda | `transparent/nery-thinking.webp` |
+| Ferramentas, programação | `transparent/nery-coding.webp` |
 | Pausa | `transparent/nery-coffee.webp` |
+| Descanso | `transparent/nery-sleeping.webp` |
 | Integrações | `transparent/nery-with-cat.webp` |
-| Apresentação do personagem | `transparent/nery-fullbody.webp` |
-| Avatar | `avatars/nery-avatar-256.webp` |
+| Apresentação da personagem | `transparent/nery-fullbody.webp` |
+| Avatar alternativo | `avatars/nery-avatar-256.webp` |
 
-A Nery é uma **mascote**, não o logo do produto. Não substituir favicon, PWA e wordmarks pela personagem.
+**Separação de marca:** Nery é mascote, não logotipo. Não substituir o M geométrico nos ícones do app, favicon, PWA ou wordmarks.
+
+## Segurança, licenciamento e qualidade
+
+As imagens foram inspecionadas e verificadas quanto a formato, tamanho e transparência. Não foram detectados metadados EXIF nos arquivos examinados. A remoção de fundo foi semiautomática; **podem existir imperfeições nos contornos**, especialmente em cabelos, roupa escura e bordas de recortes. Não alegar transparência perfeita ou arte original em alta resolução.
+
+A arte é fornecida e aprovada para o projeto, mas as condições específicas de redistribuição devem ser decididas/documentadas pelo titular. **A AGPL-3.0 do código não define automaticamente a licença das ilustrações.** Antes de publicar um pacote independente de imagens, explicitar sua licença.
+
+Não colocar ZIPs privados, logs, arquivos de trabalho ou dados internos no Git. As imagens do kit são arte ilustrativa, não capturas da aplicação.

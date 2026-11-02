@@ -33,10 +33,11 @@ Original theme colors are frozen in [the regression fixture](../../tests/fixture
 - Wordmarks: [dark](../../assets/branding/mnerys-wordmark-dark.svg) and [light](../../assets/branding/mnerys-wordmark-light.svg)
 - Brand hero illustration: [mnerys-hero.svg](../../assets/branding/mnerys-hero.svg) (not an application screenshot)
 - App icon: [mnerys-icon.svg](../../static/icons/mnerys-icon.svg), plus favicon and PWA PNGs
-- Nery's approved compact preview: [nery-mizuki-avatar.webp](../../assets/mascot/nery-mizuki-avatar.webp) (128 × 157 px)
+- Nery's compact app avatar: [nery-mizuki-avatar.webp](../../assets/mascot/nery-mizuki-avatar.webp) (128 × 157 px; preserved in welcome/login)
+- Nery's complete [kit v1](../../assets/mascot/kit-v1/manifest.json) (approved sheet, 8 native-size poses, transparent PNG/WebP exports, square avatar alternatives)
 - [Desktop, mobile and login screenshots](../screenshots/README.md)
 
-The original full-resolution Nery artwork is not present in this repository. Avoid using an upscaled thumbnail as the source for expression sheets or transparent illustrations.
+The approved 1536 × 1024 character sheet is preserved in [the kit](../../assets/mascot/kit-v1/source/approved-character-sheet.png), but the individual figure crops are smaller (full body: 195 × 403 px). Do not present resized crops as new original high-resolution art. The art license for redistribution is separate from the AGPL code license.
 
 ## Validation and boundaries
 
