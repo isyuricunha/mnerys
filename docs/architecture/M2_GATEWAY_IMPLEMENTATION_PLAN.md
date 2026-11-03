@@ -179,6 +179,36 @@ preview deployment or second tool-policy engine was introduced. Local tests
 passed **133 focused**, **245 streaming/model** and **114 context/tool**
 cases; suites may overlap. Hosted CI was not run for this local slice.
 
+**Thirteenth incremental slice — admitted runtime and contract eligibility:**
+the existing Web stream adapter now calls two [GatewayTurns service
+methods](../../src/gateway_turns.py) rather than making early compact
+runtime and late tool-contract eligibility decisions inside the HTTP route.
+The [transport-independent selection service](../../src/gateway_turn_contract_selection.py)
+validates the issued session proof, loaded session identity and server-derived
+owner for both handoffs. It preserves the pre-context compact-runtime decision
+(including full-schema, TUI, approval-continuation, Agent privilege and image
+generation exclusions) and keeps that decision separate from the later native
+workspace rule. The latter still requires the native runtime surface plus
+the terminal-agent marker and either server-resolved workspace intent or an
+unattended, bound workspace; a client surface marker alone grants nothing.
+The original `_turn_contract_enabled` function remains available as an
+import-compatible Web alias.
+
+The immutable [turn-contract resolver](../../src/turn_contract.py), schema
+inventory, compact preview scope, policy filtering and
+[tool execution dispatcher](../../src/tool_execution.py) are **unchanged**
+and still used once by the inherited agent runtime. This slice is not an
+independent Gateway transport, a new model executor, or a durable turn store.
+[New tests](../../tests/test_mnerys_gateway_turn_contract_selection.py)
+cover forged/tampered admission, cross-owner sessions, browser/bearer and
+single-user projections, client-marker limits, legacy selection rules,
+direct Gateway service use and both Web handoffs. The original
+[Web policy checks](../../tests/test_chat_route_tool_policy.py) now assert the
+new location of native-workspace eligibility without removing the guard.
+Local tests passed **177 focused**, **185 routing/streaming** and
+**159 authority/approval** checks (suite overlap possible); full hosted
+CI and preview deployment remain unverified for this local commit.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

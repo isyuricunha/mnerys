@@ -90,7 +90,7 @@ from src.model_profiles import (
 )
 from src.tool_execution import AgentExecutionBridge
 from src.agent_runtime.authority import is_internal_tool_request
-from src.agent_runtime.runtime_selection import uses_compact_preview_runtime
+from src.gateway_turn_contract_selection import turn_contract_enabled as _turn_contract_enabled
 from src.turn_contract import (
     FAMILY_TOOLS, preserve_bound_editor_selected_tools,
     requested_capabilities, resolve_turn_contract,
@@ -121,24 +121,6 @@ def _clean_v3_route_for_model(
     if mode:
         return mode in {"compact", "odysseus_compact"}
     return tool_schema_profile(model) == ODYSSEUS_COMPACT_TOOL_SCHEMA_PROFILE
-
-
-def _turn_contract_enabled(*, exact_tool_approval, runtime_surface,
-                           native_workspace_contract, clean_v3_route,
-                           full_schema_route=False):
-    """Use immutable capability contracts only for compact/native routes.
-
-    Regular/full-schema models are intentionally allowed to choose from the
-    complete enabled tool inventory.  Applying the compact turn classifier to
-    those models made an omitted family indistinguishable from an explicit
-    denial, so a misspelled web follow-up could silently lose browsing.
-    """
-    return bool(
-        exact_tool_approval is None
-        and runtime_surface != "odysseus-tui"
-        and not full_schema_route
-        and (not native_workspace_contract or clean_v3_route)
-    )
 
 
 def _request_privileges(request, user) -> Dict[str, Any]:
@@ -2913,19 +2895,17 @@ def setup_chat_routes(
         # the contract policy cannot veto a requested clean route. This one
         # value prepares the turn below and stamps its contract later, and
         # the agent loop dispatches on that stamp.
-        _compact_preview_turn = uses_compact_preview_runtime(
+        _compact_preview_turn = gateway_turns.select_compact_runtime(
+            _admitted_session, sess,
+            context_owner=effective_user(request),
             clean_route_requested=_clean_v3_route_requested,
-            turn_contract_enabled=_turn_contract_enabled(
-                exact_tool_approval=exact_tool_approval,
-                runtime_surface=str((client_runtime_context or {}).get("surface") or ""),
-                native_workspace_contract=False,
-                clean_v3_route=_clean_v3_route_requested,
-                full_schema_route=(_effective_tool_schema_mode == "full"),
-            ),
+            full_schema_route=(_effective_tool_schema_mode == "full"),
+            exact_tool_approval=exact_tool_approval,
+            runtime_surface=str((client_runtime_context or {}).get("surface") or ""),
             agent_mode=(chat_mode == "agent"),
-            agent_permitted=_request_privileges(
+            agent_permitted=bool(_request_privileges(
                 request, effective_user(request),
-            ).get("can_use_agent", True),
+            ).get("can_use_agent", True)),
             image_generation=image_generation_session,
         )
         # A compact turn resolves its typed context window once, here, with
@@ -3110,25 +3090,18 @@ def setup_chat_routes(
         # request with shell tools.  Only an actual environment-owned TUI, or
         # a native terminal task that explicitly needs its isolated workspace,
         # retains a separate declared execution contract.
-        _runtime_surface = str((client_runtime_context or {}).get("surface") or "")
-        _native_workspace_contract = bool(
-            _runtime_surface == "odysseus-native"
-            and (client_runtime_context or {}).get("terminal_agent") is True
-            and (
-                _workspace_agent_intent
-                or (
-                    (client_runtime_context or {}).get("unattended_mode") is True
-                    and workspace
-                )
-            )
-        )
-        _use_turn_contract = _turn_contract_enabled(
-            exact_tool_approval=exact_tool_approval,
-            runtime_surface=_runtime_surface,
-            native_workspace_contract=_native_workspace_contract,
-            clean_v3_route=_clean_v3_route_requested,
+        _contract_scope = gateway_turns.select_contract_scope(
+            _admitted_session, sess,
+            context_owner=ctx.user,
+            client_runtime_context=client_runtime_context,
+            workspace_agent_intent=_workspace_agent_intent,
+            workspace_bound=bool(workspace),
+            clean_route_requested=_clean_v3_route_requested,
             full_schema_route=(_effective_tool_schema_mode == "full"),
+            exact_tool_approval=exact_tool_approval,
         )
+        _native_workspace_contract = _contract_scope.native_workspace_contract
+        _use_turn_contract = _contract_scope.enabled
         _turn_history = getattr(sess, "history", []) or []
         from src.turn_contract import corrected_browser_target
         _corrected_browser_target = corrected_browser_target(message, _turn_history)

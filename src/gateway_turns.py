@@ -26,6 +26,11 @@ from src.tool_approvals import ExactToolApproval, ToolApprovalStore
 from src.turn_service import TurnService, TurnStream, turn_service
 from src.gateway_stream_delivery import TurnDelivery, open_admitted_stream
 from src.gateway_post_response import dispatch_admitted_post_response
+from src.gateway_turn_contract_selection import (
+    AdmittedContractScope,
+    select_admitted_compact_runtime,
+    select_admitted_contract_scope,
+)
 from src.gateway_execution_policy import (
     FinalTurnToolPolicy,
     finalize_admitted_turn_tool_policy,
@@ -173,6 +178,58 @@ class GatewayTurns:
             admission, self._turns, stream,
             compare_mode=compare_mode,
             client_runtime_context=client_runtime_context,
+        )
+
+    def select_compact_runtime(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        clean_route_requested: bool,
+        full_schema_route: bool,
+        exact_tool_approval: Any,
+        runtime_surface: str,
+        agent_mode: bool,
+        agent_permitted: bool,
+        image_generation: bool,
+    ) -> bool:
+        """Select the admitted pre-context runtime without changing grants."""
+        return select_admitted_compact_runtime(
+            admission, session,
+            context_owner=context_owner,
+            clean_route_requested=clean_route_requested,
+            full_schema_route=full_schema_route,
+            exact_tool_approval=exact_tool_approval,
+            runtime_surface=runtime_surface,
+            agent_mode=agent_mode,
+            agent_permitted=agent_permitted,
+            image_generation=image_generation,
+        )
+
+    def select_contract_scope(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        client_runtime_context: Any,
+        workspace_agent_intent: bool,
+        workspace_bound: bool,
+        clean_route_requested: bool,
+        full_schema_route: bool,
+        exact_tool_approval: Any,
+    ) -> AdmittedContractScope:
+        """Select the admitted late tool-contract eligibility and scope."""
+        return select_admitted_contract_scope(
+            admission, session,
+            context_owner=context_owner,
+            client_runtime_context=client_runtime_context,
+            workspace_agent_intent=workspace_agent_intent,
+            workspace_bound=workspace_bound,
+            clean_route_requested=clean_route_requested,
+            full_schema_route=full_schema_route,
+            exact_tool_approval=exact_tool_approval,
         )
 
     def finalize_tool_policy(

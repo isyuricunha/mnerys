@@ -439,7 +439,12 @@ def test_workspace_auto_escalation_keeps_shell_tools():
     """Workspace/shell auto-routing must not use the light typed-tool clamp."""
     source = _CHAT_ROUTES.read_text(encoding="utf-8")
     assert '_tool_intent.category in {"shell", "workspace"}' in source
-    assert '_native_workspace_contract = bool(' in source
+    assert 'gateway_turns.select_contract_scope(' in source
+    from src.gateway_turn_contract_selection import select_admitted_contract_scope
+    import inspect
+    selector = inspect.getsource(select_admitted_contract_scope)
+    assert 'surface == "odysseus-native"' in selector
+    assert 'context.get("terminal_agent") is True' in selector
     assert "allow_bash = \"true\"" in source
     assert '_forced_tools.update({"bash", "ls", "manage_bg_jobs"})' in source
     # The light clamp now lives in the admitted Gateway finalizer.

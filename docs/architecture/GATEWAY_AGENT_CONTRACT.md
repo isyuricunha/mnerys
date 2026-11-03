@@ -191,6 +191,26 @@ in the [M2.1 execution plan](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
 A remotely authenticated Gateway, durable approvals/events and migration
 of the remaining Web authority paths are still planned.
 
+## M2.1 incremental implementation: admitted contract selection
+
+**Implemented internally, not an independent runtime or tool engine.**
+[GatewayTurns](../../src/gateway_turns.py) now selects both the compact
+pre-context runtime and the later tool-contract/native-workspace eligibility
+through [admission-bound rules](../../src/gateway_turn_contract_selection.py).
+Both decisions require the original issued session admission and a matching
+server-derived context owner. The early decision intentionally does not apply
+the native-workspace exception, preserving the compact context preparation
+used by the inherited agent loop. A native client marker alone is never
+permission for workspace tools: late native eligibility requires compatible
+terminal/workspace facts and still passes through the original tool policy and
+immutable contract's deny filtering.
+
+The actual [contract resolver](../../src/turn_contract.py), model invocation,
+tool dispatcher and persistence remain shared inherited components, not
+duplicate client-specific engines. See [M2.1 scope and verification](M2_GATEWAY_IMPLEMENTATION_PLAN.md)
+and the [negative tests](../../tests/test_mnerys_gateway_turn_contract_selection.py).
+The authenticated public Gateway and durable turn/event authority are planned.
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.
