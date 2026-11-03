@@ -6,7 +6,7 @@
   <title>Mnerys — Built to be yours</title>
   <link rel="icon" type="image/svg+xml" href="/static/icons/mnerys-icon.svg">
   <link rel="manifest" href="/static/manifest.json">
-  <meta name="theme-color" content="#15110f">
+  <meta name="theme-color" content="#17191c">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <!-- Disable iOS / Android auto-linkifying of numbers (phone/date/address)
@@ -128,7 +128,7 @@
     try {
       var path = (window.location.pathname || '').toLowerCase();
       var theme = (function(){ try { return JSON.parse(localStorage.getItem('odysseus-theme')); } catch(_) { return null; } })();
-      var ac = (theme && (theme.red || theme.colors && theme.colors.red)) || '#e06c75';
+      var ac = (theme && (theme.red || theme.colors && theme.colors.red)) || '#46c2b3';
       // Shapes are line-stroke SVGs (no emoji glyphs). Each entry returns
       // the inner SVG markup rendered against currentColor=`ac`.
       var SHAPES = {

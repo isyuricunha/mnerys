@@ -99,7 +99,7 @@ The existing [setup guide](website/setup.md) describes more installation options
 
 ## Project Status
 
-Mnerys is at the **foundation and rebranding** stage. Its new default is charcoal and terracotta. All 19 original Odysseus theme palettes remain selectable; the original dark palette is named **Classic Dark**. Users' saved/custom themes are preserved.
+Mnerys is at the **foundation and rebranding** stage. The default interface now uses the original **Eclipse** palette (graphite, warm off-white and teal), including its starfield-depth background. The former terracotta UI remains selectable as **Mnerys Terracotta**; the logo/mascot brand artwork remains unchanged. All 19 original Odysseus theme palettes remain selectable, with the original dark named **Classic Dark**. Users' saved/custom themes are preserved.
 
 The immediate priorities are:
 
@@ -130,7 +130,7 @@ The desktop and mobile screenshots were captured from a **clean, isolated Mnerys
   <summary>Login UI preview</summary>
 
   <p align="center">
-    <img src="docs/screenshots/mnerys-login.png" alt="Mnerys login form, Nery mascot and dark terracotta palette" width="100%">
+    <img src="docs/screenshots/mnerys-login.png" alt="Mnerys login form and Nery mascot (historical terracotta screenshot)" width="100%">
   </p>
 </details>
 

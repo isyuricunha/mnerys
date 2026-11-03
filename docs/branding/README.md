@@ -7,24 +7,29 @@
 - **Mnerys:** the product. Its icon, favicons, PWA assets, and wordmarks use a neutral geometric M.
 - **Nery Mizuki:** the mascot. A red-haired chibi with amber eyes and cream bows. She appears in welcome/login screens, documentation and future illustrations, but is never substituted for the app icon.
 
-## Mnerys default dark palette
+## Default interface theme: Eclipse
+
+Mnerys uses the **original Eclipse preset** as its default interface theme. The palette is identical to the inherited preset rather than an approximate re-creation:
 
 | Role | Color |
 | --- | --- |
-| Canvas | `#15110F` |
-| Surface | `#211915` |
-| Raised surface | `#2A211D` |
-| Border | `#3A2C26` |
-| Terracotta | `#CC785C` |
-| Foreground | `#F3E8E2` |
+| Canvas | `#17191C` |
+| Panel / sidebar | `#0F1113` |
+| Border | `#3C4248` |
+| Teal accent | `#46C2B3` |
+| Foreground | `#E8E4DC` |
 
-The default brand uses charcoal/terracotta. **The original Odysseus themes remain available as optional presets**, without importing the old star, icons or visual identity anywhere outside the theme selection.
+The default background effect is **starfield-depth**, inherited from Eclipse. The login, workspace fallbacks and PWA theme-color use this palette. The default/reset action now restores Eclipse and its effect.
 
-## Legacy themes and user settings
+**The Mnerys logo remains a neutral geometric M.** Existing charcoal/terracotta wordmarks, static icons, brand art and Nery illustrations remain unchanged: choosing the Eclipse **UI theme** does not modify the mascot or silently replace brand assets.
 
-The 19 inherited theme palettes are preserved exactly. Mnerys replaces the default `dark` preset with its terracotta default and exposes the original upstream `dark` palette under **Classic Dark** (`classic_dark`). Every other upstream preset keeps its original colors.
+## Presets, original themes and compatibility
 
-The legacy `odysseus-theme` and `odysseus-custom-themes` localStorage keys intentionally remain unchanged. They are storage compatibility contracts, not visible branding. Changing them without a migration would lose users' selected palettes and custom themes.
+The former Mnerys terracotta UI is still available as **Mnerys Terracotta** (internal preset `dark`): background `#15110F`, surface `#211915`, border `#3A2C26`, accent `#CC785C`, text `#F3E8E2`. This is distinct from the **Classic Dark** preset (`classic_dark`), which preserves Odysseus's original `dark` palette.
+
+All **19 original Odysseus theme palettes** remain unchanged, including Eclipse; only the selected default differs. The legacy `odysseus-theme` and `odysseus-custom-themes` localStorage keys intentionally remain unchanged as compatibility contracts. **Existing saved selections and custom themes take precedence over the new default**, including previously saved terracotta choices; users can select Eclipse or reset the theme to adopt the new default.
+
+The main app and login honor saved base colors. Other built-in presets and user-authored themes remain selectable and intact.
 
 Original theme colors are frozen in [the regression fixture](../../tests/fixtures/odysseus_original_themes.json).
 

@@ -32,13 +32,13 @@
   // static/js/theme.js so login picks the same default pattern as the
   // main app for users who never explicitly chose one.
   var THEME_DEFAULT_PATTERN = {
-    dark:'none', light:'dots', midnight:'rain', paper:'dots',
+    dark:'none', eclipse:'starfield-depth', light:'dots', midnight:'rain', paper:'dots',
     cyberpunk:'synapse', retrowave:'embers', forest:'petals',
     ocean:'constellations', terminal:'perlin-flow', organs:'rain',
     ume:'petals', cute:'sparkles'
   };
   var THEME_DEFAULT_EFFECT_COLOR = {
-    midnight:'#ffffff', organs:'#451616', cute:'#ff8cb8', ume:'#f5a0c0'
+    midnight:'#ffffff', eclipse:'#46c2b3', organs:'#451616', cute:'#ff8cb8', ume:'#f5a0c0'
   };
   var THEME_DEFAULT_INTENSITY = { midnight:0.5, terminal:0.8, organs:0.65 };
   try {
@@ -75,16 +75,14 @@
       };
       for (var k in ADV) { if (a[k]) s.setProperty(ADV[k], a[k]); }
     }
-    // Background effect — pick ONE at random from the main app's 8
-    // patterns each load (matches the old login behavior, but uses the
-    // same effect implementations the main theme system exposes so the
-    // login feels consistent with the rest of the app). Per-theme
-    // bgEffectColor/Intensity defaults still apply so the random
-    // pattern picks up theme-appropriate tinting.
-    var name = (t && t.name) || '';
+    // The Mnerys default uses Eclipse's starfield-depth effect on login too.
+    // Keep the existing randomized effect behavior for other saved presets.
+    var name = (t && t.name) || 'eclipse';
     // perlin-flow excluded — too visually intense for a login screen.
     var PATTERNS = ['dots','synapse','rain','constellations','petals','sparkles','embers'];
-    var pattern = PATTERNS[Math.floor(Math.random() * PATTERNS.length)];
+    var pattern = (name === 'eclipse')
+      ? ((t && t.bgPattern) || THEME_DEFAULT_PATTERN.eclipse)
+      : PATTERNS[Math.floor(Math.random() * PATTERNS.length)];
     var effColor = (t && t.bgEffectColor) || THEME_DEFAULT_EFFECT_COLOR[name] || '';
     var effInt = (t && t.bgEffectIntensity !== undefined)
       ? t.bgEffectIntensity
@@ -111,8 +109,8 @@
      localStorage — renders the login page in the same palette as the rest
      of the app instead of a different greys+offwhite scheme. */
   :root {
-    --bg: #15110f; --fg: #f3e8e2; --panel: #211915; --border: #3a2c26;
-    --red: #cc785c; --green: #50fa7b;
+    --bg: #17191c; --fg: #e8e4dc; --panel: #0f1113; --border: #3c4248;
+    --red: #46c2b3; --green: #50fa7b;
     --bg-effect-intensity: 1;
   }
   /* Background patterns — mirrors the main app "Background Patterns" styles

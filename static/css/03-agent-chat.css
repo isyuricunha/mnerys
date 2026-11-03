@@ -213,7 +213,7 @@ button.hamburger {
 }
 .msg a.is-loading {
   opacity: 0.65;
-  border-bottom-color: var(--accent, var(--red, #cc785c));
+  border-bottom-color: var(--accent, var(--red, #46c2b3));
   cursor: progress;
 }
 

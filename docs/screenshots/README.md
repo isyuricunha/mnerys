@@ -8,4 +8,4 @@ The screenshots in this directory are development previews from 2 November 2026.
 
 No conversations, model providers or credentials were fabricated for the screenshots. The header graphic in the README is an SVG *brand illustration*, not a screenshot.
 
-The screenshots showcase the new terracotta default theme; optional original Odysseus theme presets are intentionally untouched. UI testing does not prove backend, model or login functionality.
+These screenshots show the **previous terracotta theme**, captured on 2 November 2026, before the Eclipse-based default was introduced. They are preserved as authentic historical captures, **not** as claims of the current default appearance. The application now defaults to the original Eclipse color palette and starfield-depth effect. New visual captures should be made from the updated running preview. Optional original Odysseus theme presets remain untouched. UI testing does not prove backend, model or login functionality.

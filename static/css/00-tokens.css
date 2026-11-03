@@ -33,11 +33,12 @@
 
 :root {
   /* Core palette */
-  --bg: #15110f;
-  --fg: #f3e8e2;
-  --panel: #211915;
-  --border: #3a2c26;
-  --red: #cc785c;
+  /* Mnerys default matches the existing Eclipse preset exactly. */
+  --bg: #17191c;
+  --fg: #e8e4dc;
+  --panel: #0f1113;
+  --border: #3c4248;
+  --red: #46c2b3;
   /* Were `var(--green)` / `var(--warn)` — self-referential, so they
      resolved to invalid and every site fell back to its own literal
      (or, for sites with no fallback, painted as transparent/inherit).
@@ -46,14 +47,14 @@
   --warn: #f0ad4e;
 
   /* Syntax highlighting */
-  --hl-bg: #110e0d;
-  --hl-fg: #f3e8e2;
-  --hl-keyword: #d89a7d;
+  --hl-bg: #101214;
+  --hl-fg: #e8e4dc;
+  --hl-keyword: #a4d49a;
   --hl-string: #e5c07b;
-  --hl-comment: #828997;
+  --hl-comment: #808991;
   --hl-function: #61afef;
   --hl-number: #d19a66;
-  --hl-builtin: #56b6c2;
+  --hl-builtin: #46c2b3;
   --hl-variable: #abb2bf;
   --hl-params: #a8c0d4;
 

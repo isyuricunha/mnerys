@@ -9,7 +9,8 @@ import { makeWindowDraggable } from './windowDrag.js';
 import { snapModalToZone } from './tileManager.js?v=20260910responsivebounds1';
 
 export const THEMES = {
-  // Mnerys default. The original Odysseus dark palette remains available as Classic Dark.
+  // Keep the former Mnerys terracotta palette as an optional preset.
+  // The app default is the original Eclipse preset; Classic Dark preserves upstream dark.
   dark:       { bg:'#15110f', fg:'#f3e8e2', panel:'#211915', border:'#3a2c26', red:'#cc785c' },
   classic_dark: { bg:'#282c34', fg:'#9cdef2', panel:'#111111', border:'#355a66', red:'#e06c75' },
   light:      { bg:'#f3f5f7', fg:'#26313a', panel:'#ffffff', border:'#cbd3da', red:'#b34d5c' },
@@ -36,8 +37,8 @@ export const THEMES = {
   yoyo:       { bg:'#211f23', fg:'#dfdbd7', panel:'#141415', border:'#3e5146', red:'#e09d6c' },
 };
 
-const DEFAULT_THEME = 'dark';
-const THEME_DISPLAY_NAMES = { ocean: 'starfield', classic_dark: 'Classic Dark' };
+const DEFAULT_THEME = 'eclipse';
+const THEME_DISPLAY_NAMES = { ocean: 'starfield', classic_dark: 'Classic Dark', dark: 'Mnerys Terracotta' };
 const LS_KEY = 'odysseus-theme';
 const CUSTOM_THEMES_KEY = 'odysseus-custom-themes';
 
@@ -1004,16 +1005,18 @@ export function initThemeUI() {
       applyColors(colors);
       syncPickers(colors);
       applyFontDensity(DEFAULT_FONT, DEFAULT_DENSITY);
-      applyBgPattern('none');
+      const defaultPattern = THEME_DEFAULT_PATTERN[DEFAULT_THEME] || 'none';
+      applyBgPattern(defaultPattern);
+      applyBgEffectColor(THEME_DEFAULT_EFFECT_COLOR[DEFAULT_THEME] || '');
       const fs = document.getElementById('theme-font-select');
       const ds = document.getElementById('theme-density-select');
       const ps = document.getElementById('theme-bg-pattern-select');
       if (fs) fs.value = DEFAULT_FONT;
       if (ds) ds.value = DEFAULT_DENSITY;
-      if (ps) ps.value = 'none';
+      if (ps) ps.value = defaultPattern;
       grid.querySelectorAll('.theme-swatch').forEach(s => s.classList.remove('active'));
-      const darkSwatch = grid.querySelector('[data-theme="dark"]');
-      if (darkSwatch) darkSwatch.classList.add('active');
+      const defaultSwatch = grid.querySelector('[data-theme="' + DEFAULT_THEME + '"]');
+      if (defaultSwatch) defaultSwatch.classList.add('active');
     });
   }
 
@@ -1160,8 +1163,8 @@ export function initThemeUI() {
   // Font, density, background pattern controls
   const _initFont = normalizeFont(saved && saved.font);
   const _initDensity = (saved && saved.density) || DEFAULT_DENSITY;
-  const _initPattern = (saved && saved.bgPattern) || (saved && THEME_DEFAULT_PATTERN[saved.name]) || 'none';
-  const _initEffectColor = (saved && saved.bgEffectColor) || (saved && THEME_DEFAULT_EFFECT_COLOR[saved.name]) || '';
+  const _initPattern = (saved && saved.bgPattern) || THEME_DEFAULT_PATTERN[(saved && saved.name) || DEFAULT_THEME] || 'none';
+  const _initEffectColor = (saved && saved.bgEffectColor) || THEME_DEFAULT_EFFECT_COLOR[(saved && saved.name) || DEFAULT_THEME] || '';
   const _initEffectIntensity = (saved && saved.bgEffectIntensity !== undefined)
     ? saved.bgEffectIntensity
     : (saved && THEME_DEFAULT_INTENSITY[saved.name] !== undefined ? THEME_DEFAULT_INTENSITY[saved.name] : 1);
