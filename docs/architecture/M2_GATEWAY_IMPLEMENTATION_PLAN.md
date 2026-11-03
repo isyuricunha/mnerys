@@ -126,6 +126,30 @@ Local focused and authority regressions passed **63** and **96** tests,
 respectively; complete hosted CI remains the authoritative merge/release
 gate.
 
+**Eleventh incremental slice — owner-bound post-response dispatch:** the
+[Gateway facade](../../src/gateway_turns.py) now mediates the existing
+post-response processing for synchronous Chat and both streaming paths.
+Its [transport-independent dispatch service](../../src/gateway_post_response.py)
+checks the issued session admission, loaded session ID and owner, and
+context-result owner **before** calling the injected legacy task runner.
+The owner and session passed to that runner come only from the admission,
+not mutable request fields. The service retains the existing extraction
+eligibility policy (tool denial, exact approval continuation and unattended
+mode) and rejects malformed server flags. Client runtime hints may suppress
+auxiliary LLM extraction, but cannot grant new permissions.
+
+The original [post-response implementation](../../routes/chat_helpers.py)
+continues to own sequential memory/skill extraction, token accounting,
+webhooks and auto-naming. It still runs on the same process-local queue:
+this slice does **not** introduce durable jobs, restart recovery, a new
+scheduler, a new public endpoint or a second memory provider. The
+[admitted dispatch tests](../../tests/test_mnerys_gateway_post_response.py)
+cover forged/tampered admission, cross-owner cached sessions, denied side
+effects, normal versus unattended extraction and the three Web handoffs.
+Local regression groups passed **103**, **130** and **182** tests with the
+existing pytest-asyncio/SQLAlchemy warnings (group overlap possible).
+The full hosted CI and preview have not been verified for this local slice.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

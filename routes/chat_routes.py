@@ -33,6 +33,7 @@ from src.agent_loop import _normalize_ody_qwen_text_artifacts
 from src import agent_runs
 from src.turn_service import turn_service
 from src.gateway_stream_delivery import should_detach_stream
+from src.gateway_post_response import post_response_extraction_allowed
 from src.gateway_turns import gateway_turns
 from src.gateway_admission import AdmissionDenied
 from src.gateway_execution_policy import execution_limits_for_admission
@@ -859,23 +860,11 @@ def _post_response_extraction_allowed(
     tool_approval_continuation: bool,
     client_runtime_context: Optional[Dict[str, Any]],
 ) -> bool:
-    """Return whether a completed stream may launch background LLM work.
-
-    Memory and skill extraction are useful for interactive conversations, but
-    an explicitly unattended runtime has no user session to enrich. Running
-    those jobs also competes with the caller's next autonomous task on local
-    endpoints, so the unattended contract disables them at the route boundary.
-    """
-
-    context = (
-        client_runtime_context
-        if isinstance(client_runtime_context, dict)
-        else {}
-    )
-    return bool(
-        not tools_blocked
-        and not tool_approval_continuation
-        and context.get("unattended_mode") is not True
+    """Compatibility alias for the shared Gateway extraction policy."""
+    return post_response_extraction_allowed(
+        tools_blocked=tools_blocked,
+        tool_approval_continuation=tool_approval_continuation,
+        client_runtime_context=client_runtime_context,
     )
 
 
@@ -2334,12 +2323,19 @@ def setup_chat_routes(
         session_manager.save_sessions()
 
         # Background tasks (memory, webhook, auto-name)
-        run_post_response_tasks(
-            sess, session_manager, session, message, reply, None,
-            ctx.uprefs, memory_manager, memory_vector, webhook_manager,
+        gateway_turns.dispatch_post_response(
+            _admitted_session, sess, session_manager,
+            context_owner=ctx.user,
+            task_runner=run_post_response_tasks,
+            message=message,
+            full_response=reply,
+            last_metrics=None,
+            preferences=ctx.uprefs,
+            memory_manager=memory_manager,
+            memory_vector=memory_vector,
+            webhook_manager=webhook_manager,
             character_name=ctx.preset.character_name,
-            owner=ctx.user,
-            allow_background_extraction=not tool_policy.block_all_tool_calls,
+            tools_blocked=tool_policy.block_all_tool_calls,
         )
 
         return {
@@ -4345,17 +4341,23 @@ def setup_chat_routes(
                                 )
                                 if _saved_id:
                                     yield f'data: {json.dumps({"type": "message_saved", "id": _saved_id})}\n\n'
-                                run_post_response_tasks(
-                                    sess, session_manager, session, message, _response_to_save,
-                                    _metrics_to_save, ctx.uprefs, memory_manager, memory_vector, webhook_manager,
-                                    incognito=incognito, compare_mode=compare_mode,
+                                gateway_turns.dispatch_post_response(
+                                    _admitted_session, sess, session_manager,
+                                    context_owner=ctx.user,
+                                    task_runner=run_post_response_tasks,
+                                    message=message,
+                                    full_response=_response_to_save,
+                                    last_metrics=_metrics_to_save,
+                                    preferences=ctx.uprefs,
+                                    memory_manager=memory_manager,
+                                    memory_vector=memory_vector,
+                                    webhook_manager=webhook_manager,
+                                    incognito=incognito,
+                                    compare_mode=compare_mode,
                                     character_name=ctx.preset.character_name,
-                                    owner=_user,
-                                    allow_background_extraction=_post_response_extraction_allowed(
-                                        tools_blocked=tool_policy.block_all_tool_calls,
-                                        tool_approval_continuation=tool_approval_continuation,
-                                        client_runtime_context=client_runtime_context,
-                                    ),
+                                    tools_blocked=tool_policy.block_all_tool_calls,
+                                    tool_approval_continuation=tool_approval_continuation,
+                                    client_runtime_context=client_runtime_context,
                                 )
                             _stream_set(session, status="done")
                             yield chunk
@@ -4741,24 +4743,30 @@ def setup_chat_routes(
                                 )
                                 if _saved_id:
                                     yield f'data: {json.dumps(_render_state.message_saved(_saved_id))}\n\n'
-                                run_post_response_tasks(
-                                    sess, session_manager, session, message, _response_to_save,
-                                    _metrics_to_save, ctx.uprefs, memory_manager, memory_vector, webhook_manager,
-                                    incognito=incognito, compare_mode=compare_mode,
+                                gateway_turns.dispatch_post_response(
+                                    _admitted_session, sess, session_manager,
+                                    context_owner=ctx.user,
+                                    task_runner=run_post_response_tasks,
+                                    message=message,
+                                    full_response=_response_to_save,
+                                    last_metrics=_metrics_to_save,
+                                    preferences=ctx.uprefs,
+                                    memory_manager=memory_manager,
+                                    memory_vector=memory_vector,
+                                    webhook_manager=webhook_manager,
+                                    incognito=incognito,
+                                    compare_mode=compare_mode,
                                     character_name=ctx.preset.character_name,
-                                                            agent_rounds=_agent_rounds,
+                                    agent_rounds=_agent_rounds,
                                     agent_tool_calls=_agent_tool_calls,
                                     skills_manager=skills_manager,
-                                    owner=_user,
                                     extract_skills=(
                                         user_requested_agent
                                         and not tool_approval_continuation
                                     ),
-                                    allow_background_extraction=_post_response_extraction_allowed(
-                                        tools_blocked=tool_policy.block_all_tool_calls,
-                                        tool_approval_continuation=tool_approval_continuation,
-                                        client_runtime_context=client_runtime_context,
-                                    ),
+                                    tools_blocked=tool_policy.block_all_tool_calls,
+                                    tool_approval_continuation=tool_approval_continuation,
+                                    client_runtime_context=client_runtime_context,
                                 )
                             _stream_set(session, status="done")
                             yield chunk

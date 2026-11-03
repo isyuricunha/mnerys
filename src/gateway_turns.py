@@ -25,6 +25,7 @@ from src.tool_policy import ToolPolicy
 from src.tool_approvals import ExactToolApproval, ToolApprovalStore
 from src.turn_service import TurnService, TurnStream, turn_service
 from src.gateway_stream_delivery import TurnDelivery, open_admitted_stream
+from src.gateway_post_response import dispatch_admitted_post_response
 
 
 class GatewayTurns:
@@ -168,6 +169,56 @@ class GatewayTurns:
             admission, self._turns, stream,
             compare_mode=compare_mode,
             client_runtime_context=client_runtime_context,
+        )
+
+    def dispatch_post_response(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        session_manager: Any,
+        *,
+        context_owner: str | None,
+        task_runner,
+        message: str,
+        full_response: str,
+        last_metrics: dict | None,
+        preferences: dict,
+        memory_manager: Any,
+        memory_vector: Any,
+        webhook_manager: Any,
+        tools_blocked: bool,
+        tool_approval_continuation: bool = False,
+        client_runtime_context: Any = None,
+        incognito: bool = False,
+        compare_mode: bool = False,
+        character_name: str | None = None,
+        agent_rounds: int = 0,
+        agent_tool_calls: int = 0,
+        skills_manager: Any = None,
+        extract_skills: bool = True,
+    ) -> None:
+        """Authorize and dispatch inherited post-response work for this owner."""
+        dispatch_admitted_post_response(
+            admission, session, session_manager,
+            context_owner=context_owner,
+            task_runner=task_runner,
+            message=message,
+            full_response=full_response,
+            last_metrics=last_metrics,
+            preferences=preferences,
+            memory_manager=memory_manager,
+            memory_vector=memory_vector,
+            webhook_manager=webhook_manager,
+            tools_blocked=tools_blocked,
+            tool_approval_continuation=tool_approval_continuation,
+            client_runtime_context=client_runtime_context,
+            incognito=incognito,
+            compare_mode=compare_mode,
+            character_name=character_name,
+            agent_rounds=agent_rounds,
+            agent_tool_calls=agent_tool_calls,
+            skills_manager=skills_manager,
+            extract_skills=extract_skills,
         )
 
     def start_detached(

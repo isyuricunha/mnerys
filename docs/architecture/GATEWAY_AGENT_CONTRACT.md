@@ -150,6 +150,26 @@ recovery, authenticated remote transport and cross-client acceptance remain
 planned. See the [M2 execution plan](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
 [stream-delivery regressions](../../tests/test_mnerys_gateway_stream_delivery.py).
 
+## M2.1 incremental implementation: admitted post-response work
+
+**Implemented internally, not a persistent task queue.** Both streaming
+completions and the synchronous Chat endpoint now route post-response work
+through [GatewayTurns](../../src/gateway_turns.py) and the
+[admitted post-response service](../../src/gateway_post_response.py).
+The service checks the issued admission, loaded session identity and owner,
+and assembled context owner before passing only the server-admitted owner and
+session ID to the inherited task runner. Tool-policy denial, exact approval
+continuation and unattended requests retain their original limits on
+auxiliary model-driven extraction.
+
+The [legacy helper](../../routes/chat_helpers.py) still handles token
+accounting, webhooks, auto-naming and sequential memory/skill extraction.
+Denying auxiliary extraction does not skip other permitted completion effects.
+This extraction adds no duplicate agent runtime, independent scheduler,
+durable job or event record, cross-client control, or preview rollout.
+See [M2.1 verification](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
+[negative authorization tests](../../tests/test_mnerys_gateway_post_response.py).
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.
