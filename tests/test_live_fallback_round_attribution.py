@@ -139,12 +139,19 @@ def test_terminal_then_session_switch_preserves_completed_background_state():
 def test_detached_run_identity_is_attached_to_live_metrics():
     routes = Path("routes/chat_routes.py").read_text(encoding="utf-8")
     assert '"X-Odysseus-Run-Id": _detached_run.run_id' in routes
-    assert "agent_runs.subscribe(session, _detached_run)" in routes
-    assert "agent_runs.subscribe(session_id, _active_run)" in routes
+    # Run subscriptions now cross the admitted GatewayTurns/TurnService
+    # boundary instead of being issued directly inside the Web adapter.
+    facade = Path("src/gateway_turns.py").read_text(encoding="utf-8")
+    service = Path("src/turn_service.py").read_text(encoding="utf-8")
+    assert "gateway_turns.start_detached(_admitted_session, _safe_stream())" in routes
+    assert "gateway_turns.resume_active(admission)" in routes
+    assert "require_admitted_session(admission)" in facade
+    assert "agent_runs.subscribe(session_id, run)" in service
     assert "const streamRunId = res.headers.get('X-Odysseus-Run-Id')" in CHAT_JS
     assert "metrics._costRecordId = _metricsCostRecordId(streamRunId, json)" in CHAT_JS
     assert "'X-Odysseus-Run-Id': runId" in CHAT_JS
-    assert "agent_runs.stop(session_id, _expected_run_id)" in routes
+    assert "gateway_turns.stop(admission, _expected_run_id)" in routes
+    assert "agent_runs.stop(session_id, expected_run_id)" in service
     assert "_stopExactRun(streamSessionId)" in CHAT_JS
     timeout_block = CHAT_JS.split("timeoutId = setTimeout", 1)[1].split(
         "clearResponseTimeout", 1

@@ -175,3 +175,43 @@ def test_failed_append_followed_by_success_keeps_db_and_cache_in_sync(store):
     assert cached.message_count == db_count == 1
     assert "_db_id" not in rejected.metadata
     assert accepted.metadata["_db_id"] == rows[0].id
+
+
+def test_unmanaged_session_ignores_unrelated_global_manager(store, monkeypatch):
+    """A loaded global manager must not claim an independent Session object."""
+    manager, _, _, _ = store
+    untracked = Session(
+        id="in-memory", name="Scratch", endpoint_url="http://example.com",
+        model="test",
+    )
+    monkeypatch.setattr(
+        manager, "_persist_message",
+        lambda *_: pytest.fail("Unmanaged session attempted persistence"),
+    )
+    message = ChatMessage("user", "keep in memory")
+    untracked.add_message(message)
+    assert untracked.history == [message]
+    assert untracked.message_count == 1
+
+
+def test_same_id_different_instance_cannot_write_via_global_manager(store, monkeypatch):
+    """Identity matters: the global manager may own a *different* session."""
+    manager, cached, factory, _ = store
+    stale = Session(
+        id=cached.id, name="Old reference", endpoint_url="http://example.com",
+        model="test", owner="alice",
+    )
+    called = []
+
+    def reject_unowned(*args):
+        called.append(args)
+        return False
+
+    monkeypatch.setattr(manager, "_persist_message", reject_unowned)
+    message = ChatMessage("user", "only old object")
+    stale.add_message(message)
+    assert called == []
+    assert stale.history == [message]
+    assert stale.message_count == 1
+    assert cached.history == []
+    assert durable(store) == ([], 0)

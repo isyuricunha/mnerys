@@ -157,11 +157,17 @@ class Session:
         self.history.append(message)
         self.message_count = len(self.history)
 
-        # A failed database append must not remain in the model-visible
-        # in-memory transcript. Sessions without a manager remain ephemeral.
-        if _SESSION_MANAGER_INSTANCE:
-            if _SESSION_MANAGER_INSTANCE._persist_message(self.id, message) is False:
-                self._discard_failed_message(message)
+        # Only the exact Session instance registered with the process-wide
+        # manager may persist through it. Unmanaged/standalone objects must
+        # remain in-memory even when another session manager is initialized;
+        # a stale object sharing an ID must not write under a different one.
+        manager = _SESSION_MANAGER_INSTANCE
+        if (
+            manager is not None
+            and getattr(manager, "sessions", {}).get(self.id) is self
+            and manager._persist_message(self.id, message) is False
+        ):
+            self._discard_failed_message(message)
 
     def _discard_failed_message(self, message: ChatMessage) -> None:
         """Remove only this uncommitted append, preserving later messages.
