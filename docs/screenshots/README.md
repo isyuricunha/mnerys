@@ -8,6 +8,10 @@ The screenshots in this directory are development previews from 2 November 2026.
 
 No conversations, model providers or credentials were fabricated for the screenshots. The header graphic in the README is an SVG *brand illustration*, not a screenshot.
 
+## Website usage
+
+The static [Mnerys GitHub Pages landing](../../website/index.html) reuses the original [Eclipse desktop login screenshot](mnerys-eclipse-login-desktop.png) without modification, under a local website asset path for independent Pages publication. Its caption explicitly distinguishes an actual captured login UI from a running interactive demo. The landing's module diagram is an **architecture illustration**, not a screenshot. The older terracotta workspace screenshots below are not advertised as current Eclipse captures.
+
 ## Eclipse default — current login screenshots
 
 - **mnerys-eclipse-login-desktop.png:** actual Mnerys native preview login page, captured in headless Chromium at 1440 × 900 with the new Eclipse default, including the teal accent and starfield-depth background.

@@ -14,35 +14,43 @@ const { extractThemeBootstrap } = require('./helpers/theme_bootstrap.cjs');
     page.on('request', req => { if (/\.(webm|mp4)(?:$|\?)/.test(req.url())) mediaRequests.push(req.url()); });
     page.on('pageerror', e => errors.push(e.message));
     await page.goto(origin + '/website/index.html');
-    // Landing page contains expected preview panels, preview videos, and background video
-    assert.equal(await page.locator('.preview-panel').count(), 8);
-    assert.equal(await page.locator('section#previews video').count(), 7);
-    assert.equal(await page.locator('section#how video.sec-bg').count(), 1);
-    assert.equal(await page.locator('section#how .sec-bg-tint').count(), 1);
+    // Mnerys is a branded, factual static overview; it must not present
+    // inherited Odysseus preview videos or fictional testimonials as current.
+    assert.match(await page.title(), /^Mnerys/);
+    assert(await page.getByRole('heading', { name: /built to be yours/i }).isVisible());
+    assert.equal(await page.locator('#platform .feature-card').count(), 6);
+    assert.equal(await page.locator('#roadmap .milestone').count(), 3);
+    assert(await page.locator('#architecture .architecture-diagram').isVisible());
+    assert.equal(await page.locator('.tcard, .preview-panel, video').count(), 0);
+    assert.equal(mediaRequests.length, 0, 'Legacy demo videos must not load');
+    assert(!/Odysseus/i.test(await page.locator('body').innerText()));
 
-    // Expected video source paths exist and return 200
-    const expectedVideos = [
-      'chat.webm',
-      'research.webm',
-      'compare.webm',
-      'document.webm',
-      'notes.webm',
-      'gallery.webm',
-      'theme.webm',
-      'bg.webm',
-    ];
-    const videoSources = await page.locator('video source').evaluateAll(els => els.map(s => s.getAttribute('src')));
-    assert.deepEqual(videoSources.sort(), expectedVideos.slice().sort());
-    for (const src of expectedVideos) {
-      const videoRes = await page.request.get(origin + '/website/' + src);
-      assert.equal(videoRes.status(), 200, `Video source ${src} should return 200`);
+    // Actual, licensed Mnerys assets are local to the GitHub Pages source.
+    for (const src of [
+      'assets/mnerys-icon.svg',
+      'assets/mnerys-eclipse-login-desktop.png',
+      'assets/nery-mizuki-avatar.webp',
+      'site.css',
+    ]) {
+      const response = await page.request.get(origin + '/website/' + src);
+      assert.equal(response.status(), 200, `Pages asset ${src} must return 200`);
     }
 
-    // Feature and video layout does not overflow at desktop or mobile widths
-    for (const width of [1280, 390]) {
+    // Desktop and mobile must fit without horizontal overflow; menu remains
+    // usable without exposing hidden navigation links until opened.
+    for (const width of [1440, 1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
-      assert(await page.locator('.preview-panel').first().isVisible());
+      assert(await page.locator('#preview .screenshot-frame img').isVisible());
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      if (width === 390) {
+        const menu = page.locator('#nav-toggle');
+        assert(await menu.isVisible());
+        await menu.click();
+        assert.equal(await menu.getAttribute('aria-expanded'), 'true');
+        assert(await page.getByRole('navigation', { name: 'Main navigation' }).isVisible());
+        await page.locator('#site-nav a[href="#platform"]').click();
+        assert.equal(await menu.getAttribute('aria-expanded'), 'false');
+      }
     }
     assert.deepEqual(errors, []);
 

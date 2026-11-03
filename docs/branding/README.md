@@ -44,6 +44,14 @@ Original theme colors are frozen in [the regression fixture](../../tests/fixture
 
 The approved 1536 × 1024 character sheet is preserved in [the kit](../../assets/mascot/kit-v1/source/approved-character-sheet.png), but the individual figure crops are smaller (full body: 195 × 403 px). Do not present resized crops as new original high-resolution art. **Nery artwork is proprietary, © 2026 Yuri Cunha, all rights reserved**: see the [separate mascot license](../../assets/mascot/LICENSE.md). Only use/display inside an authorized Mnerys installation is permitted without additional authorization; redistribution requires the rights holder's written permission. The AGPL software license does not license this artwork.
 
+## Public GitHub Pages landing
+
+The [Mnerys Pages entry point](../../website/index.html) and its [Eclipse styling](../../website/site.css) use the documented Eclipse interface palette. The landing is **an informational project page**, not an interactive deployed Gateway or a fabricated product UI. Its architecture graphic is a labeled, conceptual diagram; its preview image is a byte-identical copy of the [real Eclipse login screenshot](../screenshots/README.md), with the original preserved. The [official geometric M icon](../../website/assets/mnerys-icon.svg) is used as the favicon and product brand; Nery's [licensed avatar](../../website/assets/nery-mizuki-avatar.webp) is displayed separately as the mascot.
+
+The eight imported upstream demo videos remain unchanged and are documented as [historical footage](../../website/legacy-previews.md). They are not loaded on the Mnerys landing, where old visuals, joke testimonials and upstream marketing claims would misrepresent the current project. The legacy Pages guides may still include upstream-era technical instructions and are **not** the source of truth for Mnerys installation; use the [current native preview documentation](../deployment/NATIVE_PREVIEW.md), the [PostgreSQL 17 guide](../deployment/POSTGRESQL17.md), and the repository README.
+
+**Publication:** source changes to the landing require the existing GitHub Pages workflow to finish after an authorized push. A local Chromium capture or passing test is not proof that the public Pages deployment is up to date.
+
 ## Validation and boundaries
 
 Visual regression checks cover the icon, text and theme definitions, and Chromium screenshots were captured for desktop and mobile. Existing user preferences, services, backend/runtime identifiers, and license acknowledgements were not migrated by this visual pass.

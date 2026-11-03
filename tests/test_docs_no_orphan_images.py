@@ -95,10 +95,21 @@ def test_pages_site_owns_its_entrypoint_and_media():
     website_videos = [p for p in website_files if p.suffix.lower() in VIDEO_EXTS]
 
     entrypoint = (REPO / "website/index.html").read_text(encoding="utf-8")
+    historical = (REPO / "website/legacy-previews.md").read_text(encoding="utf-8")
+    inherited_clips = {
+        "chat.webm", "research.webm", "compare.webm", "document.webm",
+        "notes.webm", "gallery.webm", "theme.webm", "bg.webm",
+    }
+    # Never represent inherited Odysseus UI recordings as current Mnerys
+    # footage. Keep the exact known archive referenced and do not make a
+    # blanket exception for new or accidentally orphaned videos.
+    assert not any(name in entrypoint for name in inherited_clips)
+    assert all(name in historical for name in inherited_clips)
     unreferenced = [
         str(video.relative_to(REPO))
         for video in website_videos
         if video.name not in entrypoint
+        and not (video.name in inherited_clips and video.name in historical)
     ]
     assert not unreferenced, f"unreferenced website video(s): {unreferenced}"
 

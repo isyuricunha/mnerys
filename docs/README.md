@@ -23,7 +23,7 @@ This index is the entry point for **current Mnerys documentation**. Documents in
 
 ## Identity and evidence
 
-- [Mnerys visual identity](branding/README.md) — default Eclipse interface theme, retained presets and logo.
+- [Mnerys visual identity](branding/README.md) — default Eclipse interface theme, retained presets, logo and the new static [GitHub Pages landing source](../website/index.html).
 - [Nery Mizuki mascot](mascot/README.md) — artwork, approved character identity and separate license.
 - [Screenshot provenance](screenshots/README.md) — real captures, dates and limitations.
 
