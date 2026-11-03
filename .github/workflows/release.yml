@@ -3,6 +3,7 @@ name: Release (semantic-release)
 # Publish only after the complete blocking CI succeeds on a trusted main push.
 # A workflow_run with write permissions must never consume PR artifacts.
 on:
+  # zizmor: ignore[dangerous-triggers] Intentional privileged handoff: the job accepts only successful same-repo main push CI, rechecks its exact HEAD SHA and consumes no CI artifacts.
   workflow_run:
     workflows: [CI]
     types: [completed]

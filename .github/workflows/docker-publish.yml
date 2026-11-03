@@ -178,7 +178,7 @@ jobs:
           digests=(*)
           (( ${#digests[@]} == 2 ))
           for digest in "${digests[@]}"; do
-            args+=("${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:$digest")
+            args+=("${REGISTRY}/${IMAGE_NAME}@sha256:$digest")
           done
           docker buildx imagetools create "${args[@]}"
       - name: Verify published manifests
@@ -195,5 +195,5 @@ jobs:
             refs=("dev" "dev-$SHORT")
           fi
           for tag in "${refs[@]}"; do
-            docker buildx imagetools inspect "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$tag"
+            docker buildx imagetools inspect "${REGISTRY}/${IMAGE_NAME}:$tag"
           done
