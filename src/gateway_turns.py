@@ -15,6 +15,10 @@ from src.gateway_foreground_routes import (
     resolve_admitted_foreground_policy,
 )
 from src.gateway_foreground_context import admitted_candidate_request_factory
+from src.gateway_prompt_preparation import (
+    append_admitted_internal_context,
+    select_admitted_prompt_messages,
+)
 from src.gateway_approval_decisions import ToolApprovalDecision, consume_admitted_tool_approval
 from src.gateway_turn_authority import authority_for_admitted_turn
 from src.tool_policy import ToolPolicy
@@ -66,6 +70,38 @@ class GatewayTurns:
         return admitted_candidate_request_factory(
             admission, policy, messages, fallback_context_length,
             session=session,
+        )
+
+    def append_internal_context(
+        self,
+        admission: AdmittedSession,
+        policy: AdmittedForegroundPolicy,
+        context: Any,
+        request_text: str,
+        *,
+        internal_tool_request: bool,
+    ) -> None:
+        """Guard internal tool-loopback content without turning it into consent."""
+        append_admitted_internal_context(
+            admission, policy, context, request_text,
+            internal_tool_request=internal_tool_request,
+        )
+
+    def select_prompt_messages(
+        self,
+        admission: AdmittedSession,
+        policy: AdmittedForegroundPolicy,
+        context: Any,
+        request_text: str,
+        *,
+        streaming: bool,
+        approval_continuation: bool = False,
+    ) -> list:
+        """Select final prompt history only for the issued, admitted turn."""
+        return select_admitted_prompt_messages(
+            admission, policy, context, request_text,
+            streaming=streaming,
+            approval_continuation=approval_continuation,
         )
 
     def build_authority(

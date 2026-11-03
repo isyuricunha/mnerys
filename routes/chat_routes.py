@@ -99,14 +99,6 @@ from src.turn_contract import (
 logger = logging.getLogger(__name__)
 
 
-def _append_internal_chat_context(ctx, message):
-    tagged = untrusted_context_message("internal tool request", message)
-    ctx.messages.append(tagged)
-    routed = getattr(ctx, "route_messages", None)
-    if routed is not None and routed is not ctx.messages:
-        routed.append(tagged)
-
-
 # Track active streams for partial-save safety net
 _active_streams: Dict[str, dict] = {}
 
@@ -1392,31 +1384,6 @@ def _message_plain_text(content: Any) -> str:
     return str(content or "")
 
 
-def _last_user_plain_text(messages: List[Dict[str, Any]]) -> str:
-    for msg in reversed(messages or []):
-        if msg.get("role") == "user":
-            return _message_plain_text(msg.get("content"))
-    return ""
-
-
-def _ensure_current_request_is_latest_user(messages: List[Dict[str, Any]], current_message: str) -> List[Dict[str, Any]]:
-    """Defensively keep detached streams grounded on the request that created them."""
-    current = str(current_message or "").strip()
-    if not current:
-        return messages
-    latest = _last_user_plain_text(messages).strip()
-    if latest == current or current in latest or latest in current:
-        return messages
-    logger.warning(
-        "[chat_stream] latest user context mismatch; appending current request for model call. latest=%r current=%r",
-        latest[:120],
-        current[:120],
-    )
-    repaired = list(messages or [])
-    repaired.append({"role": "user", "content": current})
-    return repaired
-
-
 _WEB_FOLLOWUP_RE = re.compile(
     r"^\s*(?:now\s+)?(?:(?:can|could|would|will)\s+you\s+)?"
     r"(?:check|try\s+again|look(?:\s+now|\s+it\s+up)?|search(?:\s+now|\s+online|\s+it)?|"
@@ -2279,8 +2246,10 @@ def setup_chat_routes(
             defer_context_shaping=foreground_policy.enabled,
             persist_user_message=not is_internal_tool_request(request),
         )
-        if is_internal_tool_request(request):
-            _append_internal_chat_context(ctx, message)
+        gateway_turns.append_internal_context(
+            _admitted_session, foreground_policy, ctx, message,
+            internal_tool_request=is_internal_tool_request(request),
+        )
 
         # Research injection
         research_blocked_by_policy = (
@@ -2317,9 +2286,11 @@ def setup_chat_routes(
             "requests": {0: ctx.messages},
             "trim_stats": {},
         }
-        request_messages = ctx.messages
+        request_messages = gateway_turns.select_prompt_messages(
+            _admitted_session, foreground_policy, ctx, message,
+            streaming=False,
+        )
         if foreground_policy.enabled:
-            request_messages = getattr(ctx, "route_messages", ctx.messages)
             candidate_request_factory, candidate_request_state = gateway_turns.build_candidate_context_factory(
                 _admitted_session, foreground_policy,
                 request_messages, selected_context_length,
@@ -3020,8 +2991,10 @@ def setup_chat_routes(
             interaction_mode=chat_mode,
             auto_escalated=auto_escalated,
         )
-        if is_internal_tool_request(request):
-            _append_internal_chat_context(ctx, message)
+        gateway_turns.append_internal_context(
+            _admitted_session, foreground_policy, ctx, message,
+            internal_tool_request=is_internal_tool_request(request),
+        )
 
         _research_flags = {"do": do_research}  # Mutable container for generator scope
 
@@ -3896,15 +3869,10 @@ def setup_chat_routes(
                     _active_streams.pop(session, None)
                     return
 
-            context_source = (
-                getattr(ctx, "route_messages", ctx.messages)
-                if foreground_policy.enabled
-                else ctx.messages
-            )
-            messages = (
-                list(context_source)
-                if tool_approval_continuation
-                else _ensure_current_request_is_latest_user(context_source, message)
+            messages = gateway_turns.select_prompt_messages(
+                _admitted_session, foreground_policy, ctx, message,
+                streaming=True,
+                approval_continuation=tool_approval_continuation,
             )
 
             # Auto-compact notification

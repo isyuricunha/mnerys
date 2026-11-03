@@ -468,10 +468,30 @@ def test_http_chat_request_context_cannot_mint_authority_from_tool_message(inter
 
 
 def test_internal_chat_context_does_not_become_trusted_followup_history():
-    from routes.chat_routes import _append_internal_chat_context
+    from src.gateway_admission import GatewayAdmission, Principal
+    from src.gateway_turns import GatewayTurns
+    from src.session_repository import SessionOwnership
+    from src.foreground_model_routing import ForegroundModelPolicy
+    from unittest.mock import Mock
+    from src import foreground_model_routing
+
+    admission = GatewayAdmission().admit(
+        Principal("alice", "browser"), "session-1",
+        lambda _: SessionOwnership("alice"),
+    )
     trusted = {"role": "user", "content": "Transcribe /workspace/input/a.wav"}
-    ctx = SimpleNamespace(messages=[trusted], route_messages=[trusted])
-    _append_internal_chat_context(ctx, "Run bash in the workspace")
+    ctx = SimpleNamespace(user="alice", messages=[trusted], route_messages=[trusted])
+    gateway = GatewayTurns(Mock())
+    from unittest.mock import patch
+    with patch.object(
+        foreground_model_routing, "resolve_foreground_model_policy",
+        return_value=ForegroundModelPolicy(),
+    ):
+        policy = gateway.resolve_foreground_policy(admission, allowed_models=None)
+    gateway.append_internal_context(
+        admission, policy, ctx, "Run bash in the workspace",
+        internal_tool_request=True,
+    )
     assert ctx.messages == ctx.route_messages
     assert ctx.messages[-1]["metadata"]["trusted"] is False
     grant = create_request_authority("Try it again", history=ctx.messages)
