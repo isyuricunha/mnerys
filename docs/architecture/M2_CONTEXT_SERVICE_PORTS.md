@@ -42,7 +42,11 @@ not create another persistence engine, memory index or RAG pipeline.
 | Preferences | `load_preferences` | Existing owner-scoped preference loader |
 | Attachment manifest | `upload_manifest` | Existing upload handler and path/owner validation |
 | Memory, RAG, Web context | `build_preface`, `used_memories` | Existing chat processor and last-used-memory tracking |
-| Model-window shaping | `compact`, `trim` | Existing context compactor and token-window trimmer |
+| Model-window shaping | `compact`, `trim`, `context_length`, `estimate_tokens` | Existing context compactor, token-window trimmer and model token/window estimators |
+| Model identity | `normalize_model` | Existing cached endpoint ID first, then the same owner-scoped live resolver |
+| Source attribution | `youtube_sources` | Existing transcript-to-source metadata helper; no new YouTube fetcher |
+| Persistent history | `session_history` | Existing session history reader, bypassed in incognito mode |
+| Clock context | `current_datetime_message` | Existing user-time context provider; injected near the latest user turn |
 
 The shared algorithm preserves the inherited ordering: preprocess, conditional
 message append, optional post-save event, preference/manifest retrieval, prompt
@@ -59,8 +63,12 @@ opening an HTTP connection or using an actual database. Such providers are
 
 ## Explicitly not extracted yet
 
-- Model-ID normalization, current-time and YouTube-source helpers, and
-  the session's own `get_context_messages` remain linked to the legacy module.
+- Model-ID normalization, source attribution, date/time, model-window sizing
+  and persisted-history reads are now routed through injectable ports, **not**
+  independently implemented providers. The legacy adapter retains their
+  original cache-first ordering, ownership filters and error behavior.
+- Pure prompt decisions and helper functions such as low-signal detection,
+  research-session classification and request-flag parsing are still module-bound.
 - Memory/RAG and attachment operations are **ports to inherited implementations**,
   not newly independent services or alternative storage.
 - The context algorithm itself still lives in `routes/chat_helpers.py`;
@@ -77,12 +85,14 @@ configuration, deployment or client protocol**.
 
 The [context-port tests](../../tests/test_mnerys_gateway_context_ports.py)
 inject independent in-memory providers and reject accidental direct calls
-to legacy preference, attachment, message and compaction functions.
-They cover ordinary persisted context, incognito isolation and continuation
-without message writes. The [admission tests](../../tests/test_mnerys_gateway_context_assembly.py)
+to legacy preference, attachment, message, source, clock, model-identity and
+compaction functions. They cover ordinary persisted context, incognito isolation,
+continuation without message writes, cache-first model selection, deterministic
+clock placement, per-provider history reads and deferred context-window
+sizing. The [admission tests](../../tests/test_mnerys_gateway_context_assembly.py)
 cover owner/session mismatch before side effects.
 
-Local regression: **790 passed**, one existing `pytest-asyncio` fixture-scope
+Local regression: **795 passed**, one existing `pytest-asyncio` fixture-scope
 warning. Hosted CI and production-preview acceptance are **not** implied by
 local tests. This feature is not considered complete until the remaining
 service dependencies and real multi-client acceptance gates are verified.

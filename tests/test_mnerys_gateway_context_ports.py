@@ -84,6 +84,63 @@ class RecordingContextPorts:
         self.events.append(("trim", context_length))
         return messages
 
+    def youtube_sources(self, message, transcripts):
+        self.events.append("youtube_sources")
+        return []
+
+    def normalize_model(self, session):
+        self.events.append("normalize_model")
+        return None
+
+    def session_history(self, session):
+        self.events.append("session_history")
+        return list(session.messages)
+
+    def current_datetime_message(self):
+        self.events.append("current_datetime")
+        return {"role": "user", "content": "fixed clock context"}
+
+    def context_length(self, endpoint_url, model):
+        self.events.append("context_length")
+        return 32768
+
+    def estimate_tokens(self, messages):
+        self.events.append("estimate_tokens")
+        return len(messages) * 10
+
+
+def test_legacy_normalizer_prefers_cached_model_without_live_probe(monkeypatch):
+    monkeypatch.setattr(
+        chat_helpers, "_normalize_model_id_from_cache",
+        lambda _session: "provider/cached-model",
+    )
+    monkeypatch.setattr(
+        chat_helpers, "normalize_model_id",
+        lambda *_a, **_kw: pytest.fail("Cached model unexpectedly probed provider"),
+    )
+    assert chat_helpers.LegacyChatContextPorts().normalize_model(_session()) == (
+        "provider/cached-model"
+    )
+
+
+def test_legacy_normalizer_preserves_owner_scoped_fallback(monkeypatch):
+    monkeypatch.setattr(
+        chat_helpers, "_normalize_model_id_from_cache",
+        lambda _session: None,
+    )
+    checked = []
+    def fake_resolve(url, model, *, owner):
+        checked.append((url, model, owner))
+        return "provider/normalized-model"
+
+    monkeypatch.setattr(chat_helpers, "normalize_model_id", fake_resolve)
+    assert chat_helpers.LegacyChatContextPorts().normalize_model(_session()) == (
+        "provider/normalized-model"
+    )
+    assert checked == [
+        ("https://example.com/v1", "selected-model", "alice")
+    ]
+
 
 def _session():
     sess = SimpleNamespace(
@@ -107,12 +164,14 @@ def _block_all_legacy(monkeypatch):
         "extract_preset", "add_user_message", "load_prefs_for_user",
         "build_uploaded_file_manifest", "_append_incognito_message",
         "_incognito_messages", "trim_for_context",
+        "youtube_prefetch_sources", "_normalize_model_id_from_cache",
+        "normalize_model_id", "get_context_length", "estimate_tokens",
     ):
         monkeypatch.setattr(chat_helpers, name, forbidden)
     for name in ("preprocess", "maybe_compact"):
         monkeypatch.setattr(chat_helpers, name, forbidden_async)
-    monkeypatch.setattr(chat_helpers, "_normalize_model_id_from_cache", lambda _: None)
-    monkeypatch.setattr(chat_helpers, "normalize_model_id", lambda *_a, **_kw: None)
+    from src import user_time
+    monkeypatch.setattr(user_time, "current_datetime_context_message", forbidden)
 
 
 @pytest.mark.asyncio
@@ -145,6 +204,58 @@ async def test_injected_ports_replace_all_shared_context_io_without_http(monkeyp
     assert ("compact", "alice") in ports.events
     assert ports.events.index("persisted_user") < ports.events.index(("preferences", "alice"))
     assert ports.events.index("preface") < ports.events.index(("compact", "alice"))
+    assert "normalize_model" in ports.events
+    assert "session_history" in ports.events
+    assert "youtube_sources" in ports.events
+    assert ports.events.count("estimate_tokens") == 2
+
+
+@pytest.mark.asyncio
+async def test_history_and_current_clock_come_only_from_injected_ports(monkeypatch):
+    _block_all_legacy(monkeypatch)
+    ports = RecordingContextPorts()
+    sess = _session()
+    sess.get_context_messages = lambda: pytest.fail("Context bypassed injected history port")
+    result = await chat_helpers.build_chat_context_core(
+        sess, "alice", SimpleNamespace(), SimpleNamespace(),
+        "Hello", "session-a", ports=ports, agent_mode=False,
+    )
+    assert result.messages[-2:] == [
+        {"role": "user", "content": "fixed clock context"},
+        {"role": "user", "content": "Hello"},
+    ]
+    assert ports.events.count("current_datetime") == 1
+    assert ports.events.count("session_history") == 1
+    assert ports.events.index("session_history") < ports.events.index("current_datetime")
+
+
+@pytest.mark.asyncio
+async def test_deferred_context_window_reads_injected_metadata_without_compaction(monkeypatch):
+    _block_all_legacy(monkeypatch)
+    ports = RecordingContextPorts()
+    ctx = await chat_helpers.build_chat_context_core(
+        _session(), "alice", SimpleNamespace(), SimpleNamespace(),
+        "Hello", "session-a", ports=ports,
+        agent_mode=True, defer_context_shaping=True,
+    )
+    assert ctx.context_length == 32768
+    assert ctx.was_compacted is False
+    assert "context_length" in ports.events
+    assert not any(isinstance(item, tuple) and item[0] == "compact" for item in ports.events)
+    assert not any(isinstance(item, tuple) and item[0] == "trim" for item in ports.events)
+
+
+@pytest.mark.asyncio
+async def test_youtube_sources_are_supplied_by_provider_without_live_fetch(monkeypatch):
+    _block_all_legacy(monkeypatch)
+    ports = RecordingContextPorts()
+    source = {"url": "https://www.youtube.com/watch?v=example", "title": "Reference"}
+    ports.youtube_sources = lambda message, transcripts: [source]
+    result = await chat_helpers.build_chat_context_core(
+        _session(), "alice", SimpleNamespace(), SimpleNamespace(),
+        "Summarize this clip", "session-a", ports=ports, agent_mode=True,
+    )
+    assert source in result.web_sources
 
 
 @pytest.mark.asyncio

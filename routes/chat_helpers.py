@@ -1068,6 +1068,30 @@ class LegacyChatContextPorts:
     def trim(self, messages, context_length):
         return trim_for_context(messages, context_length)
 
+    def youtube_sources(self, message, transcripts):
+        return youtube_prefetch_sources(message, transcripts)
+
+    def normalize_model(self, session):
+        return _normalize_model_id_from_cache(session) or normalize_model_id(
+            session.endpoint_url,
+            session.model,
+            owner=getattr(session, "owner", None),
+        )
+
+    def session_history(self, session):
+        return session.get_context_messages()
+
+    def current_datetime_message(self):
+        from src.user_time import current_datetime_context_message
+
+        return current_datetime_context_message()
+
+    def context_length(self, endpoint_url, model):
+        return get_context_length(endpoint_url, model)
+
+    def estimate_tokens(self, messages):
+        return estimate_tokens(messages)
+
 
 async def build_chat_context(
     sess,
@@ -1346,7 +1370,7 @@ async def build_chat_context_core(
     # YouTube transcripts
     for transcript in preprocessed.youtube_transcripts:
         preface.append(untrusted_context_message("youtube transcript", transcript))
-    for source in youtube_prefetch_sources(
+    for source in ports.youtube_sources(
         preprocessed.text_for_context, preprocessed.youtube_transcripts
     ):
         if not any(existing.get("url") == source["url"] for existing in web_sources):
@@ -1354,18 +1378,14 @@ async def build_chat_context_core(
 
     # Normalize model ID. Prefer cached endpoint models so group chat does not
     # re-hit slow local /models endpoints on every participant turn.
-    norm = _normalize_model_id_from_cache(sess) or normalize_model_id(
-        sess.endpoint_url,
-        sess.model,
-        owner=getattr(sess, "owner", None),
-    )
+    norm = ports.normalize_model(sess)
     if norm:
         sess.model = norm
 
     # Build messages. In Nobody/incognito mode, never read saved session
     # history: the session id may be a temporary wrapper or, in buggy clients, a
     # stale normal session id. Only the ephemeral incognito transcript is safe.
-    messages = preface + (ports.private_messages(session_id) if incognito else sess.get_context_messages())
+    messages = preface + (ports.private_messages(session_id) if incognito else ports.session_history(sess))
 
     # Current date/time — injected as a standalone *user*-role context message
     # placed immediately before the latest user turn, NOT folded into the
@@ -1378,8 +1398,7 @@ async def build_chat_context_core(
     # turn (modulo the genuinely new history entries) and the cache survives.
     if not agent_mode:
         try:
-            from src.user_time import current_datetime_context_message
-            _dt_msg = current_datetime_context_message()
+            _dt_msg = ports.current_datetime_message()
             if messages and messages[-1].get("role") == "user":
                 messages.insert(len(messages) - 1, _dt_msg)
             else:
@@ -1399,7 +1418,7 @@ async def build_chat_context_core(
     if defer_context_shaping:
         context_length = (
             prepared_window.get("context_length")
-            or get_context_length(sess.endpoint_url, sess.model)
+            or ports.context_length(sess.endpoint_url, sess.model)
         )
         was_compacted = False
     else:
@@ -1408,11 +1427,11 @@ async def build_chat_context_core(
             **prepared_window,
         )
     _before_trim_messages = len(messages)
-    _before_trim_tokens = estimate_tokens(messages)
+    _before_trim_tokens = ports.estimate_tokens(messages)
     if not defer_context_shaping:
         messages = ports.trim(messages, context_length)
     _after_trim_messages = len(messages)
-    _after_trim_tokens = estimate_tokens(messages)
+    _after_trim_tokens = ports.estimate_tokens(messages)
     _context_trimmed = _after_trim_messages < _before_trim_messages or _after_trim_tokens < _before_trim_tokens
 
     return ChatContext(
