@@ -100,7 +100,7 @@ as configured in Mnerys.
 
 ## M1 isolated prototype: revision-checked session metadata
 
-The [session revision and concurrency migration plan](SESSION_REVISION_MIGRATION.md) documents the new, **disabled-by-default** SQLAlchemy compare-and-swap metadata port and its actual SQLite concurrency tests. The current production Session model has no revision column; the new writer is **not integrated** into active chat routes or session mutation paths. No schema, database or deployment was modified. Full owner-scoped session CRUD, persistent turn fencing, and all-writer migration remain planned.
+The [session revision and concurrency migration plan](SESSION_REVISION_MIGRATION.md) documents the **disabled-by-default** SQLAlchemy compare-and-swap prototypes: legacy revision-only metadata tests on SQLite plus an incarnation-fenced session metadata/message writer tested on isolated SQLite and PostgreSQL 17. A synthetic PostgreSQL 17 schema/backfill preview is also tested. The [writer inventory](SESSION_WRITER_INVENTORY.md) identifies the legacy routes, tools and jobs that still bypass the new writer. The current Session model lacks revision/incarnation columns; no production schema, database or deployment was modified. Full owner-scoped session CRUD, durable turn fencing and all-writer migration remain planned.
 
 ## M1 incremental implementation: internal TurnService seam
 
