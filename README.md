@@ -70,7 +70,7 @@ These are capabilities inherited from the initial codebase. They are being revie
 
 ### Native development preview (without Docker)
 
-The maintainer's private Mnerys preview runs directly from versioned source using **Python, Uvicorn and systemd**, with a stable Tailscale-only gateway. See the [native preview deployment and limitations](docs/deployment/NATIVE_PREVIEW.md). Private addresses and ports are intentionally not published. The legacy web service was retired after the native preview was validated; its data is preserved.
+The maintainer's private Mnerys preview runs directly from versioned source using **Python, Uvicorn and systemd**, with a stable Tailscale-only gateway. The deployment policy is **validation and rollback**, allowing a brief controlled restart; the automated deployment/rollback workflow remains planned. See the [native preview deployment guide](docs/deployment/NATIVE_PREVIEW.md). Private addresses and ports are intentionally not published. The legacy web service was retired after the native preview was validated; its data is preserved.
 
 ### Docker Compose (alternative development setup)
 

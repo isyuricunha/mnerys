@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib import error
 import io
 import json
+import re
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,6 +58,10 @@ def test_native_preview_docs_do_not_expose_internal_network_addresses():
     doc = (ROOT / "docs/deployment/NATIVE_PREVIEW.md").read_text(encoding="utf-8")
     assert "<TAILSCALE_HOST>" in doc and "<PREVIEW_PORT>" in doc
     assert "systemd" in doc
-    assert "zero downtime" in doc.lower()
-    assert "100.78." not in doc
+    assert "deploy with validation and rollback" in doc.lower()
+    assert "automatic rollback" in doc.lower()
+    assert "not yet automated" in doc.lower()
+    assert "zero downtime" not in doc.lower()
+    assert "blue-green" not in doc.lower()
+    assert not re.search(r"\b100\.(?:\d{1,3}\.){2}\d{1,3}\b", doc)
     assert "/home/" not in doc

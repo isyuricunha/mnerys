@@ -45,24 +45,26 @@ systemctl --user is-active mnerys-preview-edge.service
 
 The preview login page was actually rendered in a headless Chromium browser at **desktop and mobile viewports** without displaying personal conversation data. Full authenticated chat/agent workflows and Tailscale connectivity from the owner's separate client device have **not** yet been end-to-end tested.
 
-## Deployment changes and zero-downtime limitation
+## Deployment policy: validation and rollback
 
-The initial instance is reproducible from a checked-out source revision, private deployment settings and a Python virtual environment. **An automated blue-green promotion pipeline is not yet implemented.**
+**Decision:** Use a native **deploy with validation and rollback**. A brief, controlled interruption when restarting the application is acceptable; prioritize data integrity, repeatability and reliable recovery. The private Tailscale gateway and its fixed port remain configured independently of application releases.
 
-This imported app runs scheduled/background work and uses SQLite locally. Running two live copies against the same state may duplicate background effects or race on state. Conversely, staging on a copy of the data does not automatically preserve writes made to the live instance during promotion. Thus **true zero downtime with data consistency is not yet verified or promised**.
+**Target update workflow (not yet automated):**
 
-Until application-level background-worker isolation and state coordination are implemented:
-
-1. Build and test a candidate from an immutable Git revision with a **separate** virtual environment and isolated test data.
-2. Verify health, readiness, login, compatibility and a rollback plan before any traffic switch.
-3. Preserve the last known healthy release and a safe backup of persistent state.
-4. If safe cutover requires stopping the sole writer or migration, **explain downtime/data risks and obtain specific authorization before proceeding**.
-5. Never activate two background-worker processes on the same production state merely to create a nominal blue-green deployment.
+1. Prepare an immutable candidate release and its own Python virtual environment, without changing the live version.
+2. Run tests and validate the candidate with isolated test data; check compatibility, liveness, readiness and login before promotion.
+3. Keep the last known healthy release and a verified backup of persistent state. Plan reversible migrations before proceeding.
+4. Switch the native `systemd` application service to the validated release with a **short, controlled restart**.
+5. Recheck health, authenticated readiness and login. If any critical check fails, **roll back to the last healthy release**, restart and verify again. Restore data only under an explicitly safe, compatible recovery plan.
 6. Update `/docs`, review/sanitize diffs and screenshots, and publish approved changes to all three remotes.
+
+The imported runtime uses SQLite and runs scheduled/background work. **Do not start two live application workers against the same persistent state**, because duplicate jobs and conflicting writes may result. If a migration or data operation poses additional risk, explain it and request approval before proceeding.
+
+**Current implementation:** the native preview already runs under `systemd` with a private gateway and working health checks. The staged promotion, automatic post-deploy validation and automatic rollback pipeline **still need to be implemented**. Until then, deployment and rollback are manual procedures; the steps above are the agreed target, not a claim of existing automation.
 
 ### Rollback and retired service
 
-In a failure, keep the data and last known release intact, restore the previously verified code and configuration, and validate liveness/readiness before reopening the preview. With this architecture rollback may require a short controlled outage; do not claim otherwise.
+For now, recover manually by selecting the last verified release and compatible configuration, preserving state, restarting the application and revalidating health and readiness. A short service interruption is expected; never replace or roll back persistent data without a verified recovery plan.
 
 The former Odysseus *web app* service remains installed but disabled for recovery purposes, and its original data remains in place. Its service can be reenabled only after validating dependencies, address conflicts and data consistency. This should be a deliberate recovery decision, not an automatic fallback that makes two active background workers share state.
 
