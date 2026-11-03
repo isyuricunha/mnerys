@@ -17,7 +17,7 @@ Keep root documents easy to find:
 - `README.md`
 - `CONTRIBUTING.md`
 - `SECURITY.md`
-- `THREAT_MODEL.md`
+- `docs/security/THREAT_MODEL.md`
 
 Not every named directory exists today; do not invent a parallel documentation store just to match this map.
 

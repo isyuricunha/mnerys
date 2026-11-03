@@ -21,7 +21,7 @@ This spec covers model-context construction in:
 - RAG and personal docs in `src/rag_singleton.py`, `src/rag_vector.py`, `src/rag_manager.py`, and `src/personal_docs.py`;
 - research flows in `src/deep_research.py`, `src/research_handler.py`, and `services/research/research_handler.py`;
 - memory and skills in `src/memory.py` and `services/memory/*`;
-- related policy in `THREAT_MODEL.md`.
+- related policy in `docs/security/THREAT_MODEL.md`.
 
 ## Contract
 

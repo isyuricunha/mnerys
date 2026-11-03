@@ -96,7 +96,7 @@ Keep `AUTH_ENABLED=true` (the default) before binding outside loopback. Do not
 expose this port directly to the public internet. To build a clickable app wrapper:
 
 ```bash
-./build-macos-app.sh
+./scripts/build/build-macos-app.sh
 ```
 
 <details>

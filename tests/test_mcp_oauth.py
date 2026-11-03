@@ -254,7 +254,7 @@ def test_redirect_base_override_is_documented():
 _LAUNCHERS = (
     # file, the export, the uvicorn flag it has to agree with
     ("start-macos.sh", 'export APP_PORT="$PORT"', '--port "$PORT"'),
-    ("build-macos-app.sh", 'export APP_PORT="$PORT"', '--port "$PORT"'),
+    ("scripts/build/build-macos-app.sh", 'export APP_PORT="$PORT"', '--port "$PORT"'),
     ("launch-windows.ps1", "$env:APP_PORT = $Port", "--port $Port"),
 )
 

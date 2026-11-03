@@ -16,8 +16,8 @@ This spec covers development and validation surfaces in:
 - GPU helper scripts `scripts/check-docker-gpu.sh` and `scripts/check-docker-amd-gpu.sh`;
 - `.github/` templates, workflows, and description-check scripts;
 - contributor workflow docs in `CONTRIBUTING.md` and `website/pr-blocker-audit.md`;
-- platform launchers `launch-windows.ps1`, `launcher.py`, `Odysseus.spec`, `build-windows-portable.ps1`, `start-macos.sh`, `build-macos-app.sh`, and `update_windows.bat`;
-- setup/service files such as `setup.py`, `install-service.sh`, and `odysseus-ui.service`.
+- platform launchers `launch-windows.ps1`, `launcher.py`, `Odysseus.spec`, `scripts/build/build-windows-portable.ps1`, `start-macos.sh`, `scripts/build/build-macos-app.sh`, and `update_windows.bat`;
+- setup/service files such as `setup.py`, `scripts/legacy/odysseus/install-service.sh`, and `scripts/legacy/odysseus/odysseus-ui.service`.
 
 ## Test Runtime
 
@@ -119,9 +119,9 @@ AMD helper behavior:
 Native platform launchers:
 
 - `launch-windows.ps1` requires Python 3.11+, creates `venv`, installs `requirements.txt`, runs `setup.py`, discovers per-user Git Bash installs where possible, warns when Git Bash is missing, and starts uvicorn on port 7000 by default.
-- `launcher.py`, `Odysseus.spec`, and `build-windows-portable.ps1` own the PyInstaller-style portable Windows launcher path, including app-root/data-dir differences covered by `src.runtime_paths`.
+- `launcher.py`, `Odysseus.spec`, and `scripts/build/build-windows-portable.ps1` own the PyInstaller-style portable Windows launcher path, including app-root/data-dir differences covered by `src.runtime_paths`.
 - `start-macos.sh` reads `.env`, defaults to port 7860 to avoid AirPlay conflicts, prefers Homebrew arm64 Python, installs/tolerates Homebrew Cookbook deps, handles Chroma package conflicts, starts ChromaDB for native runs, runs `setup.py`, and starts uvicorn.
-- `build-macos-app.sh` builds a launcher app around the existing repo venv and logs to `logs/odysseus-app.log`.
+- `scripts/build/build-macos-app.sh` builds a launcher app around the existing repo venv and logs to `logs/odysseus-app.log`.
 - `update_windows.bat` owns the tested Windows Docker update flow.
 
 ## Scripts And CLI
@@ -224,7 +224,7 @@ Maintained frontend publication requires repository-owned LF text attributes on 
 
 ## Chroma Mount And Focused Safety Regressions
 
-All three Compose variants mount `chromadb-data:/data`, matching the current image configuration rather than pre-1.0 `/chroma/chroma`. Existing writable-layer data needs rescue before container recreation; `docs/chromadb-volume-migration.md` describes writer shutdown/cold backup, preserved backup image, SQLite/HNSW checks, empty-volume seeding, isolated staging and count comparison. `website/backup-restore.md` links that procedure. Static YAML/document tests cover declared paths and safety markers; they do not execute or certify migration against a live Chroma image.
+All three Compose variants mount `chromadb-data:/data`, matching the current image configuration rather than pre-1.0 `/chroma/chroma`. Existing writable-layer data needs rescue before container recreation; `docs/deployment/migrations/chromadb-volume-migration.md` describes writer shutdown/cold backup, preserved backup image, SQLite/HNSW checks, empty-volume seeding, isolated staging and count comparison. `website/backup-restore.md` links that procedure. Static YAML/document tests cover declared paths and safety markers; they do not execute or certify migration against a live Chroma image.
 
 Focused regressions now cover invalid history truncation preserving messages, failed bulk Trash moves/selective expunge, disabled-auth app configuration gates, durable cleanup message counts/delete-boundary races and generated-image ownership/cache/attribution. Test presence and historical counts do not establish a new successful run; runtime validation evidence is separate.
 

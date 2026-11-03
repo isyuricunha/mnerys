@@ -19,6 +19,7 @@
   <a href="#capabilities">Capabilities</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="docs/ROADMAP.md">Roadmap</a> ·
+  <a href="docs/README.md">Docs</a> ·
   <a href="#project-status">Project Status</a> ·
   <a href="#license-and-credits">License</a>
 </p>
@@ -143,7 +144,7 @@ The image in the README header is a brand illustration, not an application scree
 
 Mnerys is in early development and the contributor workflow is being defined. You can follow the project or open an issue in the [GitHub repository](https://github.com/isyuricunha/mnerys) when access is available.
 
-Some imported documentation, including `CONTRIBUTING.md` and the root `ROADMAP.md`, still describes the former project's workflow and is retained for provenance. **[docs/ROADMAP.md](docs/ROADMAP.md) is the current Mnerys roadmap.**
+Some imported documentation, including `CONTRIBUTING.md`, still describes the former project's workflow. The inherited [Odysseus roadmap](docs/archive/odysseus/ROADMAP.md) is preserved as historical reference; **[docs/ROADMAP.md](docs/ROADMAP.md) is the current Mnerys roadmap**. Browse the [documentation index](docs/README.md) for architecture, security, deployment and archives.
 
 ## License and Credits
 

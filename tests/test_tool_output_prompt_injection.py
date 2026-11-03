@@ -1,6 +1,6 @@
 """Regression test: non-native tool-call results must be wrapped as untrusted.
 
-THREAT_MODEL.md requires that tool output (shell/python stdout, file reads,
+docs/security/THREAT_MODEL.md requires that tool output (shell/python stdout, file reads,
 fetched pages, email bodies, MCP results — anything sourced outside the
 server) reach the model via ``untrusted_context_message`` so it is treated as
 data, not instructions.
@@ -62,7 +62,7 @@ def test_non_native_tool_results_are_wrapped_untrusted():
     assert (msg.get("metadata") or {}).get("trusted") is False, (
         "SECURITY: non-native tool results must be wrapped via "
         "untrusted_context_message (metadata.trusted=False), like skills (#788) "
-        "and escalation traces (#275). See THREAT_MODEL.md."
+        "and escalation traces (#275). See docs/security/THREAT_MODEL.md."
     )
     assert msg["role"] == "user"
     assert "Source: tool execution results" in msg["content"]

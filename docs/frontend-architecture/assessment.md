@@ -82,8 +82,8 @@ initialization in new APIs, and helpers grouped by convenience instead of purpos
 | Runtime-generated assets | `/api/generated-image/...` uses a confined data path and owner handling; report/render endpoints, Blob manifests/icons and uploads are runtime concerns outside static source publication. |
 | Docker | `Dockerfile` copies app code and existing static output; `.dockerignore` excludes node_modules. Node/npm in the image support Browser MCP, not frontend startup. |
 | Native installers | `setup.py`, `start-macos.sh`, `launch-windows.ps1`, systemd service: Python dependencies/startup consume the checkout. No frontend build is invoked. |
-| Windows desktop | `Odysseus.spec` and `build-windows-portable.ps1` include the whole static directory. Maintain output here rather than require a new bundle path or compiler. |
-| macOS | `build-macos-app.sh` creates a launcher around the Python checkout. Static serving follows the existing checkout path. Installer execution was not performed on Linux. |
+| Windows desktop | `Odysseus.spec` and `scripts/build/build-windows-portable.ps1` include the whole static directory. Maintain output here rather than require a new bundle path or compiler. |
+| macOS | `scripts/build/build-macos-app.sh` creates a launcher around the Python checkout. Static serving follows the existing checkout path. Installer execution was not performed on Linux. |
 
 ## PWA limitations and test coverage
 

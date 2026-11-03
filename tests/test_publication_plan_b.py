@@ -29,7 +29,7 @@ def test_retained_artifacts_match_distributed_provenance_and_notices():
 
 
 def test_removed_resource_ledger_has_no_runtime_references():
-    ledger = (ROOT / 'PUBLICATION_ASSET_DECISIONS.md').read_text()
+    ledger = (ROOT / 'docs/archive/odysseus/publication/PUBLICATION_ASSET_DECISIONS.md').read_text()
     san_entries = re.findall(r'^- SAN-\d+: `([^`]+)`$', ledger, re.M)
     assert len(san_entries) == 21
 
@@ -63,7 +63,7 @@ def test_removed_resource_ledger_has_no_runtime_references():
         assert not (ROOT / path).exists(), f"omitted asset must not exist: {path}"
         filename = Path(path).name
         for name in tracked:
-            if name in {"PUBLICATION_ASSET_DECISIONS.md", "tests/test_publication_plan_b.py"}:
+            if name in {"docs/archive/odysseus/publication/PUBLICATION_ASSET_DECISIONS.md", "tests/test_publication_plan_b.py"}:
                 continue  # Historical ledger and test assertions are intentionally non-resource references.
             file = ROOT / name
             if not file.is_file():
@@ -133,7 +133,7 @@ def test_2fa_setup_still_generates_a_server_png():
 
 
 def test_distribution_paths_include_all_notices():
-    for name in ['Odysseus.spec', 'build-windows-portable.ps1', 'build-macos-app.sh', 'Dockerfile']:
+    for name in ['Odysseus.spec', 'scripts/build/build-windows-portable.ps1', 'scripts/build/build-macos-app.sh', 'Dockerfile']:
         text = (ROOT / name).read_text()
         assert 'licenses' in text and 'THIRD_PARTY_PROVENANCE.json' in text and 'ACKNOWLEDGMENTS.md' in text
     ignore = (ROOT / '.dockerignore').read_text()

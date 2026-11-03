@@ -47,7 +47,7 @@ body:
         - Docker (docker compose up)
         - Manual Python install (pip / venv)
         - Windows native (launch-windows.ps1)
-        - macOS app (build-macos-app.sh / start-macos.sh)
+        - macOS app (scripts/build/build-macos-app.sh / start-macos.sh)
         - Other (describe in the reproduction steps below)
     validations:
       required: true

@@ -1,5 +1,7 @@
 # Contributing to Odysseus
 
+> **Historical upstream contributor guidance.** These instructions were imported with the original codebase and may not describe the current Mnerys workflow. Consult the [Mnerys documentation index](docs/README.md), [Mnerys roadmap](docs/ROADMAP.md) and [maintainer handbook](docs/maintainers/README.md) before following an upstream-era procedure.
+
 Thanks for helping. The project is moving quickly, so the best contributions are focused, easy to review, and easy to test.
 
 ## Branch model

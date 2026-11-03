@@ -22,7 +22,7 @@ Usage:
 
     scripts/ref_parity_audit.py --source public/dev --target lab --since 2026-08-10
 
-Read `docs/ref-parity-audit.md` before acting on the output: the line sampling
+Read `docs/archive/odysseus/reviews/ref-parity-audit.md` before acting on the output: the line sampling
 is a heuristic and the report labels which of its verdicts are exact.
 """
 import argparse

@@ -8,7 +8,7 @@ body:
       value: |
         **Before submitting:** search [open issues](https://github.com/odysseus-dev/odysseus/issues)
         and [discussions](https://github.com/odysseus-dev/odysseus/discussions) first.
-        Feature requests that duplicate [ROADMAP.md](https://github.com/odysseus-dev/odysseus/blob/main/ROADMAP.md)
+        Feature requests that duplicate [ROADMAP.md](https://github.com/isyuricunha/mnerys/blob/main/docs/ROADMAP.md)
         or an existing open issue will be closed as duplicates.
 
         If your idea needs community input before it becomes a concrete proposal,

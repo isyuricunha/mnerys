@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build a downloadable macOS launcher app + .dmg for Odysseus.
 #
-#   ./build-macos-app.sh
+#   ./scripts/build/build-macos-app.sh
 #
 # Produces:
 #   dist/Odysseus.app   — double-click: starts the local server (using this
@@ -13,7 +13,7 @@
 # so rebuild if you move the repo. Override the port with ODYSSEUS_PORT.
 set -e
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP_NAME="Odysseus"
 INSTALL_DIR="$REPO_DIR"
 PORT="${ODYSSEUS_PORT:-7860}"

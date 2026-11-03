@@ -62,7 +62,7 @@ unpacked, and contributes no deployed JavaScript or runtime dependency.
    invoking the publisher. Native installers already obtain tracked static files.
 3. Docker's current `COPY . .` includes the output. `.dockerignore` excludes
    `node_modules/`. The Docker runtime and entrypoint require no frontend build.
-4. `Odysseus.spec` and `build-windows-portable.ps1` already include `static/`.
+4. `Odysseus.spec` and `scripts/build/build-windows-portable.ps1` already include `static/`.
    The macOS wrapper uses the Python checkout and its static assets. Neither
    needs the source tree or frontend tooling to serve the proof.
 5. A release producer runs the checks before packaging and distributes the

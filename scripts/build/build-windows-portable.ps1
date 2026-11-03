@@ -12,11 +12,12 @@
   The app then keeps using its normal filesystem layout when frozen.
 
   Usage:
-    powershell -ExecutionPolicy Bypass -File .\build-windows-portable.ps1
+    powershell -ExecutionPolicy Bypass -File .\scripts\build\build-windows-portable.ps1
 #>
 
 $ErrorActionPreference = "Stop"
-Set-Location -Path $PSScriptRoot
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+Set-Location -Path $RepoRoot
 
 function Write-Step($msg) { Write-Host ""; Write-Host ("==> " + $msg) -ForegroundColor Cyan }
 function Fail($msg) {
@@ -72,5 +73,5 @@ if ($LASTEXITCODE -ne 0) { Fail "PyInstaller build failed." }
 
 Write-Host ""
 Write-Host "Build complete." -ForegroundColor Green
-Write-Host "Portable app folder: $PSScriptRoot\dist\Odysseus" -ForegroundColor Green
+Write-Host "Portable app folder: $RepoRoot\dist\Odysseus" -ForegroundColor Green
 Write-Host "Distribute the whole folder (or zip it) so static assets and scripts stay with the exe." -ForegroundColor Green

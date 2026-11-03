@@ -6,7 +6,7 @@ This decision applies to the candidate tip, not reconstructed history or the
 six legacy-public-baseline-only gates.
 
 SAN-158, SAN-159, SAN-160, SAN-161, SAN-163 and SAN-164 retain their exact bytes.
-[THIRD_PARTY_PROVENANCE.json](THIRD_PARTY_PROVENANCE.json) ties each artifact to
+[THIRD_PARTY_PROVENANCE.json](../../../../THIRD_PARTY_PROVENANCE.json) ties each artifact to
 its upstream identity, archive member, hash and notices in `licenses/`.
 Portable/PyInstaller, macOS launcher and Docker packaging include those notices.
 
@@ -22,7 +22,7 @@ Fira Code/monospace is the UI default. Persisted `gohu` and `GohuFont` preferenc
 map to `mono` in early bootstrap, theme application and the font selector.
 
 SAN-166 replaces both copied catalog snapshots with independently authored
-empty lists. See [runtime catalog behavior](services/hwfit/data/README.md).
+empty lists. See [runtime catalog behavior](../../../../services/hwfit/data/README.md).
 Tests use synthetic ranking inputs, with factual identifiers retained only where
 existing regression tests use them as selectors. Sizes/dates/capabilities are
 test inputs, not copied model metadata or production recommendations.
@@ -76,7 +76,7 @@ The original SHA-256 hashes are recorded below. Ambiguous third-party assets (su
 
 - RESTORE-001: `assets/branding/odysseus-browser.jpg` (SHA-256: `96bc894113d3db1a8e19535047e85fef7bfe7e643d45973d6effb945dce667df`): README interface screenshot introduced by pewdiepie-archdaemon in commit "Refresh README screenshot".
 - RESTORE-002: `assets/branding/odysseus-wordmark.png` (SHA-256: `5e20708f9709735c66692c0cffc74734d61cfa256d48f9095c6870bcd53f4552`): README wordmark artwork introduced by pewdiepie-archdaemon in commit "Refresh README presentation".
-- RESTORE-003: `assets/branding/odysseus.jpg` (SHA-256: `cd5e87b12f1e9e7baca6a6c5e95012130c9e26c6e31526e864eaf17096fcd05e`): Project branding image from commit e5c99a5eee62fc7df0e2dca5e46cbc87399047d6 ("Odysseus v1.0") by pewdiepie-archdaemon, used by build-macos-app.sh for launcher icon generation.
+- RESTORE-003: `assets/branding/odysseus.jpg` (SHA-256: `cd5e87b12f1e9e7baca6a6c5e95012130c9e26c6e31526e864eaf17096fcd05e`): Project branding image from commit e5c99a5eee62fc7df0e2dca5e46cbc87399047d6 ("Odysseus v1.0") by pewdiepie-archdaemon, used by scripts/build/build-macos-app.sh for launcher icon generation.
 - RESTORE-004: `website/bg.webm` (SHA-256: `157f732539a6072d55164da23d65afa9423782728dd067154867fcebb176fb35`): Landing page background video from commit e5c99a5eee62fc7df0e2dca5e46cbc87399047d6 ("Odysseus v1.0") by pewdiepie-archdaemon.
 - RESTORE-005: `website/chat.webm` (SHA-256: `d69f319192cec2cac1831e08ee99ae902398f1b163021e42b3fda05a0d7ab4d5`): Chat demo video from commit e5c99a5eee62fc7df0e2dca5e46cbc87399047d6 ("Odysseus v1.0") by pewdiepie-archdaemon.
 - RESTORE-006: `website/compare.webm` (SHA-256: `90d8c68dbc2ac3029b258598a7e2c2c5c8f5d6d702b9d31f0c729e5517093f51`): Model comparison demo video from commit e5c99a5eee62fc7df0e2dca5e46cbc87399047d6 ("Odysseus v1.0") by pewdiepie-archdaemon.

@@ -136,7 +136,7 @@ where you run it matters:
 > `chromadb-data` at the wrong path (`/chroma/chroma`), so the volume was
 > always empty while live data accumulated in the container's writable layer
 > under `/data`. If you have a running pre-#6166 ChromaDB container, follow
-> [docs/chromadb-volume-migration.md](https://github.com/odysseus-dev/odysseus/blob/dev/docs/chromadb-volume-migration.md)
+> [docs/deployment/migrations/chromadb-volume-migration.md](../docs/deployment/migrations/chromadb-volume-migration.md)
 > to rescue that data before recreating or deleting existing containers. The
 > migration guide provides step-by-step instructions for recovery, backup
 > verification, volume seeding, rollback, and re-indexing.

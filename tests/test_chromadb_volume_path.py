@@ -157,7 +157,7 @@ def test_helper_legacy_check_catches_path_with_mount_option_suffix():
 # Regression tests for ChromaDB migration safety invariants (PR #6166 audit)
 # ---------------------------------------------------------------------------
 
-MIGRATION_DOC = ROOT / "docs" / "chromadb-volume-migration.md"
+MIGRATION_DOC = ROOT / "docs" / "deployment" / "migrations" / "chromadb-volume-migration.md"
 
 
 def test_migration_guide_requires_quiescence_before_backup():

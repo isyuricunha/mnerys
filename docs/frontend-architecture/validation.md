@@ -356,7 +356,7 @@ Syntax commands executed:
 bash -c 'shopt -s globstar nullglob; for f in static/app.js static/js/**/*.js frontend/src/**/*.js scripts/check_frontend.mjs tests/frontendArchitecture.test.mjs; do node --check "$f" || exit; done'
 /home/alteixeira20/.venvs/odysseus-pr-6495/bin/python -m compileall -q app.py core routes src services scripts tests
 git diff --check
-git diff --exit-code -- static app.py Dockerfile .dockerignore Odysseus.spec build-macos-app.sh build-windows-portable.ps1 launcher.py core routes src services
+git diff --exit-code -- static app.py Dockerfile .dockerignore Odysseus.spec scripts/build/build-macos-app.sh scripts/build/build-windows-portable.ps1 launcher.py core routes src services
 git check-attr text eol -- frontend/src/shared/actionMenuOrder.js static/js/actionMenuOrder.js
 sha256sum frontend/src/shared/actionMenuOrder.js static/js/actionMenuOrder.js
 ```

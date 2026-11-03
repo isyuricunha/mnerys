@@ -128,7 +128,7 @@ Some non-route tool/script paths can index ownerless or arbitrary directories an
 ## Optional And Degraded Behavior
 
 - ChromaDB/FastEmbed are default installed dependencies, but Chroma can be offline or unreachable.
-- Native Chroma defaults to `localhost:8100`; Docker uses the `chromadb:8000` compose service with `chromadb-data:/data` in all three Compose variants. Pre-fix containers can hold live vectors in their writable layer; preserve/rescue that data before recreation using `docs/chromadb-volume-migration.md`.
+- Native Chroma defaults to `localhost:8100`; Docker uses the `chromadb:8000` compose service with `chromadb-data:/data` in all three Compose variants. Pre-fix containers can hold live vectors in their writable layer; preserve/rescue that data before recreation using `docs/deployment/migrations/chromadb-volume-migration.md`.
 - HTTP embeddings can fall back to FastEmbed; when both lanes exist, lane separation avoids Chroma dimension conflicts.
 - MarkItDown is optional for Office/EPUB extraction; chat attachments and personal directory indexing have clear degraded behavior, while direct RAG upload does not share the same extraction path.
 - PyMuPDF is optional, unlocks PDF form/render/fill paths, and carries AGPL implications when installed.

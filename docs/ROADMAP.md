@@ -3,7 +3,7 @@
 > **Mnerys · Built to be yours.**
 >
 > **Status:** product roadmap and architectural direction, not a list of already shipped features.
-> **Source of truth:** this document describes Mnerys itself. The root `ROADMAP.md` is an inherited, historical Odysseus document and is **not** Mnerys's development plan.
+> **Source of truth:** this document describes Mnerys itself. The archived [Odysseus roadmap](archive/odysseus/ROADMAP.md) is an inherited historical document and is **not** Mnerys's development plan.
 
 ## Product direction
 
@@ -157,4 +157,4 @@ Running `mnerys` without arguments should open the TUI **when attached to an int
 - Every milestone is **planned** until merged code, tests and verified runtime behavior justify marking it implemented.
 - Record key design decisions and migration constraints under `/docs` alongside code changes. Keep the README linked to this roadmap.
 - Public docs use placeholders; operational/private addresses and credentials stay outside Git.
-- The inherited root `ROADMAP.md` is retained for provenance. **Do not add Mnerys plans to that historical document.**
+- The inherited [Odysseus roadmap](archive/odysseus/ROADMAP.md) is retained for provenance. **Do not add Mnerys plans to that historical document.**

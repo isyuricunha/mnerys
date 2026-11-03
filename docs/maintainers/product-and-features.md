@@ -27,7 +27,7 @@ A Product Owner proposal is already product-approved; it is not automatically te
 
 ## Community or maintainer initiated
 
-Community proposals start as a Feature Request issue. Check [ROADMAP.md](../../ROADMAP.md) and existing issues first; take early ideas to [Discussions](https://github.com/odysseus-dev/odysseus/discussions/categories/ideas).
+Community proposals start as a Feature Request issue. Check [ROADMAP.md](../archive/odysseus/ROADMAP.md) and existing issues first; take early ideas to [Discussions](https://github.com/odysseus-dev/odysseus/discussions/categories/ideas).
 
 ```text
 Feature proposal

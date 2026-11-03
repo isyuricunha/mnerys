@@ -31,13 +31,13 @@ This spec covers current security and trust-boundary behavior in:
 - `companion/routes.py` and `companion/pairing.py`;
 - `routes/auth_routes.py`, `routes/api_token_routes.py`, and canonical `routes/vault/vault_routes.py` plus its top-level compatibility shim;
 - admin-gated call sites in route files;
-- `THREAT_MODEL.md` and `SECURITY.md`.
+- `docs/security/THREAT_MODEL.md` and `SECURITY.md`.
 
 ## Trust Boundary
 
 Odysseus is a trusted-user private-network app. Admins intentionally have powerful local capabilities: shell, files, email, calendar, MCP, model serving, vault, settings, and API token management. The security model prevents unauthenticated access, non-admin escalation, prompt-injection through untrusted content, and accidental exposure of internal services.
 
-`THREAT_MODEL.md` owns high-level security framing, but implementation claims here should be verified against current code when the threat model is stale. This spec records the implementation map that contributors should check before changing auth or untrusted-context flows. Security-header runtime details live in `runtime.md`.
+`docs/security/THREAT_MODEL.md` owns high-level security framing, but implementation claims here should be verified against current code when the threat model is stale. This spec records the implementation map that contributors should check before changing auth or untrusted-context flows. Security-header runtime details live in `runtime.md`.
 
 ## Auth Ownership
 
@@ -180,5 +180,5 @@ Upload routes distinguish disabled-auth operation from unavailable/unconfigured 
 - Token scopes remain coarse for some surfaces.
 - Auth policy, scoped tokens, and request authority have focused regression tests; full middleware composition and live proxy deployments still need separate validation.
 - Codex/Claude scoped route enforcement still needs stronger regression coverage.
-- `THREAT_MODEL.md` still has stale token-scope and `/api/v1/chat` SSRF gap text that should be reconciled with current route validation.
+- `docs/security/THREAT_MODEL.md` still has stale token-scope and `/api/v1/chat` SSRF gap text that should be reconciled with current route validation.
 - The Default/Local owner contract is canonical but only incrementally adopted; route helper `""`, chat/agent `None`, SQL/JSON null-owner compatibility, and calendar fallback owner behavior still need domain-by-domain migration decisions.

@@ -36,4 +36,4 @@ Operator-mounted trust, custom engines, persisted packages and independently man
 
 ## Public fixture provenance
 
-The public CA inventory comes from the incident's [roots](https://emudhra.we-have-a-problem.com/roots.json) and [intermediates](https://emudhra.we-have-a-problem.com/impacted-intermediates.json). The additional cross-signed issuer and fourteen chain fixtures come from [chains.zip](https://emudhra.we-have-a-problem.com/chains.zip), SHA-256 `7b949956955fc501a30f4d98d2f513d34c0bbbe92e29a968194c96e097ce2345`. Fixtures contain public certificates only. See [the fixture notes](../tests/fixtures/ca-trust/README.md).
+The public CA inventory comes from the incident's [roots](https://emudhra.we-have-a-problem.com/roots.json) and [intermediates](https://emudhra.we-have-a-problem.com/impacted-intermediates.json). The additional cross-signed issuer and fourteen chain fixtures come from [chains.zip](https://emudhra.we-have-a-problem.com/chains.zip), SHA-256 `7b949956955fc501a30f4d98d2f513d34c0bbbe92e29a968194c96e097ce2345`. Fixtures contain public certificates only. See [the fixture notes](../../tests/fixtures/ca-trust/README.md).

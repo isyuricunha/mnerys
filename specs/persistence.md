@@ -130,7 +130,7 @@ ChromaDB/vector stores are optional durable storage outside `data/app.db`; missi
 
 `src/cleanup_service.py` derives preview and deletion eligibility from durable message rows, not the session counter. Recent-session protection uses a limited ID query; final DELETE rechecks owner/archive/age/importance/message threshold. DELETE RETURNING identifies cleanup-owned deletions where supported; legacy SQLite uses rowcount plus survivor queries, with estimated space attribution bounded to the deleted count. Session-cache eviction occurs after commit.
 
-The standard, AMD and NVIDIA Compose files mount `chromadb-data` at `/data`; native Chroma uses `data/chroma/`. Pre-fix Docker stores may have live data in the old container writable layer despite an empty volume at `/chroma/chroma`; recreation can destroy that layer. `docs/chromadb-volume-migration.md` documents cold rescue, image preservation, empty-volume seeding and staging/count verification before cutover. This is an operator procedure, not startup migration or proof of data recovery.
+The standard, AMD and NVIDIA Compose files mount `chromadb-data` at `/data`; native Chroma uses `data/chroma/`. Pre-fix Docker stores may have live data in the old container writable layer despite an empty volume at `/chroma/chroma`; recreation can destroy that layer. `docs/deployment/migrations/chromadb-volume-migration.md` documents cold rescue, image preservation, empty-volume seeding and staging/count verification before cutover. This is an operator procedure, not startup migration or proof of data recovery.
 
 ## Current Gaps
 

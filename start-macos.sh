@@ -132,7 +132,7 @@ if [ -z "$PY" ] || [ ! -x "$PY" ]; then
 fi
 
 # 3. Python environment + dependencies (kept inside the repo, in venv/).
-#    Named `venv` to match the manual steps and build-macos-app.sh, so the
+#    Named `venv` to match the manual steps and scripts/build/build-macos-app.sh, so the
 #    clickable .app reuses this same environment.
 VENV_PY="./venv/bin/python3"
 if [ ! -x "$VENV_PY" ] || ! "$VENV_PY" -m pip --version >/dev/null 2>&1; then
