@@ -68,7 +68,11 @@ These are capabilities inherited from the initial codebase. They are being revie
 
 ## Quick Start
 
-### Docker Compose (development preview)
+### Native development preview (without Docker)
+
+The maintainer's private Mnerys preview runs directly from versioned source using **Python, Uvicorn and systemd**, with a stable Tailscale-only gateway. See the [native preview deployment and limitations](docs/deployment/NATIVE_PREVIEW.md). Private addresses and ports are intentionally not published. The legacy web service was retired after the native preview was validated; its data is preserved.
+
+### Docker Compose (alternative development setup)
 
 **Requirements:** Git and Docker with the Compose plugin. The repository is currently private, so cloning requires access.
 
