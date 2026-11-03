@@ -11,6 +11,7 @@ from src.agent_runtime.authority import RequestAuthority
 from src.gateway_admission import AdmittedSession, require_admitted_session
 from src.gateway_turn_authority import authority_for_admitted_turn
 from src.tool_policy import ToolPolicy
+from src.tool_approvals import ExactToolApproval
 from src.turn_service import TurnService, TurnStream, turn_service
 
 
@@ -31,6 +32,7 @@ class GatewayTurns:
         image_attachment: bool = False,
         capabilities: Iterable[str] = (),
         internal_tool_request: bool,
+        exact_approval: ExactToolApproval | None = None,
     ) -> RequestAuthority:
         """Build server-owned authority before this admitted session executes."""
         return authority_for_admitted_turn(
@@ -44,6 +46,7 @@ class GatewayTurns:
             image_attachment=image_attachment,
             capabilities=capabilities,
             internal_tool_request=internal_tool_request,
+            exact_approval=exact_approval,
         )
 
     def start_detached(

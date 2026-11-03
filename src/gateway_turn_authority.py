@@ -10,6 +10,7 @@ from src.agent_runtime.authority import RequestAuthority, create_request_authori
 from src.gateway_admission import AdmittedSession, AdmissionDenied, require_admitted_session
 from src.gateway_execution_policy import execution_limits_for_admission
 from src.tool_policy import ToolPolicy
+from src.tool_approvals import ExactToolApproval, PendingToolApproval, _normalized_workspace
 
 
 def authority_for_admitted_turn(
@@ -24,6 +25,7 @@ def authority_for_admitted_turn(
     image_attachment: bool = False,
     capabilities: Iterable[str] = (),
     internal_tool_request: bool,
+    exact_approval: ExactToolApproval | None = None,
 ) -> RequestAuthority:
     """Bind policy to an admitted owner/session, including delegated limits.
 
@@ -34,7 +36,31 @@ def authority_for_admitted_turn(
         raise AdmissionDenied(403, "Invalid server turn authority context")
 
     owner = admission.principal.owner_id
-    if internal_tool_request:
+    if exact_approval is not None:
+        if admission.principal.delegated or internal_tool_request:
+            raise AdmissionDenied(403, "Tool approval requires interactive user authority")
+        if not isinstance(exact_approval, ExactToolApproval):
+            raise AdmissionDenied(403, "Invalid server tool approval")
+        pending = exact_approval.pending
+        if (
+            not isinstance(pending, PendingToolApproval)
+            or pending.owner != str(owner or "").strip().casefold()
+            or pending.session_id != session_id
+            or pending.workspace != _normalized_workspace(workspace)
+        ):
+            raise AdmissionDenied(409, "Approval does not belong to this session or workspace")
+        original = pending.request_authority
+        if original is not None and (
+            not isinstance(original, RequestAuthority)
+            or original.owner != str(owner or "").strip().casefold()
+            or original.session_id != session_id
+            or _normalized_workspace(original.workspace) != pending.workspace
+        ):
+            raise AdmissionDenied(409, "Approval authority is not bound to this session")
+        authority = original or RequestAuthority.empty(
+            owner=owner, session_id=session_id, workspace=workspace,
+        )
+    elif internal_tool_request:
         authority = RequestAuthority.empty(
             owner=owner, session_id=session_id, workspace=workspace,
         ).restrict(policy)

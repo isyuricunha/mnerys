@@ -3559,13 +3559,8 @@ def setup_chat_routes(
                 _explicit_browser_intent or _external_discovery_intent
             ) else ()),
             internal_tool_request=is_internal_tool_request(request),
+            exact_approval=exact_tool_approval,
         )
-        if exact_tool_approval is not None:
-            from src.agent_runtime.authority import RequestAuthority
-            _request_authority = (
-                exact_tool_approval.pending.request_authority
-                or RequestAuthority.empty(owner=_user, session_id=session, workspace=workspace)
-            ).restrict(tool_policy)
         _turn_contract = None
         # Image models execute directly, not through the text-agent inventory.
         # Keep the permission policy above, but do not apply routing omissions
