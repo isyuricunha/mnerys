@@ -5,7 +5,10 @@ import subprocess
 
 from src.runtime_paths import get_app_root, get_default_data_dir
 
-APP_VERSION = "1.0.3"
+# The source checkout starts at Mnerys 0.1.0. Release images inject the
+# verified semantic tag at build time; native development builds keep their
+# separate source commit/build revision for provenance.
+APP_VERSION = os.getenv("MNERYS_RELEASE_VERSION", "0.1.0").strip() or "0.1.0"
 BUILTIN_SKILLS_DIR = os.path.join(get_app_root(), "resources", "skills")
 # Identifies the private maintainer-preview build without changing the public
 # application semver used by release and readiness checks. Keep the API/UI

@@ -130,7 +130,7 @@ Running `mnerys` without arguments should open the TUI **when attached to an int
 
 ### M6 — Installer, operational reliability and first releases
 
-**Planned; some deployment foundations already exist.**
+**Partially implemented.** The [CI-gated semantic-release automation](deployment/RELEASE_AUTOMATION.md) and reviewed [0.1.0 baseline notes](releases/0.1.0.md) are prepared; a successful GitHub release, image publication and end-to-end installation validation remain unverified.
 
 - Document distinct installation profiles: **lightweight remote CLI/TUI client**, **native full server**, and **optional Docker Compose**.
 - Maintain a persistent private preview over Tailscale with a stable endpoint, real checks, controlled restarts and verified rollback. **Strict zero downtime is not a requirement.**

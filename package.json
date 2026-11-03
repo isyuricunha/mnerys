@@ -14,6 +14,8 @@
   "devDependencies": {
     "@antithesishq/bombadil": "^0.7.0",
     "@playwright/test": "^1.62.1",
-    "acorn": "8.19.0"
+    "acorn": "8.19.0",
+    "conventional-changelog-conventionalcommits": "10.4.1",
+    "semantic-release": "25.0.9"
   }
 }

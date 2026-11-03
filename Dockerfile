@@ -16,6 +16,10 @@ RUN bash /usr/local/bin/build-realesrgan-wheels.sh /wheels
 
 FROM python:3.14.9-slim
 
+# The release publishing workflow injects the exact tag version at build time.
+ARG MNERYS_RELEASE_VERSION=0.1.0
+ENV MNERYS_RELEASE_VERSION=${MNERYS_RELEASE_VERSION}
+
 # System deps. tmux is required by Cookbook for background downloads/serves.
 # openssh-client is required for Cookbook remote server tests, setup, probes,
 # downloads, and serves from Docker installs.

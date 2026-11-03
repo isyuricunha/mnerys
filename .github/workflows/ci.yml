@@ -107,6 +107,8 @@ jobs:
           node --check scripts/check_frontend.mjs
       - name: Test frontend architecture gates and stateless proof
         run: node --test tests/frontendArchitecture.test.mjs
+      - name: Verify release versioning and Conventional Commit policy
+        run: node --test tests/release/semantic_release.test.mjs
 
   python-tests:
     name: Python tests (pytest ${{ matrix.shard }})

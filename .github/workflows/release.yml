@@ -1,0 +1,125 @@
+name: Release (semantic-release)
+
+# Publish only after the complete blocking CI succeeds on a trusted main push.
+# A workflow_run with write permissions must never consume PR artifacts.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: mnerys-production-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish verified Mnerys release
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    outputs:
+      release_tag: ${{ steps.publish.outputs.release_tag }}
+    steps:
+      - name: Check out the exact validated commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify CI commit is still main HEAD
+        id: gate
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          main_head="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [[ "$main_head" != "$EXPECTED_SHA" ]]; then
+            echo 'A newer commit is on main; only that commit may publish.'
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "current=true" >> "$GITHUB_OUTPUT"
+
+      - name: Set up stable Node.js
+        if: steps.gate.outputs.current == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.22.2'
+          cache: npm
+
+      - name: Install locked release tooling
+        if: steps.gate.outputs.current == 'true'
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Bootstrap 0.1.0 or run semantic-release
+        id: publish
+        if: steps.gate.outputs.current == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin --tags
+          mapfile -t prior_tags < <(git tag --points-at "$RELEASE_SHA" --list 'v[0-9]*')
+          if ! git tag --list 'v[0-9]*' | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            # semantic-release does not support an initial 0.x release.
+            test -s docs/releases/0.1.0.md
+            gh release create v0.1.0 \
+              --target "$RELEASE_SHA" \
+              --title "Mnerys v0.1.0" \
+              --notes-file docs/releases/0.1.0.md
+          else
+            npx --no-install semantic-release
+          fi
+
+          # GITHUB_TOKEN-created tags do not trigger push workflows.
+          # Return only a tag newly created by this run for reusable image jobs.
+          git fetch origin --tags
+          release_tag=""
+          while IFS= read -r candidate; do
+            [[ "$candidate" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+            already_present=false
+            for prior in "${prior_tags[@]}"; do
+              if [[ "$prior" == "$candidate" ]]; then
+                already_present=true
+                break
+              fi
+            done
+            if [[ "$already_present" == false ]]; then
+              release_tag="$candidate"
+            fi
+          done < <(git tag --points-at "$RELEASE_SHA" --list 'v[0-9]*' | sort -V)
+
+          if [[ -n "$release_tag" ]]; then
+            gh release view "$release_tag" --json tagName --jq .tagName > /dev/null
+            echo "Published $release_tag"
+            echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          else
+            echo 'No new release required.'
+          fi
+
+  images:
+    name: Publish release containers
+    needs: release
+    if: needs.release.outputs.release_tag != ''
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      release_tag: ${{ needs.release.outputs.release_tag }}

@@ -53,7 +53,7 @@ See the [Nery Mizuki mascot guide](docs/mascot/README.md), the [complete Nery ar
   </p>
 </details>
 
-> **Early development:** Mnerys has just imported its initial codebase. The interface, configuration, packages, and documentation are still being transitioned from Odysseus. This is a development foundation, **not yet a separately branded, production-ready Mnerys release**.
+> **Early development (0.x):** Mnerys is evolving its imported Odysseus foundation. The initial development release is not a promise of stable public APIs or production-ready packaging. The Agent Core, Gateway, CLI and TUI remain planned.
 
 ## Capabilities
 
@@ -64,7 +64,7 @@ The imported foundation already includes:
 - **Everyday workspace** — tasks, calendar, email, reminders, and scheduled agent workflows.
 - **Model flexibility** — connections to API providers and local model workflows.
 - **Creative and utility tools** — image gallery, model comparison, themes, and customizable presets.
-- **Self-hosting** — run the workspace on your own infrastructure and decide which integrations to enable. **SQLite is the default main database; PostgreSQL 17 is an optional backend for new installations** ([setup, migration and limitations](docs/deployment/POSTGRESQL17.md)).
+- **Self-hosting** — run the workspace on your own infrastructure and decide which integrations to enable. **SQLite is the default main database; PostgreSQL 17 is an optional backend** ([setup, migration and limitations](docs/deployment/POSTGRESQL17.md)).
 
 These are capabilities inherited from the initial codebase. They are being reviewed and will evolve as Mnerys develops its own architecture.
 
@@ -76,7 +76,7 @@ The maintainer's private Mnerys preview runs directly from versioned source usin
 
 ### Docker Compose (alternative development setup)
 
-**Requirements:** Git and Docker with the Compose plugin. The repository is currently private, so cloning requires access.
+**Requirements:** Git and Docker with the Compose plugin. The repository is public, but early-development installations still require reviewing the security and deployment settings.
 
 ```bash
 git clone https://github.com/isyuricunha/mnerys.git
@@ -110,7 +110,7 @@ The immediate priorities are:
 3. Review the agent runtime, memory, integrations, configuration, and permissions.
 4. Evolve the codebase into an independent, maintainable, modular platform.
 
-The [official Mnerys roadmap](docs/ROADMAP.md) defines the planned shared Python Agent Core, authoritative Gateway, globally installable `mnerys` CLI, TUI and Web integration. These are **planned milestones**, not shipped features.
+The [official Mnerys roadmap](docs/ROADMAP.md) defines the planned shared Python Agent Core, authoritative Gateway, globally installable `mnerys` CLI, TUI and Web integration. These are **planned milestones**, not shipped features. Release automation and the proposed first development version are documented in the [release guide](docs/deployment/RELEASE_AUTOMATION.md); publication must be independently verified.
 
 There is no requirement to retain compatibility with future Odysseus releases, and there is no automatic upstream synchronization. The current code is a starting point, not a constraint on Mnerys's direction.
 
