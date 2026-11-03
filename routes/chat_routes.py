@@ -3470,14 +3470,6 @@ def setup_chat_routes(
                 # Candidate URLs already exist in typed web evidence. A second
                 # source is a different page read, not the cached search again.
                 _selected_tools = {"web_fetch"}
-            _exact_selected_native_chain = bool(
-                _selected_tools
-                and {"write_file", "read_file"}.issubset(_selected_tools)
-                and set(_selected_tools).intersection({"inspect_media", "extract_text"})
-                and set(_selected_tools).issubset(
-                    {"inspect_media", "extract_text", "write_file", "read_file"}
-                )
-            )
             if _selected_tools is None and _contextual_web_turn_followup:
                 # A referential follow-up should retain the proven web route,
                 # not reopen every search/browser schema. Besides reducing
@@ -3510,108 +3502,39 @@ def setup_chat_routes(
                 message=message,
                 history=getattr(sess, "history", []) or [],
             )
-            _turn_contract = _resolved_routed_contract.contract
-            _request_authority = _resolved_routed_contract.authority
-            # Resolution already applies user, owner, and global policy. An
-            # admitted tool must not later be rejected by the stale
-            # pre-contract disabled snapshot during execution.
-            disabled_tools.difference_update(_turn_contract.offered)
-            _routed_turn_contract = _turn_contract
-            if _clean_v3_preview:
-                from dataclasses import replace
-                from src.clean_agent_preview import (
-                    INTERACTIVE_CORE_TOOLS, MODE, NATIVE_WORKSPACE_TOOLS, PREVIEW_TOOLS, canonical,
-                    scope_preview_contract,
-                )
-                from src.turn_contract import resolve_full_inventory_contract
-                _warm_canonical = {canonical(name) for name in _warm_tools}
-                _clean_runtime_tools = PREVIEW_TOOLS | (
-                    NATIVE_WORKSPACE_TOOLS
-                    if _native_workspace_contract else frozenset()
-                )
-                _preview_schemas = [
-                    s for s in _contract_schemas
-                    if canonical(s['function']['name']) in _clean_runtime_tools
-                ]
-                if (
-                    _native_workspace_contract
+            # The admitted Gateway now owns compact preview/experiment scoping
+            # and final tool policy reconciliation. The Web adapter still
+            # supplies server-resolved intent, schema inventory and flags.
+            _scoped_contract = gateway_turns.scope_routed_contract(
+                _admitted_session, sess,
+                context_owner=ctx.user,
+                routed=_resolved_routed_contract,
+                schemas=_contract_schemas,
+                contract_policy=_contract_policy,
+                disabled_tools=disabled_tools,
+                active_capabilities=_active_turn_capabilities,
+                selected_tools=_selected_tools,
+                warm_tools=_warm_tools,
+                compact_preview=_clean_v3_preview,
+                native_workspace_contract=_native_workspace_contract,
+                structured_document_intent=bool(
+                    _clean_v3_preview
+                    and _native_workspace_contract
                     and _prefers_structured_document_tools(message)
-                ):
-                    # Keep extraction/discovery and Python/file artifact tools,
-                    # but remove shell as a competing source-discovery route.
-                    _preview_schemas = [
-                        s for s in _preview_schemas
-                        if canonical(s['function']['name']) != 'bash'
-                        or canonical(s['function']['name']) in _warm_canonical
-                    ]
-                _turn_contract = scope_preview_contract(
-                    replace(resolve_full_inventory_contract(
-                        schemas=_preview_schemas,
-                        policy=_contract_policy,
-                    ), selection_mode=MODE),
-                    _routed_turn_contract,
-                    _active_turn_capabilities,
-                    # A validated native workspace is a persistent capability,
-                    # including on referential turns such as "undo that".
-                    # scope_preview_contract still intersects the policy-filtered
-                    # executable inventory; this cannot restore denied tools.
-                    # A fully specified media -> artifact operation already
-                    # has an exact routed contract. Adding the whole native
-                    # workspace inventory here reintroduced overlapping PDF
-                    # readers and caused the model to abandon the selected
-                    # OCR operation. A task-only turn likewise has an exact
-                    # personal manager; core shell/Web tools are not task
-                    # fallbacks. Other turns retain warm and workspace tools.
-                    extra_tools=(
-                        frozenset()
-                        if _exact_selected_native_chain or _active_turn_capabilities == frozenset({"tasks"}) or (
-                            _active_turn_capabilities in (
-                                frozenset({"transcription"}), frozenset({"ocr"}),
-                            )
-                            and not _selected_tools
-                        )
-                        else INTERACTIVE_CORE_TOOLS | _warm_tools | (
-                            NATIVE_WORKSPACE_TOOLS | (
-                                {"private_browser"} if _local_browser_render_intent else frozenset()
-                            )
-                            if _native_workspace_contract
-                            else frozenset()
-                        )
-                    ),
-                )
-                from src.tool_routing_experiment import experiment_mode, select_experiment_inventory
-                _experiment_mode = experiment_mode(
-                    request.headers.get('x-odysseus-routing-experiment'), _user,
-                    model=getattr(sess, 'model', ''),
-                )
-                if _experiment_mode != 'baseline':
-                    _turn_contract = select_experiment_inventory(
-                        replace(resolve_full_inventory_contract(
-                            schemas=[s for s in _contract_schemas
-                                     if canonical(s['function']['name']) in _clean_runtime_tools],
-                            policy=_contract_policy,
-                        ), selection_mode=MODE),
-                        _routed_turn_contract, _turn_history, _experiment_mode,
-                        user_text=message,
-                        browser_requested=_explicit_browser_intent,
-                    )
-            # Every recovery path receives the same scope denial. The central
-            # dispatcher also checks the immutable contract after rewrites.
-            disabled_tools.update(
-                s["function"]["name"] for s in _contract_schemas
-                if not _turn_contract.permits(s["function"]["name"])
+                ),
+                local_browser_render_intent=_local_browser_render_intent,
+                experiment_header=(
+                    request.headers.get("x-odysseus-routing-experiment")
+                    if _clean_v3_preview else None
+                ),
+                message=message,
+                history=_turn_history,
+                browser_requested=_explicit_browser_intent,
             )
-            # Contract resolution is the final policy-and-routing authority.
-            # Some legacy/API-model paths arrive with a stale disabled snapshot
-            # assembled before routing.  The scope-denial pass above may retain
-            # an admitted name through aliases or an earlier inventory view;
-            # never let that stale snapshot reject a tool the final immutable
-            # contract explicitly offers.  User/global denials cannot be
-            # restored here because resolve_turn_contract filtered them out.
-            disabled_tools.difference_update(_turn_contract.offered)
-            tool_policy = build_effective_tool_policy(
-                disabled_tools=disabled_tools, last_user_message=message,
-            )
+            _turn_contract = _scoped_contract.contract
+            _request_authority = _scoped_contract.authority
+            disabled_tools = set(_scoped_contract.disabled_tools)
+            tool_policy = _scoped_contract.policy
         research_blocked_by_policy = bool(
             tool_policy.blocks("trigger_research")
             or tool_policy.blocks("manage_research")

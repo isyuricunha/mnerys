@@ -272,7 +272,8 @@ def test_web_route_uses_gateway_before_compact_preview_scoping():
     assert kw["request_authority"].id == "_request_authority"
     assert isinstance(kw["policy"], ast.Name)
     assert kw["policy"].id == "_contract_policy"
-    assert source.index("gateway_turns.resolve_routed_contract(") < source.index("scope_preview_contract(")
+    assert source.index("gateway_turns.resolve_routed_contract(") < source.index("gateway_turns.scope_routed_contract(")
+    assert "scope_preview_contract(" not in source
     # The Web route must not bypass Gateway to call the resolver directly.
     assert not [
         node for node in ast.walk(tree)

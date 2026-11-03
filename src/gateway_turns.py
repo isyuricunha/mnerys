@@ -30,6 +30,10 @@ from src.gateway_routed_contract import (
     AdmittedRoutedContract,
     resolve_admitted_routed_contract,
 )
+from src.gateway_contract_scoping import (
+    AdmittedScopedContract,
+    scope_admitted_routed_contract,
+)
 from src.gateway_turn_contract_selection import (
     AdmittedContractScope,
     select_admitted_compact_runtime,
@@ -217,6 +221,49 @@ class GatewayTurns:
             warm_tools=warm_tools,
             message=message,
             history=history,
+        )
+
+    def scope_routed_contract(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        routed: AdmittedRoutedContract,
+        schemas: Iterable[dict],
+        contract_policy: ToolPolicy,
+        disabled_tools: set[str] | frozenset[str],
+        active_capabilities: Iterable[str],
+        selected_tools: Iterable[str] | None,
+        warm_tools: Iterable[str],
+        compact_preview: bool,
+        native_workspace_contract: bool,
+        structured_document_intent: bool,
+        local_browser_render_intent: bool,
+        experiment_header: str | None,
+        message: str,
+        history: Iterable,
+        browser_requested: bool,
+    ) -> AdmittedScopedContract:
+        """Apply admitted compact routing and reconcile the final tool policy."""
+        return scope_admitted_routed_contract(
+            admission, session,
+            context_owner=context_owner,
+            routed=routed,
+            schemas=schemas,
+            contract_policy=contract_policy,
+            disabled_tools=disabled_tools,
+            active_capabilities=active_capabilities,
+            selected_tools=selected_tools,
+            warm_tools=warm_tools,
+            compact_preview=compact_preview,
+            native_workspace_contract=native_workspace_contract,
+            structured_document_intent=structured_document_intent,
+            local_browser_render_intent=local_browser_render_intent,
+            experiment_header=experiment_header,
+            message=message,
+            history=history,
+            browser_requested=browser_requested,
         )
 
     def select_compact_runtime(

@@ -229,6 +229,25 @@ disabled-tool list and invokes the model. See the
 [admission/denial tests](../../tests/test_mnerys_gateway_routed_contract.py).
 Durable records and independently authenticated Gateway clients remain planned.
 
+## M2.1 incremental implementation: admitted compact scope
+
+**Implemented internally, still partial M2.1.** The
+[Gateway facade](../../src/gateway_turns.py) now invokes an
+[admitted scoping service](../../src/gateway_contract_scoping.py) after the
+original immutable routed contract is resolved. The service verifies the
+issued admission and bound authority, then delegates to the existing compact
+preview/experiment scopers and performs final policy/disabled-tool
+reconciliation. Experiment selection is derived from the **admitted owner**
+and the server-loaded model, never from a client-selected identity; its
+request header alone is not a privilege grant. The result retains the
+original request authority and cannot manufacture new operation grants.
+
+Schema collection, request-specific routing, model calls and tool dispatch
+still use their inherited implementations. There is no new transport, model
+engine, process scheduler or persistent event store. See the
+[M2.1 verification](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
+[negative and parity tests](../../tests/test_mnerys_gateway_contract_scoping.py).
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

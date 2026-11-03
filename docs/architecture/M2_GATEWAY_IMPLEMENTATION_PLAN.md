@@ -237,6 +237,48 @@ regressions passed **200 focused**, **185 routing/streaming**,
 cases (groups may overlap). Hosted CI and preview verification remain
 pending for this local change.
 
+**Fifteenth incremental slice — admitted compact scope and final tool reconciliation:**
+the [Gateway contract-scoping service](../../src/gateway_contract_scoping.py)
+now validates the issued admission, loaded owner/session, original
+[admitted routed contract](../../src/gateway_routed_contract.py) and bound
+request authority before applying the inherited compact preview/experiment
+selection and final denylist. The [GatewayTurns facade](../../src/gateway_turns.py)
+receives server-resolved intent, schema inventory, policy, runtime flags and
+the untrusted experiment header. The service resolves any experiment mode
+using **only the admitted owner and server-loaded model**; the header itself
+cannot select a fixture/experimental mode for an unauthorized owner.
+
+The service calls the unchanged
+[scope_preview_contract](../../src/clean_agent_preview.py),
+[select_experiment_inventory](../../src/tool_routing_experiment.py),
+[resolve_full_inventory_contract](../../src/turn_contract.py) and
+[build_effective_tool_policy](../../src/tool_policy.py). It preserves the
+compact/native extra-tool rules, warm tool history, structured-reader
+preference and explicit media-to-artifact chains. The final contract is
+still filtered by the server's tool policy; the service reconciles the
+original runtime denylist against that contract without creating operation
+grants, modifying provider selection or bypassing the hardened dispatcher.
+The [Web adapter](../../routes/chat_routes.py) now supplies these values
+through a single admitted handoff instead of owning the ~100-line scope
+block. Schema collection and intent classification remain inherited.
+The finalizer additionally refuses a mismatched internal policy/authority
+pair (missing deny flags, guide-only or MCP restriction) or any already-offered
+tool that violates the trusted policy, before scoping. This is a monotonic
+defense check and does not alter valid routed contracts.
+
+[Scoping parity and denial tests](../../tests/test_mnerys_gateway_contract_scoping.py)
+compare the new service against the pre-extraction Web behavior for ordinary,
+compact, native, OCR, tasks, transcriptions, tool warm-state and experiment
+cases; also cover tampered/foreign admission, mismatched authority, malformed
+trusted flags, and no experimental scope from an unauthorized header. The
+[previous routed-contract tests](../../tests/test_mnerys_gateway_routed_contract.py)
+now check this new handoff rather than a source-text implementation detail.
+Local suites passed **242 focused**, **185 routing/streaming**,
+**159 authority/approval**, **1,129 contract compatibility** and
+**160 routing experiment/product** tests (some groups overlap). No public transport, additional model/tool executor,
+durable event/job store, database change or preview deployment. Hosted CI
+remains pending for this local change.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes
