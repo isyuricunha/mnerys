@@ -83,6 +83,31 @@ types and a structural guard against imports from `routes/` or FastAPI.
 Preview rollout, durable turn records and second-client acceptance are
 still required for M2 completion.
 
+**Tenth incremental slice — admitted stream delivery boundary:** the Web
+stream route now calls [GatewayTurns.open_stream](../../src/gateway_turns.py)
+for both detached interactive execution and direct response-bound streaming.
+The [internal delivery service](../../src/gateway_stream_delivery.py) checks
+the issued session admission **before either lifecycle** and preserves the
+existing decision: regular interactive chat/agent runs remain detached and
+resumable, while Compare panes and explicitly unattended native runs close on
+client disconnect. The Web adapter still writes the existing SSE response and
+the legacy run-ID header only for detached runs. This is not a new event store,
+authorization engine or public transport API; the detached branch continues to
+use the original [TurnService](../../src/turn_service.py) and in-memory run
+manager. Client runtime hints only affect disconnect behavior, never session or
+tool permissions.
+
+[Dedicated Gateway delivery tests](../../tests/test_mnerys_gateway_stream_delivery.py)
+cover forged and modified admissions, browser/bearer sessions, exact-run
+resume/cancellation, unchanged direct-stream behavior, and structural
+separation from FastAPI. [Compare disconnect tests](../../tests/test_compare_stop_disconnect_poll.py)
+and [fallback/resume regressions](../../tests/test_live_fallback_round_attribution.py)
+verify the caller and client-facing lifecycle. The local focused suite passed
+**99 tests**; a separate routing, context, authority, and security suite passed
+**120 tests**. They are independent groups, not 219 end-to-end client tests.
+Hosted CI, restart durability, two-client acceptance and private preview
+rollout remain unverified at this slice.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

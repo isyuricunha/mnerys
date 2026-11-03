@@ -446,22 +446,29 @@ async def test_cancellation_contract_holds_for_chat_and_agent_shaped_streams(mod
 # routes/chat_routes.py rather than re-deriving it from source text.
 # --------------------------------------------------------------------------- #
 
-def test_compare_mode_branch_skips_agent_runs_in_source():
-    """The compare_mode branch must return the raw generator as the SSE body
-    (bypassing detached runs) BEFORE the service's detached launch
-    call below it — otherwise compare streams would still be detached and a
-    pane's Stop (closing the SSE) wouldn't cancel the upstream call."""
-    from pathlib import Path
-    src = (Path(__file__).resolve().parents[1] / "routes" / "chat_routes.py").read_text(encoding="utf-8")
+def test_compare_mode_branch_uses_gateway_stream_delivery_policy():
+    """Web delegates direct-vs-detached lifecycle; Gateway owns the decision."""
+    import ast
+    import inspect
+    from src.gateway_stream_delivery import should_detach_stream
 
-    branch_idx = src.index("if compare_mode:")
-    direct_return_idx = src.index("return StreamingResponse(_safe_stream(), media_type=", branch_idx)
-    detach_idx = src.index("gateway_turns.start_detached(_admitted_session, _safe_stream())", branch_idx)
-
-    assert branch_idx < direct_return_idx < detach_idx, (
-        "compare_mode must short-circuit to a direct (non-detached) "
-        "StreamingResponse before normal streams are wrapped in agent_runs"
-    )
+    tree = ast.parse(inspect.getsource(chat_routes.setup_chat_routes))
+    calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "open_stream"
+    ]
+    assert len(calls) == 1
+    assert {keyword.arg for keyword in calls[0].keywords} == {
+        "compare_mode", "client_runtime_context",
+    }
+    assert should_detach_stream(
+        compare_mode=True, client_runtime_context={},
+    ) is False
+    assert should_detach_stream(
+        compare_mode=False, client_runtime_context={},
+    ) is True
 
 
 @pytest.mark.parametrize(

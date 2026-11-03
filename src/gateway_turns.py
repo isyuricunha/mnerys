@@ -24,6 +24,7 @@ from src.gateway_turn_authority import authority_for_admitted_turn
 from src.tool_policy import ToolPolicy
 from src.tool_approvals import ExactToolApproval, ToolApprovalStore
 from src.turn_service import TurnService, TurnStream, turn_service
+from src.gateway_stream_delivery import TurnDelivery, open_admitted_stream
 
 
 class GatewayTurns:
@@ -152,6 +153,21 @@ class GatewayTurns:
             plan_mode=plan_mode,
             internal_tool_request=internal_tool_request,
             store=store,
+        )
+
+    def open_stream(
+        self,
+        admission: AdmittedSession,
+        stream: AsyncGenerator[str, None],
+        *,
+        compare_mode: bool,
+        client_runtime_context: Any,
+    ) -> TurnDelivery:
+        """Choose the server-owned stream lifecycle for an admitted turn."""
+        return open_admitted_stream(
+            admission, self._turns, stream,
+            compare_mode=compare_mode,
+            client_runtime_context=client_runtime_context,
         )
 
     def start_detached(

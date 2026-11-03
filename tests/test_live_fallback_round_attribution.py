@@ -138,14 +138,16 @@ def test_terminal_then_session_switch_preserves_completed_background_state():
 
 def test_detached_run_identity_is_attached_to_live_metrics():
     routes = Path("routes/chat_routes.py").read_text(encoding="utf-8")
-    assert '"X-Odysseus-Run-Id": _detached_run.run_id' in routes
-    # Run subscriptions now cross the admitted GatewayTurns/TurnService
-    # boundary instead of being issued directly inside the Web adapter.
+    assert '_stream_headers["X-Odysseus-Run-Id"] = _delivery.run_id' in routes
+    # Web delegates initial stream delivery to the admission-bound service;
+    # run subscriptions still use the same inherited TurnService.
     facade = Path("src/gateway_turns.py").read_text(encoding="utf-8")
+    delivery = Path("src/gateway_stream_delivery.py").read_text(encoding="utf-8")
     service = Path("src/turn_service.py").read_text(encoding="utf-8")
-    assert "gateway_turns.start_detached(_admitted_session, _safe_stream())" in routes
+    assert "gateway_turns.open_stream(" in routes
     assert "gateway_turns.resume_active(admission)" in routes
-    assert "require_admitted_session(admission)" in facade
+    assert "open_admitted_stream(" in facade
+    assert "require_admitted_session(admission)" in delivery
     assert "agent_runs.subscribe(session_id, run)" in service
     assert "const streamRunId = res.headers.get('X-Odysseus-Run-Id')" in CHAT_JS
     assert "metrics._costRecordId = _metricsCostRecordId(streamRunId, json)" in CHAT_JS

@@ -130,6 +130,26 @@ The inherited detached-run manager now has a **tested opt-in primitive**, not a 
 
 Regression coverage: `tests/test_agent_runs_resume_cursor.py` and `tests/test_agent_runs_terminal_order.py`. The proposed versioned event envelope, durable cursor semantics and multi-client Gateway acceptance tests below remain planned.
 
+## M2.1 incremental implementation: admitted stream delivery
+
+**Implemented internally; not a public Gateway stream protocol.** The
+[Gateway stream delivery boundary](../../src/gateway_stream_delivery.py)
+requires the same server-issued session admission for both direct
+response-bound and detached streams. The
+[Gateway facade](../../src/gateway_turns.py) selects the lifecycle before the
+[Web adapter](../../routes/chat_routes.py) constructs its existing SSE
+response: Compare and explicitly unattended native requests stream directly;
+interactive chat/agent requests use the inherited detached-run manager and
+exact run ID for resume/cancel. Client runtime hints never supply authority.
+
+The service has no FastAPI or route dependency and creates no second run
+registry. The direct branch remains cancel-on-disconnect, while detached
+delivery retains process-local replay. The existing wire header and event
+frame formats remain unchanged; durable turn state, event storage, restart
+recovery, authenticated remote transport and cross-client acceptance remain
+planned. See the [M2 execution plan](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
+[stream-delivery regressions](../../tests/test_mnerys_gateway_stream_delivery.py).
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

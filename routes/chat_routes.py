@@ -32,6 +32,7 @@ from src.agent_loop import (
 from src.agent_loop import _normalize_ody_qwen_text_artifacts
 from src import agent_runs
 from src.turn_service import turn_service
+from src.gateway_stream_delivery import should_detach_stream
 from src.gateway_turns import gateway_turns
 from src.gateway_admission import AdmissionDenied
 from src.gateway_execution_policy import execution_limits_for_admission
@@ -845,24 +846,10 @@ def _should_detach_chat_stream(
     compare_mode: bool,
     client_runtime_context: Optional[Dict[str, Any]],
 ) -> bool:
-    """Return whether a stream should survive its client disconnecting.
-
-    Interactive sessions are resumable, so their runs remain detached. A
-    compare stream or an explicitly unattended native stream has no user who
-    can resume it; tying those runs to the response prevents abandoned work
-    from continuing to consume model and tool resources.
-    """
-
-    if compare_mode:
-        return False
-    context = (
-        client_runtime_context
-        if isinstance(client_runtime_context, dict)
-        else {}
-    )
-    return not (
-        context.get("surface") == "odysseus-native"
-        and context.get("unattended_mode") is True
+    """Legacy helper alias; stream policy is owned by the Gateway."""
+    return should_detach_stream(
+        compare_mode=compare_mode,
+        client_runtime_context=client_runtime_context,
     )
 
 
@@ -4842,24 +4829,22 @@ def setup_chat_routes(
         # Resumable interactive chat/agent streams keep the DETACHED behavior
         # below: they survive the client closing the tab or navigating away.
         # The SSE response only subscribes; reconnect via /api/chat/resume.
-        if not _should_detach_chat_stream(
+        _delivery = gateway_turns.open_stream(
+            _admitted_session, _safe_stream(),
             compare_mode=compare_mode,
             client_runtime_context=client_runtime_context,
-        ):
-            return StreamingResponse(_safe_stream(), media_type="text/event-stream", headers={
-                    "Cache-Control": "no-cache, no-transform",
-                    "X-Accel-Buffering": "no",
-                })
-
-        _detached_run = gateway_turns.start_detached(_admitted_session, _safe_stream())
+        )
+        # SSE serialization and legacy transport headers remain the Web adapter's concern.
+        _stream_headers = {
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        }
+        if _delivery.run_id is not None:
+            _stream_headers["X-Odysseus-Run-Id"] = _delivery.run_id
         return StreamingResponse(
-            _detached_run.events,
+            _delivery.events,
             media_type="text/event-stream",
-            headers={
-                "X-Odysseus-Run-Id": _detached_run.run_id,
-                "Cache-Control": "no-cache, no-transform",
-                "X-Accel-Buffering": "no",
-            },
+            headers=_stream_headers,
         )
 
     # ------------------------------------------------------------------ #
