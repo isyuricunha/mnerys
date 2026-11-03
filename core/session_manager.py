@@ -397,6 +397,7 @@ class SessionManager:
 
             db.query(DbChatMessage).filter(DbChatMessage.session_id == session_id).delete()
             now = datetime.now(timezone.utc)
+            committed_message_ids = []
             for i, message in enumerate(messages):
                 msg_id = str(uuid.uuid4())
                 # The reservation loop above must finish before deleting the
@@ -413,9 +414,8 @@ class SessionManager:
                     timestamp=now + timedelta(microseconds=i),
                 )
                 db.add(db_message)
-                if message.metadata is None:
-                    message.metadata = {}
-                message.metadata["_db_id"] = msg_id
+                # Do not expose IDs to caller-owned objects before commit.
+                committed_message_ids.append((message, msg_id))
 
             db_session.message_count = len(messages)
             db_session.updated_at = now
@@ -423,6 +423,10 @@ class SessionManager:
             db_session.last_message_at = now
 
             db.commit()
+            for message, msg_id in committed_message_ids:
+                if message.metadata is None:
+                    message.metadata = {}
+                message.metadata["_db_id"] = msg_id
             session.history = list(messages)
             session._history = session.history
             session.message_count = len(messages)

@@ -257,3 +257,31 @@ def test_cleanup_cannot_delete_attachment_during_concurrent_compaction_replaceme
     durable = _durable_messages(SessionLocal, session_id)
     assert len(durable) == 1
     assert json.loads(durable[0][2])["attachments"][0]["id"] == upload_id
+
+
+def test_replace_messages_commit_failure_does_not_publish_uncommitted_ids(
+    manager_db,
+):
+    """A failed replacement must not update caller-owned IDs or cached history."""
+    manager, SessionLocal, engine = manager_db
+    session_id = _seed_session(SessionLocal)
+    before = _durable_messages(SessionLocal, session_id)
+    original = list(manager.get_session(session_id).history)
+    incoming = [ChatMessage("assistant", "this replacement will fail", metadata={"kind": "draft"})]
+
+    def fail_insert(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("INSERT INTO CHAT_MESSAGES"):
+            raise RuntimeError("simulated message insert failure")
+
+    event.listen(engine, "before_cursor_execute", fail_insert)
+    try:
+        assert manager.replace_messages(session_id, incoming) is False
+    finally:
+        event.remove(engine, "before_cursor_execute", fail_insert)
+
+    assert incoming[0].metadata == {"kind": "draft"}
+    assert _durable_messages(SessionLocal, session_id) == before
+    assert [m.content for m in manager.sessions[session_id].history] == [
+        m.content for m in original
+    ]
+    assert all("_db_id" not in m.metadata for m in incoming)

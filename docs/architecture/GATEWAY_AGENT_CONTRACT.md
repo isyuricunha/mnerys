@@ -100,7 +100,7 @@ as configured in Mnerys.
 
 ## M1 incremental implementation: shared persisted-message preparation
 
-The [writer integration inventory](SESSION_WRITER_INVENTORY.md#incremental-live-compatibility-extraction-message-preparation) documents the implemented `src/session_message_preparation.py` seam. It is reused by the inherited SessionManager single-message path, transcript replacement and background-job delivery, and supplies the same immutable `PreparedSessionMessage` structure expected by the **disabled** fenced writer. Upload reservation, request authority, session ownership, job-delivery idempotency and commit logic remain in their established paths. This is an internal compatibility extraction, **not** durable Gateway session persistence.
+The [writer integration inventory](SESSION_WRITER_INVENTORY.md#incremental-live-compatibility-extraction-message-preparation) documents the implemented `src/session_message_preparation.py` seam. It is reused by the inherited SessionManager single-message path, transcript replacement and background-job delivery, and supplies the same immutable `PreparedSessionMessage` structure expected by the **disabled** fenced writer. Transcript replacement now assigns persisted message IDs only after a confirmed commit. Upload reservation, request authority, session ownership and live job delivery remain in their inherited paths. The [isolated background-delivery and cache prototype](SESSION_WRITER_INVENTORY.md#experimental-fenced-delivery-and-cache-reconciliation) validates future transaction and reconciliation behavior, **not** durable Gateway persistence.
 
 ## M1 isolated prototype: revision-checked session metadata
 

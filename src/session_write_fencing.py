@@ -8,10 +8,11 @@ A row-version check alone permits ABA after a deleted session ID is recreated.
 The opaque incarnation binds a writer to one lifetime of a session ID.
 """
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from sqlalchemy import func
 
@@ -41,6 +42,15 @@ class SessionWriteFence:
             raise ValueError("Session revision must be a non-negative integer")
 
 
+@dataclass(frozen=True)
+class FencedDeliveryReceipt:
+    """Committed job-delivery evidence for a caller-owned cache adapter."""
+
+    fence: SessionWriteFence
+    message_id: str
+    inserted: bool
+
+
 @dataclass
 class SqlFencedSessionWriter:
     """Owner- and incarnation-scoped transactional SQLAlchemy writer.
@@ -52,6 +62,20 @@ class SqlFencedSessionWriter:
     session_factory: Callable[[], Any]
     session_model: Any
     message_model: Any
+    background_job_model: Any = None
+
+    def _require_delivery_schema(self) -> None:
+        self._require_schema()
+        required = (
+            "id", "session_id", "owner", "origin_incarnation_id",
+            "status", "message_id",
+        )
+        if self.background_job_model is None or any(
+            not hasattr(self.background_job_model, key) for key in required
+        ):
+            raise SessionRevisionUnavailable(
+                "Fenced background job schema unavailable; migration required"
+            )
 
     def _require_schema(self) -> None:
         session_columns = (
@@ -195,3 +219,134 @@ class SqlFencedSessionWriter:
             prepared=message,
         )
         return next_fence, message_id
+
+    def deliver_background_result(
+        self,
+        admission: AdmittedSession,
+        fence: SessionWriteFence,
+        *,
+        job_id: str,
+        message: PreparedSessionMessage,
+    ) -> FencedDeliveryReceipt:
+        """Atomically deliver one ready job under its original session lifetime.
+
+        The job must have been registered by a trusted service with the
+        *original* incarnation and owner. A completed delivery can be replayed
+        without duplicate insertion, but only while that very session lifetime
+        and persisted message are still present. Different prepared content
+        or serialized metadata is NOT an idempotent retry.
+
+        This is an unactivated prototype. The existing BackgroundToolJobs and
+        session schema lack the new incarnation column and do not call it.
+        """
+        require_admitted_session(admission)
+        self._require_delivery_schema()
+        if not isinstance(fence, SessionWriteFence):
+            raise SessionRevisionConflict("Session write fence mismatch")
+        if fence.session_id != admission.session_id:
+            raise SessionRevisionConflict("Session write fence mismatch")
+        if not isinstance(job_id, str) or not re.fullmatch(
+            r"[A-Za-z0-9_-]{1,128}", job_id
+        ):
+            raise ValueError("Invalid background job ID")
+        if not isinstance(message, PreparedSessionMessage):
+            raise TypeError("Expected PreparedSessionMessage")
+        model = self.background_job_model
+        message_id = str(uuid5(
+            NAMESPACE_URL,
+            f"mnerys:background:{fence.session_id}:{fence.incarnation_id}:{job_id}",
+        ))
+        db = self.session_factory()
+        try:
+            session = self._query(db, admission).filter(
+                self.session_model.incarnation_id == fence.incarnation_id
+            ).with_entities(
+                self.session_model.owner, self.session_model.revision
+            ).first()
+            if session is None:
+                raise SessionRevisionConflict("Session revision conflict")
+            stored_owner, current_revision = session
+            if type(current_revision) is not int or current_revision < 0:
+                raise SessionRevisionUnavailable("Session revision needs backfill")
+
+            job = db.query(model).filter(
+                model.id == job_id,
+                model.session_id == fence.session_id,
+                model.owner == stored_owner,
+                model.origin_incarnation_id == fence.incarnation_id,
+            ).first()
+            if job is None:
+                raise SessionRevisionConflict("Background job origin mismatch")
+
+            if job.status == "delivered":
+                if job.message_id != message_id:
+                    raise SessionRevisionConflict("Background delivery marker mismatch")
+                existing = db.query(self.message_model).filter(
+                    self.message_model.id == message_id,
+                    self.message_model.session_id == fence.session_id,
+                ).first()
+                if (
+                    existing is None
+                    or existing.role != message.role
+                    or existing.content != message.content
+                    or existing.meta_data != message.metadata_json
+                ):
+                    raise SessionRevisionConflict("Background delivery content mismatch")
+                return FencedDeliveryReceipt(
+                    SessionWriteFence(
+                        fence.session_id, fence.incarnation_id, current_revision
+                    ),
+                    message_id,
+                    inserted=False,
+                )
+
+            if job.status != "ready":
+                raise SessionRevisionConflict("Background job is not ready")
+
+            now = datetime.now(timezone.utc)
+            matched = self._guard(db, admission, fence).filter(
+                self.session_model.owner == stored_owner,
+            ).update({
+                self.session_model.revision: fence.revision + 1,
+                self.session_model.message_count:
+                    func.coalesce(self.session_model.message_count, 0) + 1,
+                self.session_model.last_accessed: now,
+                self.session_model.last_message_at: now,
+            }, synchronize_session=False)
+            if matched != 1:
+                raise SessionRevisionConflict("Session revision conflict")
+
+            marked = db.query(model).filter(
+                model.id == job_id,
+                model.session_id == fence.session_id,
+                model.owner == stored_owner,
+                model.origin_incarnation_id == fence.incarnation_id,
+                model.status == "ready",
+            ).update({
+                model.status: "delivered",
+                model.message_id: message_id,
+            }, synchronize_session=False)
+            if marked != 1:
+                raise SessionRevisionConflict("Background delivery conflict")
+
+            db.add(self.message_model(
+                id=message_id,
+                session_id=fence.session_id,
+                role=message.role,
+                content=message.content,
+                meta_data=message.metadata_json,
+                timestamp=now,
+            ))
+            db.commit()
+            return FencedDeliveryReceipt(
+                SessionWriteFence(
+                    fence.session_id, fence.incarnation_id, fence.revision + 1
+                ),
+                message_id,
+                inserted=True,
+            )
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
