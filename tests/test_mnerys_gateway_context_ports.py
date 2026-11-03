@@ -301,3 +301,62 @@ async def test_tool_continuation_does_not_call_either_message_writer(monkeypatch
     assert event == []
     assert "persisted_user" not in ports.events
     assert "private_user" not in ports.events
+
+
+@pytest.mark.asyncio
+async def test_shared_src_context_core_runs_without_http_or_legacy_services(monkeypatch):
+    """New application layer can build context directly using trusted ports."""
+    from src.gateway_chat_context import assemble_chat_context
+    from src.gateway_chat_context_types import ChatContext
+
+    _block_all_legacy(monkeypatch)
+    ports = RecordingContextPorts()
+    context = await assemble_chat_context(
+        _session(), "alice", SimpleNamespace(), SimpleNamespace(),
+        "Direct transport-neutral turn", "session-a", agent_mode=True,
+        ports=ports,
+    )
+    assert isinstance(context, ChatContext)
+    assert isinstance(context, chat_helpers.ChatContext)
+    assert context.user == "alice"
+    assert context.messages[-1]["content"] == "Direct transport-neutral turn"
+    assert "persisted_user" in ports.events
+
+
+@pytest.mark.asyncio
+async def test_shared_src_context_core_rejects_missing_trusted_ports():
+    from src.gateway_chat_context import assemble_chat_context
+
+    with pytest.raises(ValueError, match="Trusted ChatContextPorts"):
+        await assemble_chat_context(
+            _session(), "alice", SimpleNamespace(), SimpleNamespace(),
+            "No adapter", "session-a",
+        )
+
+
+def test_extracted_context_modules_do_not_import_web_routes():
+    """Catch accidental reintroduction of route-layer imports into the Core."""
+    import ast
+    import inspect
+    from src import gateway_chat_context, gateway_chat_context_types
+    from src import gateway_chat_context_rules
+
+    for module in (gateway_chat_context, gateway_chat_context_types,
+                   gateway_chat_context_rules):
+        tree = ast.parse(inspect.getsource(module))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                assert not (node.module or "").startswith(("routes", "fastapi"))
+            elif isinstance(node, ast.Import):
+                assert all(not alias.name.startswith(("routes", "fastapi"))
+                           for alias in node.names)
+
+
+def test_pure_context_rules_reexported_for_existing_chat_callers():
+    from src import gateway_chat_context_rules
+
+    assert chat_helpers._is_casual_low_signal is gateway_chat_context_rules._is_casual_low_signal
+    assert chat_helpers._truthy_request_flag is gateway_chat_context_rules._truthy_request_flag
+    assert chat_helpers._session_is_research_spinoff is gateway_chat_context_rules._session_is_research_spinoff
+    assert gateway_chat_context_rules._is_casual_low_signal("hey") is True
+    assert gateway_chat_context_rules._is_casual_low_signal("hey search email") is False

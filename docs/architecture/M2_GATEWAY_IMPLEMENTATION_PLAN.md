@@ -61,6 +61,28 @@ The original preset, preprocessing, memory/RAG, attachment, compact/trim and per
 
 [Injected-provider tests](../../tests/test_mnerys_gateway_context_ports.py) now verify that the core uses these ports rather than direct access to the original source, clock, normalization and history helpers. They also check provider-selected model fallback, deterministic time injection, model-window selection and source provenance. **This is still a partial M2.1 dependency extraction**, not a fully independent Agent Core: pure prompt utilities, Web-specific data types and process-local state remain coupled to the legacy module. No provider configuration, persistence migration or external API was changed.
 
+**Ninth incremental slice — transport-independent context composition:** the
+shared [context algorithm](../../src/gateway_chat_context.py), its
+[context result types](../../src/gateway_chat_context_types.py) and its
+[pure decision rules](../../src/gateway_chat_context_rules.py) have moved from
+the Web helper into the application layer. The existing Web route retains a
+compatible `build_chat_context_core` wrapper that injects the inherited
+`LegacyChatContextPorts` when no explicit provider is supplied. The new
+`assemble_chat_context` entry point requires trusted ports and has no
+dependency on FastAPI or `routes/`. This prevents an independent caller
+from implicitly loading the Web adapter or inheriting a second authorization
+path. The order of message persistence, preface building, incognito isolation,
+context compaction and model fallback shaping remains unchanged.
+
+This is **not** an operational Gateway, an independent agent engine or a
+database migration. Admission must still be performed by the trusted caller;
+the only production port implementation still wraps inherited services.
+The [regressions](../../tests/test_mnerys_gateway_context_ports.py) include
+direct execution without HTTP, rejection of missing ports, compatibility
+types and a structural guard against imports from `routes/` or FastAPI.
+Preview rollout, durable turn records and second-client acceptance are
+still required for M2 completion.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

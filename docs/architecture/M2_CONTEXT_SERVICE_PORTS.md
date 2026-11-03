@@ -13,8 +13,9 @@ define the remaining delivery and acceptance gates.
 Web /chat or /chat_stream
   -> authenticated session admission (owner and session checked)
   -> HTTP compatibility adapter (legacy message events)
-  -> build_chat_context_core(user=admitted owner, ports=...)
-       -> ChatContextPorts
+  -> routes.chat_helpers.build_chat_context_core (compatibility wrapper)
+       -> src.gateway_chat_context.assemble_chat_context(user=admitted owner, ports=...)
+            -> ChatContextPorts
             -> LegacyChatContextPorts
                  -> existing handlers, preferences, RAG, uploads and stores
   -> Gateway prompt selection, model routes and existing runtime
@@ -23,9 +24,12 @@ Web /chat or /chat_stream
 The [context admission guard](../../src/gateway_context_admission.py) validates
 the server-issued admission before preprocessing. Neither caller-provided
 JSON nor a fallback candidate grants ownership or authorizes any tool.
-The [shared context algorithm](../../routes/chat_helpers.py) receives an
-explicit owner; the Web adapter retains the original request identity and
-event callback. Existing users of the legacy helper still work.
+The [shared context algorithm](../../src/gateway_chat_context.py) now lives in
+the application layer and receives an explicit trusted owner and context ports.
+The [Web adapter](../../routes/chat_helpers.py) retains authentication,
+admission validation, the legacy request identity and event callback.
+Existing callers of `build_chat_context_core` retain their signature through
+the compatibility wrapper.
 
 ## Implemented ports
 
@@ -56,8 +60,10 @@ client. When `persist_user_message=False`, no message or event is written.
 Incognito context cannot read the persisted session history and is not
 converted into persistent storage.
 
-Callers without a port argument continue through the legacy adapter.
-Server-side tests can inject another provider to verify the interface without
+Callers of the Web compatibility wrapper without a port argument continue
+through `LegacyChatContextPorts`. The extracted `assemble_chat_context`
+requires explicit trusted ports and cannot silently create a Web adapter.
+Server-side tests can inject another provider without
 opening an HTTP connection or using an actual database. Such providers are
 **trusted internal code**, not client-specified plug-ins.
 
@@ -67,12 +73,17 @@ opening an HTTP connection or using an actual database. Such providers are
   and persisted-history reads are now routed through injectable ports, **not**
   independently implemented providers. The legacy adapter retains their
   original cache-first ordering, ownership filters and error behavior.
-- Pure prompt decisions and helper functions such as low-signal detection,
-  research-session classification and request-flag parsing are still module-bound.
+- Low-signal detection, research-session classification and request-flag
+  parsing have moved to [pure context rules](../../src/gateway_chat_context_rules.py).
+  The result containers are in [shared types](../../src/gateway_chat_context_types.py);
+  historical imports from the Web helper remain compatible.
 - Memory/RAG and attachment operations are **ports to inherited implementations**,
   not newly independent services or alternative storage.
-- The context algorithm itself still lives in `routes/chat_helpers.py`;
-  moving it into `src/` requires isolating its remaining dependencies first.
+- Context composition now lives in `src/gateway_chat_context.py` and accepts
+  trusted injectable I/O ports, but the only production port implementation
+  remains in `routes/chat_helpers.py`; the complete turn runtime and its
+  remaining transport-specific services have **not** moved into a standalone
+  Agent Core or independent Gateway.
 - Process-local incognito records and tool approvals are not durable and do not
   survive worker replacement.
 - Authenticated remote transport, turn/event durability, crash recovery and

@@ -7,7 +7,6 @@ import math
 import os
 import re
 import time
-from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from core.models import ChatMessage
@@ -21,6 +20,16 @@ from src.auth_helpers import effective_user
 from src.gateway_admission import AdmittedSession, AdmissionDenied
 from src.gateway_context_admission import owner_for_admitted_context
 from src.gateway_context_ports import ChatContextPorts
+from src.gateway_chat_context import assemble_chat_context
+from src.gateway_chat_context_types import ChatContext, PresetInfo, PreprocessedMessage
+from src.gateway_chat_context_rules import (
+    _is_casual_low_signal,
+    _truthy_request_flag,
+    _session_is_research_spinoff,
+    _PERSONAL_TOOL_CONTEXT_RE,
+    _CASUAL_OPENING_RE,
+    _CASUAL_BLOCKLIST_RE,
+)
 from src.prompt_security import untrusted_context_message
 from src.attachment_refs import attachment_ref
 from routes.prefs_routes import _load_for_user as load_prefs_for_user
@@ -105,48 +114,6 @@ def clean_repeated_assistant_content(text: object) -> str:
     # it from every offset of a long whitespace run was quadratic (ReDoS).
     value = re.sub(r"(?is)</\s*think\s*>\s*$", "", value).strip()
     return value
-
-_CASUAL_OPENING_RE = re.compile(
-    r"^\s*(?:h+i+|hey+|hello+|yo+|sup+|what'?s up|wass?up|hiya|howdy|"
-    r"lol|lmao|haha+|hehe+|thanks?|thank you|ty|idk|dunno|meh|bruh|bro)\b(?P<tail>.*)$",
-    re.IGNORECASE,
-)
-_CASUAL_BLOCKLIST_RE = re.compile(
-    r"\b(?:cookbook|serve|serving|launch|start|vllm|sglang|llama\.?cpp|ollama|"
-    r"download|model|email|document|doc|note|calendar|task|search|web|research|"
-    r"file|folder|repo|git|settings?|endpoint|api|token|mcp)\b",
-    re.IGNORECASE,
-)
-_PERSONAL_TOOL_CONTEXT_RE = re.compile(
-    r"\b(?:"
-    r"email|emails|mail|inbox|gmail|"
-    r"calendar|events?|meetings?|appointments?|schedule|"
-    r"notes?|todo|checklist|reminders?|tasks?"
-    r")\b",
-    re.IGNORECASE,
-)
-
-
-def _is_casual_low_signal(text: str) -> bool:
-    """Short greetings/slang should not pull memory, skills, RAG, or docs."""
-    s = str(text or "").strip()
-    m = _CASUAL_OPENING_RE.match(s)
-    if not m:
-        return False
-    tail = m.group("tail") or ""
-    if _CASUAL_BLOCKLIST_RE.search(tail):
-        return False
-    tail_words = re.findall(r"[A-Za-z0-9_'-]+", tail)
-    return len(tail_words) <= 2
-
-
-def _truthy_request_flag(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return False
-    return str(value).strip().lower() in {"1", "true", "yes", "on"}
-
 
 # Strong references to in-flight fire-and-forget tasks scheduled from this
 # module. asyncio only keeps weak references to tasks created via
@@ -394,58 +361,6 @@ def _append_incognito_message(session_id: str, role: str, content: Any, metadata
 
 # ── Data containers ────────────────────────────────────────────────────── #
 
-@dataclass
-class PresetInfo:
-    """Extracted preset parameters."""
-    temperature: Optional[float]
-    max_tokens: Optional[int]
-    system_prompt: Optional[str]
-    character_name: Optional[str]
-    persona_memory: Optional[str] = None
-    persona_memory_schema: str = "general"
-
-
-@dataclass
-class PreprocessedMessage:
-    """Result of chat_handler.preprocess_message."""
-    enhanced_message: str
-    user_content: Any  # str or list (multimodal)
-    text_for_context: str
-    youtube_transcripts: list
-    attachment_meta: list
-
-
-@dataclass
-class ChatContext:
-    """Everything needed to call the LLM after context-building."""
-    preface: list
-    rag_sources: list
-    web_sources: list
-    used_memories: list
-    messages: list
-    context_length: int
-    was_compacted: bool
-    user: Optional[str]
-    uprefs: dict
-    preset: PresetInfo
-    preprocessed: PreprocessedMessage
-    context_trimmed: bool = False
-    context_messages_before_trim: int = 0
-    context_messages_after_trim: int = 0
-    context_tokens_before_trim: int = 0
-    context_tokens_after_trim: int = 0
-    # Documents auto-created server-side during preprocess (e.g. when an
-    # attached fillable PDF gets rendered into a markdown editor doc).
-    # The chat route emits a doc_update SSE event for each before streaming
-    # begins, so the editor pane switches to the new doc immediately.
-    auto_opened_docs: list = field(default_factory=list)
-    # Uploads attached to this user turn, resolved and owner-checked for the
-    # agent's private context. This is not emitted to the browser.
-    uploaded_files: list = field(default_factory=list)
-    # Route-neutral prompt before any model-window compaction/trimming. This is
-    # retained only when explicit foreground fallbacks are enabled so each
-    # concrete candidate can apply its own context budget independently.
-    route_messages: list = field(default_factory=list)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────── #
@@ -985,27 +900,6 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
     return None
 
 
-def _session_is_research_spinoff(sess) -> bool:
-    """True if this session was created via research "Discuss" spin-off.
-
-    Detected by the primer system message the spin-off endpoint seeds into
-    history (metadata ``research_spinoff_from``). Such sessions are grounded
-    on the seeded report, so global memory + personal-doc RAG injection is
-    suppressed for them (the report is the sole knowledge base). Handles both
-    ChatMessage objects and plain dicts.
-    """
-    for m in getattr(sess, "history", []) or []:
-        role = getattr(m, "role", None)
-        if role is None and isinstance(m, dict):
-            role = m.get("role")
-        if role != "system":
-            continue
-        md = getattr(m, "metadata", None)
-        if md is None and isinstance(m, dict):
-            md = m.get("metadata")
-        if (md or {}).get("research_spinoff_from"):
-            return True
-    return False
 
 
 class LegacyChatContextPorts:
@@ -1165,6 +1059,8 @@ async def build_chat_context(
     )
 
 
+
+
 async def build_chat_context_core(
     sess,
     user: str | None,
@@ -1195,267 +1091,32 @@ async def build_chat_context_core(
     on_user_message_persisted: Callable[[], None] | None = None,
     ports: ChatContextPorts | None = None,
 ) -> ChatContext:
-    """Build the full context (preface + messages) for an LLM call.
-
-    This is the shared logic between /chat and /chat_stream — preset extraction,
-    message preprocessing, memory/RAG/web injection, compaction, normalization.
-
-    ``context_resolution`` is the turn's already resolved context window. When
-    supplied, history shaping sizes against it instead of probing the endpoint.
-    """
-    # External reads/writes are supplied by a trusted service adapter.
-    # No alternative storage, context or agent engine is introduced here.
-    if ports is None:
-        ports = LegacyChatContextPorts()
-
-    # Preset
-    preset = ports.extract_preset(chat_handler, preset_id)
-
-    # Preprocess message (CoT, YouTube, VL images, build content). The
-    # auto_opened_docs collector captures any docs created server-side
-    # (e.g. fillable PDF → markdown editor doc) so the chat route can
-    # announce them to the frontend before streaming.
-    auto_opened_docs: list = []
-    preprocessed = await ports.preprocess_message(
-        chat_handler, message, att_ids or [], sess,
-        auto_opened_docs=auto_opened_docs,
-        allow_tool_preprocessing=allow_tool_preprocessing,
-    )
-
-    # Add user message to history. Nobody/incognito uses a request-local
-    # transcript store instead of session history so stale saved chats cannot
-    # bleed into context and the turn is not persisted.
-    if persist_user_message and incognito:
-        user_meta = {}
-        if preprocessed.attachment_meta:
-            user_meta["attachments"] = preprocessed.attachment_meta
-        if interaction_mode in {"chat", "agent", "research"}:
-            user_meta["interaction_mode"] = interaction_mode
-        if auto_escalated:
-            user_meta["auto_escalated"] = True
-        ports.append_private_message(session_id, "user", preprocessed.user_content, user_meta)
-    elif persist_user_message:
-        ports.append_user_message(
-            sess,
-            chat_handler,
-            preprocessed,
-            incognito=False,
-            interaction_mode=interaction_mode,
-            auto_escalated=auto_escalated,
-        )
-
-    # Emit events through a transport callback only after message persistence.
-    if persist_user_message and not incognito and on_user_message_persisted is not None:
-        on_user_message_persisted()
-
-    # Owner comes from the adapter's trusted, admitted principal.
-    # Core never reads HTTP credentials or client-selected owner fields.
-    uprefs = ports.load_preferences(user)
-    uploaded_files = ports.upload_manifest(
-        att_ids or [],
-        getattr(chat_handler, "upload_handler", None),
-        getattr(sess, "owner", None),
-    )
-    context_message = (
-        str(continuation_context_message).strip()
-        if continuation_context_message
-        else message
-    )
-    casual_low_signal = _is_casual_low_signal(context_message)
-
-    # Memory enabled?
-    mem_enabled = (
-        not incognito
-        and not no_memory
-        and uprefs.get("memory_enabled", True)
-        and getattr(sess, "memory_injection_enabled", True) is not False
-    )
-    # Skills injection respects its own enable toggle (mirrors memory_enabled).
-    # When off, the "Available skills" index is not added to the prompt.
-    skills_enabled = (
-        not incognito
-        and uprefs.get("skills_enabled", True)
-        and getattr(sess, "skill_injection_enabled", True) is not False
-    )
-    if not allow_tool_preprocessing:
-        mem_enabled = False
-        skills_enabled = False
-    if casual_low_signal:
-        mem_enabled = False
-        skills_enabled = False
-    logger.debug(
-        "Memory enabled=%s for user=%s (incognito=%s, no_memory=%s, pref=%s)",
-        mem_enabled, user, incognito, no_memory, uprefs.get("memory_enabled", "NOT_SET"),
-    )
-
-    # Research-spinoff ("Discuss") sessions are grounded on the seeded report:
-    # the primer system message IS the knowledge base. Injecting global memory
-    # or personal-doc RAG on every turn pulls in keyword-matched but off-topic
-    # facts ("wrong data") and competes with the report, so suppress both here.
-    is_research_spinoff = _session_is_research_spinoff(sess)
-    if is_research_spinoff:
-        mem_enabled = False
-
-    # Use RAG?
-    use_rag_val = (str(use_rag).lower() != "false") if use_rag is not None else True
-    if incognito or not allow_tool_preprocessing or is_research_spinoff or casual_low_signal:
-        use_rag_val = False
-
-    use_web_val = _truthy_request_flag(use_web)
-    # If pre-fetched search context was provided (compare mode), skip live web
-    # search. Personal app requests should be served by their tools; pre-search
-    # here caused calendar/email turns with use_web="false" to run irrelevant
-    # web searches before the agent even saw the tool surface.
-    skip_web = (
-        bool(search_context)
-        or not allow_tool_preprocessing
-        or casual_low_signal
-        or bool(agent_mode and _PERSONAL_TOOL_CONTEXT_RE.search(context_message or ""))
-    )
-
-    # Build context preface
-    # The stream path uses enhanced_message (with CoT/preprocessing applied),
-    # the sync path uses text_for_context.
-    _ctx_msg = (
-        context_message
-        if continuation_context_message
-        else (
-            preprocessed.enhanced_message
-            if use_enhanced_message
-            else preprocessed.text_for_context
-        )
-    )
-    _preface_kwargs = dict(
-        message=_ctx_msg,
-        session=sess,
-        use_web=use_web_val and not skip_web,
-        use_memory=mem_enabled,
+    """Legacy entry point; bind inherited services before calling the shared Core."""
+    return await assemble_chat_context(
+        sess, user, chat_handler, chat_processor, message, session_id,
+        selected_notes_context=selected_notes_context,
+        preset_id=preset_id,
+        att_ids=att_ids,
+        use_web=use_web,
+        use_rag=use_rag,
+        use_research=use_research,
         time_filter=time_filter,
-        preset_system_prompt=preset.system_prompt,
-        owner=user,
-        character_name=preset.character_name,
-        persona_memory=preset.persona_memory,
-        agent_mode=agent_mode,
         incognito=incognito,
-        use_skills=skills_enabled,
+        no_memory=no_memory,
+        search_context=search_context,
+        compare_mode=compare_mode,
+        use_enhanced_message=use_enhanced_message,
+        agent_mode=agent_mode,
+        allow_tool_preprocessing=allow_tool_preprocessing,
+        defer_context_shaping=defer_context_shaping,
+        continuation_context_message=continuation_context_message,
+        persist_user_message=persist_user_message,
+        interaction_mode=interaction_mode,
+        auto_escalated=auto_escalated,
+        context_resolution=context_resolution,
+        on_user_message_persisted=on_user_message_persisted,
+        ports=ports if ports is not None else LegacyChatContextPorts(),
     )
-    if use_rag is not None or is_research_spinoff or casual_low_signal:
-        _preface_kwargs["use_rag"] = use_rag_val
-    preface, rag_sources, web_sources = ports.build_preface(chat_processor, **_preface_kwargs)
-
-    # Capture used memories immediately
-    used_memories = ports.used_memories(chat_processor)
-
-    # Inject pre-fetched search context (compare mode)
-    if search_context and allow_tool_preprocessing and not casual_low_signal:
-        preface.append(untrusted_context_message("prefetched search context", search_context))
-
-    # Inject selected notes as context
-    if selected_notes_context:
-        selected_notes_context = (
-            "The following selected notes and todos are reference context explicitly chosen "
-            "by the user. Use them directly when relevant to the user's request. Do not "
-            "ask for permission to use this context, and do not call note-management "
-            "tools just to retrieve the same notes; use those tools only for a requested "
-            "change or when this context is insufficient.\n\n"
-            + selected_notes_context
-        )
-        preface.append(
-            untrusted_context_message(
-                "Selected notes and todos",
-                selected_notes_context,
-            )
-        )
-
-    # YouTube transcripts
-    for transcript in preprocessed.youtube_transcripts:
-        preface.append(untrusted_context_message("youtube transcript", transcript))
-    for source in ports.youtube_sources(
-        preprocessed.text_for_context, preprocessed.youtube_transcripts
-    ):
-        if not any(existing.get("url") == source["url"] for existing in web_sources):
-            web_sources.append(source)
-
-    # Normalize model ID. Prefer cached endpoint models so group chat does not
-    # re-hit slow local /models endpoints on every participant turn.
-    norm = ports.normalize_model(sess)
-    if norm:
-        sess.model = norm
-
-    # Build messages. In Nobody/incognito mode, never read saved session
-    # history: the session id may be a temporary wrapper or, in buggy clients, a
-    # stale normal session id. Only the ephemeral incognito transcript is safe.
-    messages = preface + (ports.private_messages(session_id) if incognito else ports.session_history(sess))
-
-    # Current date/time — injected as a standalone *user*-role context message
-    # placed immediately before the latest user turn, NOT folded into the
-    # system prompt. Its text changes every minute, and local OpenAI-compatible
-    # backends (llama.cpp / LM Studio) key their KV-cache prefix off the
-    # system message byte-for-byte; mixing ever-changing timestamp text into
-    # it would invalidate the cached prefix on every request (issue #2927).
-    # Placing it at the tail also keeps it out of the stable
-    # preface+history prefix, so that prefix stays byte-identical turn over
-    # turn (modulo the genuinely new history entries) and the cache survives.
-    if not agent_mode:
-        try:
-            _dt_msg = ports.current_datetime_message()
-            if messages and messages[-1].get("role") == "user":
-                messages.insert(len(messages) - 1, _dt_msg)
-            else:
-                messages.append(_dt_msg)
-        except Exception:
-            logger.debug("Failed to add current date/time context", exc_info=True)
-
-    route_messages = list(messages)
-    # Explicit fallback routing must shape from the same route-neutral prompt
-    # for every candidate. Running selected-model compaction here would mutate
-    # session history before we know which route can answer and would make a
-    # later larger-context candidate unable to recover discarded history.
-    if context_resolution is not None:
-        prepared_window = {"context_length": context_resolution.shaping_window}
-    else:
-        prepared_window = {}
-    if defer_context_shaping:
-        context_length = (
-            prepared_window.get("context_length")
-            or ports.context_length(sess.endpoint_url, sess.model)
-        )
-        was_compacted = False
-    else:
-        messages, context_length, was_compacted = await ports.compact(
-            sess, sess.endpoint_url, sess.model, messages, sess.headers, owner=user,
-            **prepared_window,
-        )
-    _before_trim_messages = len(messages)
-    _before_trim_tokens = ports.estimate_tokens(messages)
-    if not defer_context_shaping:
-        messages = ports.trim(messages, context_length)
-    _after_trim_messages = len(messages)
-    _after_trim_tokens = ports.estimate_tokens(messages)
-    _context_trimmed = _after_trim_messages < _before_trim_messages or _after_trim_tokens < _before_trim_tokens
-
-    return ChatContext(
-        preface=preface,
-        rag_sources=rag_sources,
-        web_sources=web_sources,
-        used_memories=used_memories,
-        messages=messages,
-        context_length=context_length,
-        was_compacted=was_compacted,
-        user=user,
-        uprefs=uprefs,
-        preset=preset,
-        preprocessed=preprocessed,
-        context_trimmed=_context_trimmed,
-        context_messages_before_trim=_before_trim_messages,
-        context_messages_after_trim=_after_trim_messages,
-        context_tokens_before_trim=_before_trim_tokens,
-        context_tokens_after_trim=_after_trim_tokens,
-        auto_opened_docs=auto_opened_docs,
-        uploaded_files=uploaded_files,
-        route_messages=route_messages,
-    )
-
 
 def accumulate_token_usage(session_id: str, metrics: dict):
     """Add input/output token counts (and USD cost) to the session's totals."""
