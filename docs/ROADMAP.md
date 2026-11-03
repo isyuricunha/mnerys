@@ -56,7 +56,9 @@ See [native preview deployment](deployment/NATIVE_PREVIEW.md) and [PostgreSQL 17
 
 **Implemented internal seams:** process-local SSE replay cursors, the [M1 regression baseline](architecture/M1_CONTRACT_TEST_BASELINE.md), the [TurnService extraction](architecture/GATEWAY_AGENT_CONTRACT.md#m1-incremental-implementation-internal-turnservice-seam), [typed principal/session admission](architecture/GATEWAY_AGENT_CONTRACT.md#m1-incremental-implementation-trusted-principal-and-session-admission), and [read-only ownership repository plus account privilege limits](architecture/GATEWAY_AGENT_CONTRACT.md#m1-incremental-implementation-ownership-lookup-and-privilege-limits). Existing Web run controls require an admitted session. The source-of-truth database and hardened tool dispatcher are preserved; global/model/intent policy orchestration and persistence writes still follow inherited paths.
 
-**Still planned:** the complete Gateway/API authorization contract, full owner-scoped session CRUD/revision repository, extracted model/intent/context orchestration, durable turn/event/approval records, concurrency fencing, cross-client integration and end-to-end acceptance tests.
+**Implemented as an isolated prototype only:** [revision-checked, owner-scoped metadata updates](architecture/SESSION_REVISION_MIGRATION.md) have passing temporary-SQLite concurrency/rollback tests. They are **not enabled** against the live Session schema and require a reviewed migration plus all-writer integration.
+
+**Still planned:** the complete Gateway/API authorization contract, full owner-scoped session CRUD/revision repository, extracted model/intent/context orchestration, durable turn/event/approval records, persistent fencing, cross-client integration and end-to-end acceptance tests.
 
 - Inventory existing agent loop, model adapters, tool execution, MCP, skills, memory, session state and background jobs.
 - Identify coupling to web routes, local files, storage, environment variables and global singletons.

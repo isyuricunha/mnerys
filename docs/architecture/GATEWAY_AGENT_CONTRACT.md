@@ -98,6 +98,10 @@ and [SQLAlchemy 2.0 Session Basics](https://docs.sqlalchemy.org/en/20/orm/sessio
 Their references are conceptual: the existing persistence dependencies remain
 as configured in Mnerys.
 
+## M1 isolated prototype: revision-checked session metadata
+
+The [session revision and concurrency migration plan](SESSION_REVISION_MIGRATION.md) documents the new, **disabled-by-default** SQLAlchemy compare-and-swap metadata port and its actual SQLite concurrency tests. The current production Session model has no revision column; the new writer is **not integrated** into active chat routes or session mutation paths. No schema, database or deployment was modified. Full owner-scoped session CRUD, persistent turn fencing, and all-writer migration remain planned.
+
 ## M1 incremental implementation: internal TurnService seam
 
 **Implemented internally, NOT the proposed public Gateway/TurnService v1 contract.** The first extraction in `src/turn_service.py` moves two existing operations out of `routes/chat_routes.py` without duplicating the Python agent engine:

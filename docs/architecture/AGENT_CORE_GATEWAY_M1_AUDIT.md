@@ -1,6 +1,6 @@
 # M1 — Agent runtime audit and extraction plan
 
-Status: **audit completed; internal TurnService, session admission, ownership lookup and account privilege-limit seams partially implemented; complete Gateway contract and durable state NOT implemented.**
+Status: **audit completed; internal TurnService, session admission, ownership lookup and account privilege-limit seams partially implemented; isolated session revision prototype tested but NOT integrated; complete Gateway contract and durable state NOT implemented.**
 Scope: source inspection and isolated unit/regression checks at the beginning of Mnerys milestone M1. That original audit changed no runtime, database, authentication, public API or deployment. Later internal extractions are tracked separately in the [implementation contract](GATEWAY_AGENT_CONTRACT.md).
 
 Read this with [Mnerys roadmap](../ROADMAP.md) and the [proposed shared contract](GATEWAY_AGENT_CONTRACT.md). File paths and line ranges below refer to the audited source tree, not to an installed release; recheck after refactoring.

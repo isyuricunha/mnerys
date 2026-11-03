@@ -5,6 +5,7 @@ The [Mnerys roadmap](../ROADMAP.md) defines the **target** Python Agent Core, au
 - [M1 audit of the inherited runtime](AGENT_CORE_GATEWAY_M1_AUDIT.md) — verified source map, existing security seams and extraction order.
 - [Proposed Gateway / Agent Core contract](GATEWAY_AGENT_CONTRACT.md) — draft entities, responsibilities, events, approvals and compatibility gates.
 - [M1 contract regression baseline](M1_CONTRACT_TEST_BASELINE.md) — Web owner/scope/cancellation characterization and shared admission regressions, plus remaining integration gaps.
+- [Session revisions and concurrency migration](SESSION_REVISION_MIGRATION.md) — isolated CAS prototype, safety limitations, schema dependencies, tests, recovery and phased rollout.
 - [Agent turn contract](agents/AGENT_TURN_CONTRACT.md)
 - [Background tool jobs](agents/BACKGROUND_TOOL_JOBS.md)
 - [Skills lifecycle](skills/skills-lifecycle.md)
