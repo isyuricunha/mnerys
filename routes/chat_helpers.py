@@ -20,6 +20,7 @@ from src.model_context import estimate_tokens, get_context_length
 from src.auth_helpers import effective_user
 from src.gateway_admission import AdmittedSession, AdmissionDenied
 from src.gateway_context_admission import owner_for_admitted_context
+from src.gateway_context_ports import ChatContextPorts
 from src.prompt_security import untrusted_context_message
 from src.attachment_refs import attachment_ref
 from routes.prefs_routes import _load_for_user as load_prefs_for_user
@@ -1007,6 +1008,67 @@ def _session_is_research_spinoff(sess) -> bool:
     return False
 
 
+class LegacyChatContextPorts:
+    """Bind existing Web services without changing their storage or behavior.
+
+    Deliberately resolve module functions at call time so legacy test patches
+    and established provider configuration keep working unchanged.
+    """
+
+    def extract_preset(self, chat_handler, preset_id):
+        return extract_preset(chat_handler, preset_id)
+
+    async def preprocess_message(
+        self, chat_handler, message, attachment_ids, session, *,
+        auto_opened_docs, allow_tool_preprocessing,
+    ):
+        return await preprocess(
+            chat_handler, message, attachment_ids, session,
+            auto_opened_docs=auto_opened_docs,
+            allow_tool_preprocessing=allow_tool_preprocessing,
+        )
+
+    def append_user_message(
+        self, session, chat_handler, preprocessed, *,
+        incognito, interaction_mode, auto_escalated,
+    ):
+        return add_user_message(
+            session, chat_handler, preprocessed, incognito=incognito,
+            interaction_mode=interaction_mode,
+            auto_escalated=auto_escalated,
+        )
+
+    def append_private_message(self, session_id, role, content, metadata):
+        return _append_incognito_message(session_id, role, content, metadata)
+
+    def private_messages(self, session_id):
+        return _incognito_messages(session_id)
+
+    def load_preferences(self, owner):
+        return load_prefs_for_user(owner)
+
+    def upload_manifest(self, attachment_ids, upload_handler, owner):
+        return build_uploaded_file_manifest(attachment_ids, upload_handler, owner)
+
+    def build_preface(self, chat_processor, **options):
+        return chat_processor.build_context_preface(**options)
+
+    def used_memories(self, chat_processor):
+        return getattr(chat_processor, "_last_used_memories", [])
+
+    async def compact(
+        self, session, endpoint_url, model, messages, headers, *,
+        owner, **options,
+    ):
+        return await maybe_compact(
+            session, endpoint_url, model, messages, headers,
+            owner=owner, **options,
+        )
+
+    def trim(self, messages, context_length):
+        return trim_for_context(messages, context_length)
+
+
 async def build_chat_context(
     sess,
     request,
@@ -1107,6 +1169,7 @@ async def build_chat_context_core(
     auto_escalated: bool = False,
     context_resolution=None,
     on_user_message_persisted: Callable[[], None] | None = None,
+    ports: ChatContextPorts | None = None,
 ) -> ChatContext:
     """Build the full context (preface + messages) for an LLM call.
 
@@ -1116,15 +1179,20 @@ async def build_chat_context_core(
     ``context_resolution`` is the turn's already resolved context window. When
     supplied, history shaping sizes against it instead of probing the endpoint.
     """
+    # External reads/writes are supplied by a trusted service adapter.
+    # No alternative storage, context or agent engine is introduced here.
+    if ports is None:
+        ports = LegacyChatContextPorts()
+
     # Preset
-    preset = extract_preset(chat_handler, preset_id)
+    preset = ports.extract_preset(chat_handler, preset_id)
 
     # Preprocess message (CoT, YouTube, VL images, build content). The
     # auto_opened_docs collector captures any docs created server-side
     # (e.g. fillable PDF → markdown editor doc) so the chat route can
     # announce them to the frontend before streaming.
     auto_opened_docs: list = []
-    preprocessed = await preprocess(
+    preprocessed = await ports.preprocess_message(
         chat_handler, message, att_ids or [], sess,
         auto_opened_docs=auto_opened_docs,
         allow_tool_preprocessing=allow_tool_preprocessing,
@@ -1141,9 +1209,9 @@ async def build_chat_context_core(
             user_meta["interaction_mode"] = interaction_mode
         if auto_escalated:
             user_meta["auto_escalated"] = True
-        _append_incognito_message(session_id, "user", preprocessed.user_content, user_meta)
+        ports.append_private_message(session_id, "user", preprocessed.user_content, user_meta)
     elif persist_user_message:
-        add_user_message(
+        ports.append_user_message(
             sess,
             chat_handler,
             preprocessed,
@@ -1158,8 +1226,8 @@ async def build_chat_context_core(
 
     # Owner comes from the adapter's trusted, admitted principal.
     # Core never reads HTTP credentials or client-selected owner fields.
-    uprefs = load_prefs_for_user(user)
-    uploaded_files = build_uploaded_file_manifest(
+    uprefs = ports.load_preferences(user)
+    uploaded_files = ports.upload_manifest(
         att_ids or [],
         getattr(chat_handler, "upload_handler", None),
         getattr(sess, "owner", None),
@@ -1249,10 +1317,10 @@ async def build_chat_context_core(
     )
     if use_rag is not None or is_research_spinoff or casual_low_signal:
         _preface_kwargs["use_rag"] = use_rag_val
-    preface, rag_sources, web_sources = chat_processor.build_context_preface(**_preface_kwargs)
+    preface, rag_sources, web_sources = ports.build_preface(chat_processor, **_preface_kwargs)
 
     # Capture used memories immediately
-    used_memories = getattr(chat_processor, '_last_used_memories', [])
+    used_memories = ports.used_memories(chat_processor)
 
     # Inject pre-fetched search context (compare mode)
     if search_context and allow_tool_preprocessing and not casual_low_signal:
@@ -1297,7 +1365,7 @@ async def build_chat_context_core(
     # Build messages. In Nobody/incognito mode, never read saved session
     # history: the session id may be a temporary wrapper or, in buggy clients, a
     # stale normal session id. Only the ephemeral incognito transcript is safe.
-    messages = preface + (_incognito_messages(session_id) if incognito else sess.get_context_messages())
+    messages = preface + (ports.private_messages(session_id) if incognito else sess.get_context_messages())
 
     # Current date/time — injected as a standalone *user*-role context message
     # placed immediately before the latest user turn, NOT folded into the
@@ -1335,14 +1403,14 @@ async def build_chat_context_core(
         )
         was_compacted = False
     else:
-        messages, context_length, was_compacted = await maybe_compact(
+        messages, context_length, was_compacted = await ports.compact(
             sess, sess.endpoint_url, sess.model, messages, sess.headers, owner=user,
             **prepared_window,
         )
     _before_trim_messages = len(messages)
     _before_trim_tokens = estimate_tokens(messages)
     if not defer_context_shaping:
-        messages = trim_for_context(messages, context_length)
+        messages = ports.trim(messages, context_length)
     _after_trim_messages = len(messages)
     _after_trim_tokens = estimate_tokens(messages)
     _context_trimmed = _after_trim_messages < _before_trim_messages or _after_trim_tokens < _before_trim_tokens
