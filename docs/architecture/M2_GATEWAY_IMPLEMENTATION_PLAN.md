@@ -108,6 +108,24 @@ verify the caller and client-facing lifecycle. The local focused suite passed
 Hosted CI, restart durability, two-client acceptance and private preview
 rollout remain unverified at this slice.
 
+**CI regression maintenance after the extraction:** the sharded GitHub Actions
+run for commit `28ccf5bf` exposed three outdated test assumptions:
+[model-send history hydration](../../tests/test_history_display_model_hydration.py)
+mocked session admission as `None` despite the now-mandatory issued
+`AdmittedSession`; the
+[cached-model test](../../tests/test_chat_cached_model_normalization.py)
+searched for model-normalization code in its pre-extraction Web location; and
+[owner-scoped compaction](../../tests/test_aux_llm_owner_scope.py) inspected the
+Web helper even though the compaction invocation moved into the shared Core.
+The updated hydration fixture issues an owner-matched admission using the
+real in-process policy, model tests assert the live cache-first behavior of
+`LegacyChatContextPorts` and basename matching, and the compaction test
+examines the actual Core call's owner argument. These test fixes do not
+weaken runtime admission, modify model selection or affect persistence.
+Local focused and authority regressions passed **63** and **96** tests,
+respectively; complete hosted CI remains the authoritative merge/release
+gate.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

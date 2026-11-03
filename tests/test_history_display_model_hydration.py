@@ -18,6 +18,7 @@ from routes import chat_routes
 from routes.history import history_routes
 from routes import session_routes
 from src.request_models import ChatRequest
+from src.gateway_admission import GatewayAdmission, Principal, SessionOwnership
 
 
 def _database():
@@ -456,7 +457,12 @@ async def test_model_send_routes_hydrate_before_context_build(monkeypatch, path)
         raise _ContextBuildReached
 
     monkeypatch.setattr(chat_routes, "_set_user_time_from_request", lambda *_args: None)
-    monkeypatch.setattr(chat_routes, "_verify_session_owner", lambda *_args: None)
+    # Preserve the real Gateway admission invariant while isolating DB hydration.
+    admitted = GatewayAdmission().admit(
+        Principal("alice", "browser"), "session-1",
+        lambda _sid: SessionOwnership(owner_id="alice"),
+    )
+    monkeypatch.setattr(chat_routes, "_verify_session_owner", lambda *_args: admitted)
     monkeypatch.setattr(chat_routes, "effective_user", lambda *_args: "alice")
     monkeypatch.setattr(
         chat_routes,

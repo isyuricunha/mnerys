@@ -58,10 +58,23 @@ def test_task_name_generation_uses_owner_scoped_session_endpoint():
 
 
 def test_auto_compaction_utility_endpoint_keeps_chat_owner():
-    helper_src = _src("routes/chat_helpers.py")
+    # The shared context builder now owns the compaction call; the Web helper
+    # only supplies the legacy adapter and must not be the authority source.
+    context_src = _src("src/gateway_chat_context.py")
     compact_src = _src("src/context_compactor.py")
 
-    assert "owner=user" in helper_src
+    context_tree = ast.parse(context_src)
+    calls = [
+        node for node in ast.walk(context_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "ports"
+        and node.func.attr == "compact"
+    ]
+    assert len(calls) == 1
+    core_kwargs = {kw.arg: ast.unparse(kw.value) for kw in calls[0].keywords}
+    assert core_kwargs["owner"] == "user"
     assert "owner: Optional[str] = None" in compact_src
     kwargs = _utility_kwargs(compact_src, "maybe_compact")
     assert kwargs["owner"] == "owner"
