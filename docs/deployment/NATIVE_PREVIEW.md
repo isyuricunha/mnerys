@@ -76,6 +76,8 @@ python3 scripts/deploy_native_preview.py --deploy
 
 The runner reads service names from protected private host files and uses a local filesystem lock to prevent concurrent promotions. Failed tests or preparation never interrupt the running service. Versions already deployed are reported as unchanged. Private runtime credentials, addresses, ports, snapshots and host paths never belong in the repository.
 
+**Database backend:** SQLite remains the default in this preview. PostgreSQL 17 support and explicit main-database transfer are documented in [PostgreSQL 17](POSTGRESQL17.md). The native deployment runner currently backs up SQLite files only and **refuses a PostgreSQL `DATABASE_URL`** until PostgreSQL-native backup and recovery are reviewed. Changing the database backend requires an independently approved cutover plan.
+
 **Limitations and scope:** No concurrent live-version deployment is attempted; a short interruption is expected. `GET /api/ready` stays authenticated: the script checks its access guard externally and uses a **separate trusted local readiness check** for database and storage. Running two application processes against shared SQLite/background jobs is unsafe. Candidate tests validate code; they do **not** exercise a full second running instance. The rollback procedure automatically reverses **application code and service configuration**, not user data or an irreversible schema migration; those require review and explicit authorization. No automatic periodic deployment is configured: each rollout must be intentionally invoked.
 
 ### Rollback and retired service

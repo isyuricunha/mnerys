@@ -190,6 +190,16 @@ def test_schema_drift_stops_service_and_preserves_migrated_state(tmp_path, monke
     assert any(cmd[2] == "stop" for cmd in stopped)
 
 
+def test_preview_deployer_refuses_postgresql_without_backup_plan():
+    from scripts.deploy_native_preview import DeployError, require_sqlite_backup_policy
+    require_sqlite_backup_policy("AUTH_ENABLED=true\n")
+    require_sqlite_backup_policy("DATABASE_URL=sqlite:///data/app.db\n")
+    with pytest.raises(DeployError, match="PostgreSQL backup strategy"):
+        require_sqlite_backup_policy(
+            "DATABASE_URL=postgresql+psycopg2://test:<REDACTED>@db.example.com/mnerys\n"
+        )
+
+
 def test_policy_docs_distinguish_implemented_from_planned():
     docs = (ROOT / "docs/deployment/NATIVE_PREVIEW.md").read_text()
     assert "deploy with validation and rollback" in docs.lower()

@@ -69,14 +69,24 @@ def _normalize_sqlite_url(url: str) -> str:
     )
 
 
-# Get database URL from environment, default to SQLite in DATA_DIR
+# SQLite remains the zero-configuration default. PostgreSQL is optional.
 DATABASE_URL = _normalize_sqlite_url(os.getenv("DATABASE_URL", _default_database_url()))
 
-# Create engine
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False, "timeout": 30} if "sqlite" in DATABASE_URL else {}
-)
+
+def _database_engine_options(url: str) -> dict:
+    """Only configure verified database families; never guess from URL text."""
+    dialect = make_url(url).get_backend_name()
+    if dialect == "sqlite":
+        return {"connect_args": {"check_same_thread": False, "timeout": 30}}
+    if dialect == "postgresql":
+        return {
+            "pool_pre_ping": True,
+            "connect_args": {"connect_timeout": 10},
+        }
+    raise RuntimeError("Mnerys supports SQLite and PostgreSQL database backends only")
+
+
+engine = create_engine(DATABASE_URL, **_database_engine_options(DATABASE_URL))
 
 
 # Sidecar files SQLite can create next to the main DB. -journal is the default
@@ -2345,11 +2355,60 @@ def _migrate_add_task_authority_column():
             conn.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN request_authority_json TEXT"))
 
 
+def _init_postgresql_database():
+    """Initialize an empty PostgreSQL database without running SQLite migrations.
+
+    Fresh PostgreSQL schemas come from the canonical SQLAlchemy metadata. A
+    pre-existing schema missing mapped columns is *not* silently repaired:
+    that would bypass explicit migrations and could lose data or constraints.
+    """
+    if engine.dialect.name != "postgresql":
+        raise RuntimeError("PostgreSQL initialization requires a PostgreSQL engine")
+
+    # PostgreSQL supports transactional DDL. Create and verify in ONE
+    # transaction so an incompatible pre-existing schema rolls back any new
+    # tables/indexes instead of leaving a partially modified database.
+    with engine.begin() as conn:
+        Base.metadata.create_all(bind=conn)
+
+        # create_all() adds missing tables but never upgrades existing tables.
+        # Missing mapped columns require a reviewed, versioned migration.
+        inspector = inspect(conn)
+        missing = []
+        for table in Base.metadata.sorted_tables:
+            if not inspector.has_table(table.name, schema=table.schema):
+                missing.append(f"{table.name}: table absent")
+                continue
+            columns = {
+                column["name"]
+                for column in inspector.get_columns(table.name, schema=table.schema)
+            }
+            for column in table.columns:
+                if column.name not in columns:
+                    missing.append(f"{table.name}.{column.name}")
+        if missing:
+            raise RuntimeError(
+                "PostgreSQL schema requires reviewed migrations before startup: "
+                + ", ".join(sorted(missing))
+            )
+
+    _migrate_email_account_default_invariant()
+    # Data-safe, dialect-neutral migrations run after schema verification.
+    _migrate_seed_email_account()
+    _migrate_encrypt_email_passwords()
+    _migrate_encrypt_signatures()
+    _migrate_encrypt_endpoint_keys()
+    logger.info("PostgreSQL schema initialized and validated")
+
+
 def init_db():
     """
     Initialize the database by creating all tables.
     Should be called when starting the application.
     """
+    if engine.dialect.name == "postgresql":
+        return _init_postgresql_database()
+
     _migrate_model_endpoints()
     Base.metadata.create_all(bind=engine)
     # Lock the DB file (and any SQLite sidecars) to 0o600 — it holds bearer-token

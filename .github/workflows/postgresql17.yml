@@ -1,0 +1,43 @@
+name: PostgreSQL 17 compatibility
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "core/database.py"
+      - "scripts/migrate_sqlite_to_postgres.py"
+      - "tests/test_postgresql_support.py"
+      - "tests/test_sqlite_postgres_migration.py"
+      - ".github/workflows/postgresql17.yml"
+  pull_request:
+    paths:
+      - "core/database.py"
+      - "scripts/migrate_sqlite_to_postgres.py"
+      - "tests/test_postgresql_support.py"
+      - "tests/test_sqlite_postgres_migration.py"
+      - ".github/workflows/postgresql17.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  postgresql-17:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.5"
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
+      - name: Install application dependencies
+        run: uv pip install --system -r requirements.txt
+      - name: Test with disposable PostgreSQL 17
+        shell: bash
+        run: bash scripts/ci_postgres17.sh

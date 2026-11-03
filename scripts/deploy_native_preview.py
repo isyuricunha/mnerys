@@ -360,6 +360,20 @@ def unit_and_config(home: Path):
     return unit, envfile, private, service_name
 
 
+def require_sqlite_backup_policy(environment: str) -> None:
+    """This deployer snapshots SQLite; refuse a PostgreSQL cutover without pg_dump."""
+    entries = [
+        line.split("=", 1)[1].strip().strip('"').strip("'")
+        for line in environment.splitlines()
+        if line.startswith("DATABASE_URL=")
+    ]
+    if entries and not entries[-1].lower().startswith(("sqlite://", "sqlite+pysqlite://")):
+        raise DeployError(
+            "Native preview rollback requires a reviewed PostgreSQL backup "
+            "strategy before DATABASE_URL is switched"
+        )
+
+
 def deploy(repo: Path, home: Path, dry_run: bool = False) -> dict:
     runtime = home / ".local/share/mnerys-preview"
     unit, envfile, private, service_name = unit_and_config(home)
@@ -368,6 +382,7 @@ def deploy(repo: Path, home: Path, dry_run: bool = False) -> dict:
         revision = repo_revision(repo)
         before_unit = unit.read_text()
         before_env = envfile.read_text()
+        require_sqlite_backup_policy(before_env)
         prior = unit_release(before_unit)
         if not prior.is_dir() or not prior.is_relative_to(runtime / "releases"):
             raise DeployError("Current service is not using a versioned release")

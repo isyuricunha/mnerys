@@ -62,7 +62,7 @@ The imported foundation already includes:
 - **Everyday workspace** — tasks, calendar, email, reminders, and scheduled agent workflows.
 - **Model flexibility** — connections to API providers and local model workflows.
 - **Creative and utility tools** — image gallery, model comparison, themes, and customizable presets.
-- **Self-hosting** — run the workspace on your own infrastructure and decide which integrations to enable.
+- **Self-hosting** — run the workspace on your own infrastructure and decide which integrations to enable. **SQLite is the default main database; PostgreSQL 17 is an optional backend for new installations** ([setup, migration and limitations](docs/deployment/POSTGRESQL17.md)).
 
 These are capabilities inherited from the initial codebase. They are being reviewed and will evolve as Mnerys develops its own architecture.
 
@@ -70,7 +70,7 @@ These are capabilities inherited from the initial codebase. They are being revie
 
 ### Native development preview (without Docker)
 
-The maintainer's private Mnerys preview runs directly from versioned source using **Python, Uvicorn and systemd**, with a stable Tailscale-only gateway. The deployment policy is **validation and rollback**, allowing a brief controlled restart; the automated deployment/rollback workflow remains planned. See the [native preview deployment guide](docs/deployment/NATIVE_PREVIEW.md). Private addresses and ports are intentionally not published. The legacy web service was retired after the native preview was validated; its data is preserved.
+The maintainer's private Mnerys preview runs directly from versioned source using **Python, Uvicorn and systemd**, with a stable Tailscale-only gateway. The deployment policy is **validation and rollback**, allowing a brief controlled restart; the native deployment/rollback workflow is implemented and validated for SQLite-backed preview releases. See the [native preview deployment guide](docs/deployment/NATIVE_PREVIEW.md). Private addresses and ports are intentionally not published. The legacy web service was retired after the native preview was validated; its data is preserved.
 
 ### Docker Compose (alternative development setup)
 
