@@ -52,7 +52,11 @@ See [native preview deployment](deployment/NATIVE_PREVIEW.md) and [PostgreSQL 17
 
 ### M1 — Audit and define the shared runtime contract
 
-**In progress.** The [runtime audit](architecture/AGENT_CORE_GATEWAY_M1_AUDIT.md) and [shared contract proposal](architecture/GATEWAY_AGENT_CONTRACT.md) are documented. The detached-run manager supports tested, opt-in process-local SSE replay cursors. The [M1 regression baseline](architecture/M1_CONTRACT_TEST_BASELINE.md) now also freezes inherited Web owner/scope checks across browser and bearer clients and exact-run cancellation. The first internal [TurnService extraction](architecture/GATEWAY_AGENT_CONTRACT.md#m1-incremental-implementation-internal-turnservice-seam) now delegates the inherited agent-loop bridge and detached-run lifecycle outside the Web route. This is only a transport-neutral server-side seam: request admission, session ownership, policy selection and persistence remain in the legacy paths. Durable events, Gateway authorization, cross-transport integration and acceptance tests are still pending.
+**In progress.** The [runtime audit](architecture/AGENT_CORE_GATEWAY_M1_AUDIT.md) and [shared contract proposal](architecture/GATEWAY_AGENT_CONTRACT.md) document the extraction strategy.
+
+**Implemented internal seams:** process-local SSE replay cursors, the [M1 regression baseline](architecture/M1_CONTRACT_TEST_BASELINE.md), the [TurnService extraction](architecture/GATEWAY_AGENT_CONTRACT.md#m1-incremental-implementation-internal-turnservice-seam) and [typed principal/session admission](architecture/GATEWAY_AGENT_CONTRACT.md#m1-incremental-implementation-trusted-principal-and-session-admission). Existing Web run controls now require an admitted session. Legacy model/tool policy composition, the authenticated HTTP transport and existing persistence remain in use.
+
+**Still planned:** the complete Gateway/API authorization contract, transport-independent session repository, durable turn/event/approval records, concurrency fencing, cross-client integration and end-to-end acceptance tests.
 
 - Inventory existing agent loop, model adapters, tool execution, MCP, skills, memory, session state and background jobs.
 - Identify coupling to web routes, local files, storage, environment variables and global singletons.

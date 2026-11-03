@@ -32,6 +32,7 @@ from src.agent_loop import (
 from src.agent_loop import _normalize_ody_qwen_text_artifacts
 from src import agent_runs
 from src.turn_service import turn_service
+from src.gateway_turns import gateway_turns
 from src.model_context import estimate_tokens
 from src.context_compactor import (
     apply_compaction_state,
@@ -2759,7 +2760,7 @@ def setup_chat_routes(
             )
             # Verify ownership AFTER coerce (which may resolve a default session)
             # but BEFORE loading. Prevents cross-user session hijack.
-            _verify_session_owner(request, session)
+            _admitted_session = _verify_session_owner(request, session)
             sess = session_manager.get_session(session)
             session_mode = str(getattr(sess, "thinking_mode", "") or "off").lower()
             # An explicit request-scoped mode (headless eval, API client, or
@@ -4985,7 +4986,7 @@ def setup_chat_routes(
                     "X-Accel-Buffering": "no",
                 })
 
-        _detached_run = turn_service.start_detached(session, _safe_stream())
+        _detached_run = gateway_turns.start_detached(_admitted_session, _safe_stream())
         return StreamingResponse(
             _detached_run.events,
             media_type="text/event-stream",
@@ -5002,8 +5003,8 @@ def setup_chat_routes(
     # ------------------------------------------------------------------ #
     @router.get("/api/chat/resume/{session_id}")
     async def chat_resume(request: Request, session_id: str) -> StreamingResponse:
-        _verify_session_owner(request, session_id)
-        _active_run = turn_service.resume_active(session_id)
+        admission = _verify_session_owner(request, session_id)
+        _active_run = gateway_turns.resume_active(admission)
         if _active_run is None:
             raise HTTPException(404, "No active run for this session")
         return StreamingResponse(
@@ -5022,17 +5023,17 @@ def setup_chat_routes(
     # ------------------------------------------------------------------ #
     @router.post("/api/chat/stop/{session_id}")
     async def chat_stop(request: Request, session_id: str) -> Dict[str, Any]:
-        _verify_session_owner(request, session_id)
+        admission = _verify_session_owner(request, session_id)
         _expected_run_id = request.headers.get("X-Odysseus-Run-Id")
-        stopped = turn_service.stop(session_id, _expected_run_id)
+        stopped = gateway_turns.stop(admission, _expected_run_id)
         return {"stopped": stopped}
 
     @router.post("/api/chat/finish/{session_id}")
     async def chat_finish(request: Request, session_id: str) -> Dict[str, Any]:
         """Finish an editor run without discarding completed tools or review cards."""
-        _verify_session_owner(request, session_id)
+        admission = _verify_session_owner(request, session_id)
         expected_run_id = request.headers.get("X-Odysseus-Run-Id")
-        accepted = turn_service.finish(session_id, expected_run_id)
+        accepted = gateway_turns.finish(admission, expected_run_id)
         return {"accepted": accepted}
 
     # ------------------------------------------------------------------ #
@@ -5040,7 +5041,7 @@ def setup_chat_routes(
     # ------------------------------------------------------------------ #
     @router.get("/api/chat/stream_status/{session_id}")
     async def chat_stream_status(request: Request, session_id: str) -> Dict[str, Any]:
-        _verify_session_owner(request, session_id)
+        admission = _verify_session_owner(request, session_id)
         # A detached run can still be going even if _active_streams was popped;
         # report it as active so the client knows to reconnect via /resume.
         # Read once via .get() to avoid a KeyError race between the membership
@@ -5048,7 +5049,7 @@ def setup_chat_routes(
         # entry in between (same pattern _stream_set already uses).
         rec = _active_streams.get(session_id)
         if rec is None:
-            if turn_service.is_active(session_id):
+            if gateway_turns.is_active(admission):
                 return {"status": "streaming", "detached": True}
             raise HTTPException(404, "No active stream for this session")
         return rec

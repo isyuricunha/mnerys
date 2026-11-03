@@ -1,6 +1,6 @@
 # Proposed Gateway / Agent Core contract (M1)
 
-**Status: proposal only; NOT an implemented API or schema.**
+**Status: public v1 API and durable schema remain proposals; the first internal runtime and admission seams are implemented.**
 Related: [M1 source audit](AGENT_CORE_GATEWAY_M1_AUDIT.md), [Mnerys roadmap](../ROADMAP.md).
 
 ## Goal and boundaries
@@ -45,13 +45,25 @@ A terminal state must not return to running. A cancellation request is idempoten
 
 A single writer per session is the initial consistency policy. Every active turn has a revision/fencing token so late background tasks, stale UI tabs or disconnected clients cannot persist into a replaced run. Explicitly define behavior for same-session concurrency (reject or queue), preserve partial output on stop, and reconcile interrupted tool effects after process loss. Do not claim exactly-once effects unless an operation-specific idempotency key and durable receipt enforce it.
 
+## M1 incremental implementation: trusted principal and session admission
+
+**Implemented internally; not a new authentication provider or public Gateway API.** Existing routes now project the identity established by their trusted authentication middleware into an immutable `Principal` through `routes/gateway_principal.py`. Bearer callers must have the `chat` scope and a token owner **before any session lookup**. Browser callers retain their authenticated username. Explicit `AUTH_ENABLED=false` single-user mode remains a distinct principal type, not a privilege granted to API tokens.
+
+`src/gateway_admission.py` applies the owner and existence policy independently of HTTP and the database. The session adapter in `routes/session_routes.py` preserves **database-first owner lookup**, optional same-process ghost-session fallback and legacy 401/403/404 behavior. It returns an internal `AdmittedSession` after validating the principal and session; foreign sessions remain indistinguishable from missing sessions. All existing routes that call `_verify_session_owner` now share this policy.
+
+`src/gateway_turns.py` requires the admission result for detached turn start, resume, stop, finish and active-status checks from the Web route. A missing, fabricated or modified grant is rejected before reaching the inherited `TurnService` (including changes to the principal or session identity after issuance). This proof is an **in-process wiring guard**, not a cryptographic authorization token or a substitute for server-validated credentials. The lower-level `TurnService` is not a client entry point.
+
+No database tables, authentication credentials, remote endpoints, model/tool dispatch rules or published SSE formats changed. **Not yet implemented:** durable session/turn admission transactions, one-writer fencing, a portable owner-scoped repository, fully server-authorized CLI/TUI adapters, durable events or approval persistence. The legacy chat route still prepares model context, tool policy, request authority and persistence.
+
+Regression evidence: `tests/test_mnerys_gateway_admission.py`, `tests/test_mnerys_m1_gateway_boundary_baseline.py`, `tests/test_session_owner_attribution.py` and `tests/test_session_ghost_delete.py`, together with the agent/runtime suites listed in the [M1 baseline](M1_CONTRACT_TEST_BASELINE.md).
+
 ## M1 incremental implementation: internal TurnService seam
 
 **Implemented internally, NOT the proposed public Gateway/TurnService v1 contract.** The first extraction in `src/turn_service.py` moves two existing operations out of `routes/chat_routes.py` without duplicating the Python agent engine:
 
 - `TurnService.stream_agent(bridge, *args, **kwargs)` delegates to the inherited `stream_agent_loop`, retaining `TurnContract` and execution-bridge context for the whole stream. It explicitly closes the underlying async generator before releasing these bindings when callers disconnect, close, cancel or raise.
 - `start_detached`, `resume_active`, `stop`, `finish` and `is_active` delegate to the existing `src/agent_runs.py` registry. A `TurnStream` contains the exact run ID and an async iterator of **legacy SSE-formatted frames**, separate from HTTP response construction. It is **not** the proposed typed `TurnEvent` stream. Run replacement, cancellation identity, persistence timing, replay window and frame bytes remain inherited behavior.
-- The existing Web routes continue to authenticate bearer scopes and check session ownership **before** calling this internal service. They still construct request authority, models, policy, approvals and persistence; downstream tool execution still uses `src/tool_execution.py`. The legacy `X-Odysseus-Run-Id` response header is retained for client compatibility.
+- The existing Web routes project validated credentials and check session ownership via the internal Gateway admission policy **before** calling this service. They still construct request authority, models, policy, approvals and persistence; downstream tool execution still uses `src/tool_execution.py`. The legacy `X-Odysseus-Run-Id` response header is retained for client compatibility.
 
 **Security limitation:** this internal seam is not a remotely callable entry point or a standalone authorization boundary. It must **never** be exposed to CLI/TUI or a new route without server-owned principal admission and session/operation checks. Its run-state registry is process-local, and no event/approval database or migration was introduced.
 

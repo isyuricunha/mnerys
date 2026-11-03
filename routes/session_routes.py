@@ -24,6 +24,8 @@ from src.session_image_cleanup import _generated_image_path_for_cleanup, session
 from src.session_actions import is_session_recently_active
 from src.upload_handler import reserve_message_upload_references
 from src.tool_approval_scopes import sanitize_client_message_metadata
+from src.gateway_admission import AdmissionDenied, SessionOwnership, gateway_admission
+from routes.gateway_principal import principal_for_chat_request
 
 
 def _sanitize_export_filename(name: str) -> str:
@@ -211,33 +213,38 @@ def _reject_compact_during_active_run(session_id: str) -> None:
         raise HTTPException(409, "Session has an active run; try compacting after it finishes")
 
 
-def _verify_session_owner(request: Request, session_id: str, session_manager=None):
-    """Verify the current user owns the session, honoring single-user modes.
-
-    Authenticated requests must match the stored DB or in-memory owner. When
-    auth is disabled and no user is present, treat the app as single-user mode:
-    verify that the session exists, but do not compare its stored owner. This
-    keeps QA/dev instances with AUTH_ENABLED=false from rejecting owner-stamped
-    rows created while auth was previously enabled.
-    """
-    user = effective_user(request)
-    if not user and not _auth_disabled():
-        raise HTTPException(401, "Authentication required")
+def _lookup_session_ownership(session_id: str, session_manager=None):
+    """Read the existing session owner; DB rows override in-memory ghosts."""
     db = SessionLocal()
     try:
         row = db.query(DbSession.owner).filter(DbSession.id == session_id).first()
     finally:
         db.close()
     if row is not None:
-        if user and row.owner != user:
-            raise HTTPException(404, f"Session {session_id} not found")
-        return
-    # No DB row — allow the caller to act on an in-memory ghost they own.
+        return SessionOwnership(owner_id=row.owner)
     if session_manager is not None:
         ghost = getattr(session_manager, "sessions", {}).get(session_id)
-        if ghost is not None and (not user or getattr(ghost, "owner", None) == user):
-            return
-    raise HTTPException(404, f"Session {session_id} not found")
+        if ghost is not None:
+            return SessionOwnership(owner_id=getattr(ghost, "owner", None))
+    return None
+
+
+def _verify_session_owner(request: Request, session_id: str, session_manager=None):
+    """Admit a trusted Web principal through the shared Gateway owner policy.
+
+    Keep legacy HTTP error codes, DB-first lookup and the optional ghost-session
+    fallback. Returns internal admission evidence for run operations; existing
+    session routes that only require a check may ignore this return value.
+    """
+    principal = principal_for_chat_request(request)
+    try:
+        return gateway_admission.admit(
+            principal,
+            session_id,
+            lambda sid: _lookup_session_ownership(sid, session_manager),
+        )
+    except AdmissionDenied as denied:
+        raise HTTPException(denied.status_code, denied.detail) from None
 
 logger = logging.getLogger(__name__)
 

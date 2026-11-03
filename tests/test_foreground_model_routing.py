@@ -16,6 +16,7 @@ import routes.chat_routes as chat_routes
 import routes.chat_helpers as chat_helpers
 import routes.prefs_routes as prefs_routes
 from src.request_models import ChatRequest
+from src.gateway_admission import GatewayAdmission, Principal, SessionOwnership
 from src.tool_capabilities import ToolGateDecision
 from src.tool_approvals import document_content_digest
 from src.foreground_model_routing import (
@@ -25,6 +26,14 @@ from src.foreground_model_routing import (
     build_foreground_model_candidates,
     resolve_foreground_model_policy,
 )
+
+
+def _admitted_test_session(session_id, owner="alice"):
+    """Produce actual internal admission evidence for isolated route fixtures."""
+    return GatewayAdmission().admit(
+        Principal(owner, "browser"), session_id,
+        lambda _sid: SessionOwnership(owner_id=owner),
+    )
 
 
 def _collect(gen):
@@ -228,7 +237,7 @@ def _chat_stream_endpoint(
         yield "data: [DONE]\n\n"
 
     monkeypatch.setattr(chat_routes, "coerce_message_and_session", lambda *args, **kwargs: ("hello", "session-1"))
-    monkeypatch.setattr(chat_routes, "_verify_session_owner", lambda *args, **kwargs: None)
+    monkeypatch.setattr(chat_routes, "_verify_session_owner", lambda _request, sid: _admitted_test_session(sid))
     monkeypatch.setattr(chat_routes, "effective_user", lambda request: "alice")
     monkeypatch.setattr(chat_routes, "_clear_orphaned_session_endpoint", lambda *args, **kwargs: False)
     monkeypatch.setattr(chat_routes, "_recover_empty_session_model", lambda *args, **kwargs: False)
@@ -1194,7 +1203,7 @@ def _chat_endpoint(
     async def fake_build_context(*args, **kwargs):
         return context
 
-    monkeypatch.setattr(chat_routes, "_verify_session_owner", lambda *args, **kwargs: None)
+    monkeypatch.setattr(chat_routes, "_verify_session_owner", lambda _request, sid: _admitted_test_session(sid, owner))
     monkeypatch.setattr(chat_routes, "effective_user", lambda request: owner)
     monkeypatch.setattr(chat_routes, "_clear_orphaned_session_endpoint", lambda *args, **kwargs: False)
     monkeypatch.setattr(chat_routes, "_recover_empty_session_model", lambda *args, **kwargs: False)
