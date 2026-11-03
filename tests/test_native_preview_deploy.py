@@ -206,3 +206,54 @@ def test_policy_docs_distinguish_implemented_from_planned():
     assert "scripts/deploy_native_preview.py" in docs
     assert "SQLite" in docs
     assert "<TAILSCALE_HOST>" in docs
+
+
+
+def test_postgres_backup_requires_private_executable(tmp_path):
+    private = tmp_path / "private"
+    private.mkdir()
+    with pytest.raises(deployment.DeployError, match="unavailable"):
+        deployment.postgres_backup_helper(private)
+    helper = tmp_path / "backup-helper"
+    helper.write_text("#!/usr/bin/env python3\n")
+    helper.chmod(0o700)
+    selection = private / "postgres-backup-helper"
+    selection.write_text(str(helper) + "\n")
+    selection.chmod(0o600)
+    assert deployment.postgres_backup_helper(private) == helper
+    selection.chmod(0o644)
+    with pytest.raises(deployment.DeployError, match="unavailable"):
+        deployment.postgres_backup_helper(private)
+
+
+def test_postgresql_native_deploy_backs_up_and_validates(tmp_path, monkeypatch):
+    home, repo, unit, env, oldunit, calls = dummy_runtime(tmp_path, monkeypatch)
+    env.write_text(env.read_text() + "DATABASE_URL=postgresql+psycopg2://tester:<REDACTED>@db.example.com/mnerys\n")
+    env.chmod(0o600)
+    private = home / ".config/mnerys-preview"
+    helper = tmp_path / "backup-helper"
+    helper.write_text("#!/usr/bin/env python3\n")
+    helper.chmod(0o700)
+    (private / "postgres-backup-helper").write_text(str(helper) + "\n")
+    (private / "postgres-backup-helper").chmod(0o600)
+    events = []
+    monkeypatch.setattr(deployment, "postgres_schema_signature", lambda *args: "stable")
+    monkeypatch.setattr(
+        deployment, "verified_postgresql_backup",
+        lambda private, directory: events.append("postgres_backup"),
+    )
+    monkeypatch.setattr(deployment, "poll_live", lambda *args: events.append("health"))
+    monkeypatch.setattr(deployment, "trusted_readiness", lambda *args: events.append("ready"))
+    result = deployment.deploy(repo, home)
+    assert result["result"] == "deployed"
+    assert "postgres_backup" in events
+    assert events.index("postgres_backup") < events.index("health")
+
+
+def test_postgres_backend_change_not_silently_ignored():
+    assert deployment.selected_database_backend("AUTH_ENABLED=true\n") == "sqlite"
+    assert deployment.selected_database_backend(
+        "DATABASE_URL=postgresql+psycopg2://tester:<REDACTED>@db.example.com/mnerys\n"
+    ) == "postgresql"
+    with pytest.raises(deployment.DeployError, match="Unsupported"):
+        deployment.selected_database_backend("DATABASE_URL=mysql://example.com/test\n")

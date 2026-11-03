@@ -360,18 +360,87 @@ def unit_and_config(home: Path):
     return unit, envfile, private, service_name
 
 
-def require_sqlite_backup_policy(environment: str) -> None:
-    """This deployer snapshots SQLite; refuse a PostgreSQL cutover without pg_dump."""
+def selected_database_backend(environment: str) -> str:
+    """Return SQLite default or the explicitly configured SQLAlchemy backend."""
     entries = [
         line.split("=", 1)[1].strip().strip('"').strip("'")
         for line in environment.splitlines()
         if line.startswith("DATABASE_URL=")
     ]
-    if entries and not entries[-1].lower().startswith(("sqlite://", "sqlite+pysqlite://")):
+    if not entries:
+        return "sqlite"
+    scheme = entries[-1].partition("://")[0].lower()
+    if "://" not in entries[-1]:
+        raise DeployError("Invalid private DATABASE_URL")
+    backend = scheme.split("+", 1)[0]
+    if backend not in ("sqlite", "postgresql"):
+        raise DeployError("Unsupported native preview database backend")
+    return backend
+
+
+def require_sqlite_backup_policy(environment: str) -> None:
+    """Compatibility guard for callers that only implement SQLite backups."""
+    if selected_database_backend(environment) != "sqlite":
         raise DeployError(
             "Native preview rollback requires a reviewed PostgreSQL backup "
             "strategy before DATABASE_URL is switched"
         )
+
+
+def postgres_backup_helper(private: Path) -> Path:
+    """A server-owned executable, never a public repository configuration."""
+    selected = private / "postgres-backup-helper"
+    if not selected.is_file() or selected.stat().st_mode & 0o077:
+        raise DeployError("Private PostgreSQL backup helper is unavailable")
+    path = Path(selected.read_text().strip())
+    if not path.is_absolute() or not path.is_file() or path.stat().st_mode & 0o077:
+        raise DeployError("PostgreSQL backup helper path or permissions invalid")
+    if not os.access(path, os.X_OK):
+        raise DeployError("PostgreSQL backup helper is not executable")
+    return path
+
+
+def postgres_schema_signature(python: Path, envfile: Path) -> str:
+    """Hash PostgreSQL 17 table/column/index definitions without exposing data."""
+    snippet = (
+        "import sys,hashlib,json; from dotenv import load_dotenv; "
+        "load_dotenv(sys.argv[1],override=True); "
+        "import os; from sqlalchemy import create_engine,text; "
+        "e=create_engine(os.environ['DATABASE_URL'],"
+        "connect_args={'connect_timeout':10}); "
+        "c=e.connect(); "
+        "v=int(c.execute(text('SHOW server_version_num')).scalar_one()); "
+        "assert 170000 <= v < 180000, 'PostgreSQL 17 required'; "
+        "q=c.execute(text(\"SELECT table_schema,table_name,column_name,"
+        "data_type,udt_name,is_nullable,ordinal_position "
+        "FROM information_schema.columns WHERE table_schema='public' "
+        "ORDER BY table_name,ordinal_position\")).all(); "
+        "i=c.execute(text(\"SELECT tablename,indexname,indexdef "
+        "FROM pg_indexes WHERE schemaname='public' "
+        "ORDER BY tablename,indexname\")).all(); "
+        "print(hashlib.sha256(json.dumps([q,i],default=str).encode()).hexdigest()); "
+        "c.close(); e.dispose()"
+    )
+    result = call([str(python), "-c", snippet, str(envfile)], timeout=35).strip()
+    if not re.fullmatch(r"[a-f0-9]{64}", result):
+        raise DeployError("Unable to fingerprint PostgreSQL schema")
+    return result
+
+
+def verified_postgresql_backup(private: Path, destination: Path) -> Path:
+    """Backup via an audited private helper using PostgreSQL 17 client tools."""
+    helper = postgres_backup_helper(private)
+    if not destination.is_dir() or destination.stat().st_mode & 0o077:
+        raise DeployError("Verified private data backup directory required")
+    archive = destination / "database.pgcustom"
+    call([str(helper), "--backup", str(archive)], timeout=160)
+    if not archive.is_file() or archive.stat().st_size < 1024 or archive.stat().st_mode & 0o077:
+        raise DeployError("PostgreSQL backup missing, empty or insecure")
+    call([str(helper), "--verify", str(archive)], timeout=85)
+    marker = destination / "POSTGRES_BACKUP_VERIFIED"
+    marker.write_text("PostgreSQL 17 archive verified\n")
+    marker.chmod(0o600)
+    return destination
 
 
 def deploy(repo: Path, home: Path, dry_run: bool = False) -> dict:
@@ -382,7 +451,9 @@ def deploy(repo: Path, home: Path, dry_run: bool = False) -> dict:
         revision = repo_revision(repo)
         before_unit = unit.read_text()
         before_env = envfile.read_text()
-        require_sqlite_backup_policy(before_env)
+        backend = selected_database_backend(before_env)
+        if backend == "postgresql":
+            postgres_backup_helper(private)  # fail before any service changes
         prior = unit_release(before_unit)
         if not prior.is_dir() or not prior.is_relative_to(runtime / "releases"):
             raise DeployError("Current service is not using a versioned release")
@@ -399,9 +470,15 @@ def deploy(repo: Path, home: Path, dry_run: bool = False) -> dict:
         data = runtime / "data"
         if not data.is_dir() or not (data / "auth.json").is_file():
             raise DeployError("Persistent state or authentication config missing")
-        schema_before = sql_schema(data)
-        backup = consistent_backup(data, runtime / "backups", previous_revision)
         before_python = unit_python(before_unit)
+        schema_before = sql_schema(data)
+        postgres_before = (
+            postgres_schema_signature(before_python, envfile)
+            if backend == "postgresql" else None
+        )
+        backup = consistent_backup(data, runtime / "backups", previous_revision)
+        if backend == "postgresql":
+            verified_postgresql_backup(private, backup)
         newunit = update_unit(before_unit, prior, candidate, python)
         newenv = update_source_commit(before_env, revision)
 
@@ -414,10 +491,24 @@ def deploy(repo: Path, home: Path, dry_run: bool = False) -> dict:
             call(["systemctl", "--user", "restart", service_name], timeout=75)
             poll_live(base, revision)
             trusted_readiness(candidate, python, envfile)
-            if sql_schema(data) != schema_before:
+            if sql_schema(data) != schema_before or (
+                backend == "postgresql"
+                and postgres_schema_signature(python, envfile) != postgres_before
+            ):
                 raise DeployError("Unexpected database schema change after deployment")
         except BaseException as error:
-            if sql_schema(data) != schema_before:
+            try:
+                schema_changed = sql_schema(data) != schema_before
+                if backend == "postgresql":
+                    schema_changed |= (
+                        postgres_schema_signature(before_python, envfile)
+                        != postgres_before
+                    )
+            except Exception as schema_error:
+                raise DeployError(
+                    "Could not verify database schema; manual recovery required"
+                ) from schema_error
+            if schema_changed:
                 subprocess.run(
                     ["systemctl", "--user", "stop", service_name],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,

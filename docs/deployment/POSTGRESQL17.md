@@ -13,7 +13,7 @@
 | Local email/scheduling auxiliary storage | Still SQLite; **not** moved by `DATABASE_URL` |
 | Local auth/settings files, encrypted secrets key, uploads, vector/search state | Remain local; preserve `DATA_DIR` |
 | Chat transcript search | SQLite FTS5 is SQLite-only; PostgreSQL uses the existing SQLAlchemy text-search fallback |
-| Native preview deploy automation | **SQLite backups only** until PostgreSQL backup/rollback handling is implemented and validated |
+| Native preview deploy automation | SQLite backup or PostgreSQL 17 custom archive via an explicitly configured private backup helper; code rollback remains schema-aware |
 
 A PostgreSQL connection does **not** magically replace local file storage or migrate email scheduling. No backend switching occurs automatically.
 
@@ -59,7 +59,7 @@ python3 -m scripts.migrate_sqlite_to_postgres \
 
 The source and destination may contain private user conversations, settings and tokens. **Do not expose migration dumps, query results, connection URLs or logs in any public artifact.**
 
-**Before a real cutover:** configure a PostgreSQL 17 backup/restore strategy; test recovery into an isolated instance; plan how to freeze writes and scheduled jobs; verify application-level workflows and user ownership after migration; arrange an explicit, reversible configuration switch; and only then restart the live service. The **current native preview automation must not be used for PostgreSQL cutover** until its database-backup and rollback path is adapted.
+**Before a real cutover:** verify a PostgreSQL 17 custom-format backup using the server's own PG17 tools, test restoration in an isolated database, freeze live writes and scheduled jobs, then verify application-level workflows and ownership after copying. The native preview runner supports PostgreSQL backups only when an executable private backup helper is explicitly configured and verified. It does not perform SQLite-to-PostgreSQL cutover automatically; the cutover requires its own guarded maintenance operation.
 
 ## Test coverage
 
@@ -71,7 +71,7 @@ Run the unit portion locally (PostgreSQL integration is skipped if no disposable
 python3 -m pytest -q tests/test_postgresql_support.py tests/test_sqlite_postgres_migration.py
 ```
 
-The first real PostgreSQL 17 integration checks passed against a temporary database; **the owner's live PostgreSQL server was not accessed, configured or modified**.
+The original PostgreSQL 17 integration tests used a temporary database. Live migration or deployment status must be verified separately and must never be inferred solely from these integration tests.
 
 ## Official technical references
 
