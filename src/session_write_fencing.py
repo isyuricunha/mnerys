@@ -16,6 +16,7 @@ from uuid import uuid4
 from sqlalchemy import func
 
 from src.gateway_admission import AdmittedSession, require_admitted_session
+from src.session_message_preparation import PreparedSessionMessage
 from src.session_revision import (
     SessionMetadataChanges,
     SessionRevisionConflict,
@@ -38,28 +39,6 @@ class SessionWriteFence:
             raise ValueError("Session incarnation is required")
         if type(self.revision) is not int or self.revision < 0:
             raise ValueError("Session revision must be a non-negative integer")
-
-
-@dataclass(frozen=True)
-class PreparedSessionMessage:
-    """Pre-sanitized persistence payload from the trusted runtime adapter.
-
-    Callers MUST use existing upload validation and persistable_message_content
-    before constructing this object. This object is not an API request model:
-    a future runtime adapter will own the conversion, not a Web/CLI client.
-    """
-
-    role: str
-    content: str
-    metadata_json: Optional[str] = None
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.role, str) or not self.role.strip():
-            raise ValueError("Message role is required")
-        if not isinstance(self.content, str):
-            raise ValueError("Prepared message content must be text")
-        if self.metadata_json is not None and not isinstance(self.metadata_json, str):
-            raise ValueError("Serialized metadata must be text or None")
 
 
 @dataclass

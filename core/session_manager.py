@@ -18,7 +18,7 @@ from sqlalchemy import func
 
 from .database import Session as DbSession, ChatMessage as DbChatMessage, Document as DbDocument, SessionLocal, utcnow_naive
 from .models import Session, ChatMessage
-from src.attachment_refs import persistable_message_content
+from src.session_message_preparation import prepare_session_message
 from src.upload_handler import reserve_message_upload_references
 
 # Re-export singleton accessors from models for convenience
@@ -286,16 +286,18 @@ class SessionManager:
             if message.metadata is None:
                 message.metadata = {}
             message.metadata.setdefault('timestamp', _message_timestamp_iso(msg_time))
-            # Multimodal content may contain provider data URLs for the live
-            # model call. Persist only readable text plus attachment references
-            # so chat_messages/FTS do not duplicate upload bytes.
-            _content = persistable_message_content(message.content, message.metadata)
+            # The common server-side preparation boundary is also used by
+            # background delivery and the future fenced writer. Uploads were
+            # already reserved above, before any persistent mutation.
+            prepared = prepare_session_message(
+                message.role, message.content, message.metadata,
+            )
             db_message = DbChatMessage(
                 id=msg_id,
                 session_id=session_id,
-                role=message.role,
-                content=_content,
-                meta_data=json.dumps(message.metadata) if message.metadata else None,
+                role=prepared.role,
+                content=prepared.content,
+                meta_data=prepared.metadata_json,
                 timestamp=msg_time,
             )
             db.add(db_message)
@@ -397,14 +399,17 @@ class SessionManager:
             now = datetime.now(timezone.utc)
             for i, message in enumerate(messages):
                 msg_id = str(uuid.uuid4())
+                # The reservation loop above must finish before deleting the
+                # previous transcript. Preparation does not reserve twice.
+                prepared = prepare_session_message(
+                    message.role, message.content, message.metadata,
+                )
                 db_message = DbChatMessage(
                     id=msg_id,
                     session_id=session_id,
-                    role=message.role,
-                    # Mirrors _persist_message: keep raw media bytes out of the
-                    # persisted transcript and search index.
-                    content=persistable_message_content(message.content, message.metadata),
-                    meta_data=json.dumps(message.metadata) if message.metadata else None,
+                    role=prepared.role,
+                    content=prepared.content,
+                    meta_data=prepared.metadata_json,
                     timestamp=now + timedelta(microseconds=i),
                 )
                 db.add(db_message)

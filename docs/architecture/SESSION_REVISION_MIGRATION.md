@@ -34,7 +34,7 @@ The [SQLAlchemy version counter guide](https://docs.sqlalchemy.org/en/20/orm/ver
 
 The new [`src/session_write_fencing.py`](../../src/session_write_fencing.py) extends the **test-only** contract with an immutable `SessionWriteFence(session_id, incarnation_id, revision)`. The future schema must generate a **unique new incarnation** for every lifetime of a session ID. Both `patch_metadata` and `append_prepared_message` condition one atomic SQL UPDATE on the admitted owner, session ID, revision and incarnation. The message path inserts exactly one pre-sanitized message and increments the stored counter in the same transaction. Conflicts and insert failures roll back completely.
 
-The writer is **not wired into the existing SessionManager, chat routes, jobs or tools**. It does not yet implement upload reservation, content sanitization, full message editing/truncation, cache synchronization, durable turn records or idempotent job delivery. Those operations must be migrated together, not bypassed.
+The writer is **not wired into the existing SessionManager, chat routes, jobs or tools**. It now shares an immutable [prepared-message payload type](../../src/session_message_preparation.py) and content/metadata serialization with the inherited SessionManager and background-job delivery. The fenced writer itself still does not enforce upload reservations, full metadata validation, message editing/truncation, cache synchronization, durable turn records or idempotent job delivery. Those operations must be migrated together, not bypassed.
 
 ## Isolated tests
 

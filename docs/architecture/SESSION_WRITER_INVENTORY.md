@@ -21,6 +21,20 @@ The following paths were checked against the current source; links point to modu
 
 The codebase also has other data stores (documents, mail, calendar, memory, tasks) with their own transactions. They must retain independent persistence and ACLs; merely sharing the SQLAlchemy engine does not make those records part of the session revision protocol.
 
+## Incremental live compatibility extraction: message preparation
+
+**Implemented and exercised in the inherited server writers.** The lightweight [`src/session_message_preparation.py`](../../src/session_message_preparation.py) centralizes conversion of message content and metadata to one immutable `PreparedSessionMessage`. It reuses the existing `persistable_message_content` transformer and exact `json.dumps` metadata format, including stripping inline media data URLs from the persisted **content** field. It intentionally performs **no database access, session authorization, upload reservation, approval decisions or commits**.
+
+The following existing code paths now call the same preparation function without changing their storage transaction or ownership policy:
+
+- [`SessionManager._persist_message`](../../core/session_manager.py): still checks for a persisted parent session; reserves uploads and assigns a timestamp before calling the shared preparation function; assigns `_db_id` to the in-memory message only after commit
+- [`SessionManager.replace_messages`](../../core/session_manager.py): still reserves **all** referenced uploads before deleting any old message; prepares each new message without repeating reservations, then commits the history replacement before replacing the in-memory history
+- [Background job delivery](../../src/background_tool_jobs.py): still rechecks owner, job state and foreground-busy status, preserves the deterministic delivery message ID, and commits message plus delivery marker together; internally generated reports use the same persisted-content preparation
+
+The [incarnation-fenced prototype](../../src/session_write_fencing.py) now imports that **same** `PreparedSessionMessage` value type for future migration; it is **not activated** on existing sessions. The changed production code remains on the inherited unversioned writers. This extraction does **not** guarantee that every session write is guarded, does not sanitize arbitrary metadata values, and does not replace any upload lifecycle checks.
+
+Parity is covered by [dedicated serialization tests](../../tests/test_mnerys_session_message_preparation.py), inherited upload reservation and history replacement tests, and background-delivery regression tests. **Next:** implement an authenticated, incarnation-scoped writer adapter for each caller, with verified migrations, transaction idempotency and cache reconciliation before production activation.
+
 ## Safe prototype now available
 
 The new `SqlFencedSessionWriter` provides a **test-only** implementation of the future mutation boundary:

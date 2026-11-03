@@ -98,6 +98,10 @@ and [SQLAlchemy 2.0 Session Basics](https://docs.sqlalchemy.org/en/20/orm/sessio
 Their references are conceptual: the existing persistence dependencies remain
 as configured in Mnerys.
 
+## M1 incremental implementation: shared persisted-message preparation
+
+The [writer integration inventory](SESSION_WRITER_INVENTORY.md#incremental-live-compatibility-extraction-message-preparation) documents the implemented `src/session_message_preparation.py` seam. It is reused by the inherited SessionManager single-message path, transcript replacement and background-job delivery, and supplies the same immutable `PreparedSessionMessage` structure expected by the **disabled** fenced writer. Upload reservation, request authority, session ownership, job-delivery idempotency and commit logic remain in their established paths. This is an internal compatibility extraction, **not** durable Gateway session persistence.
+
 ## M1 isolated prototype: revision-checked session metadata
 
 The [session revision and concurrency migration plan](SESSION_REVISION_MIGRATION.md) documents the **disabled-by-default** SQLAlchemy compare-and-swap prototypes: legacy revision-only metadata tests on SQLite plus an incarnation-fenced session metadata/message writer tested on isolated SQLite and PostgreSQL 17. A synthetic PostgreSQL 17 schema/backfill preview is also tested. The [writer inventory](SESSION_WRITER_INVENTORY.md) identifies the legacy routes, tools and jobs that still bypass the new writer. The current Session model lacks revision/incarnation columns; no production schema, database or deployment was modified. Full owner-scoped session CRUD, durable turn fencing and all-writer migration remain planned.

@@ -7,6 +7,7 @@ import uuid
 
 from core import database
 from src.prompt_security import untrusted_context_message
+from src.session_message_preparation import prepare_session_message
 
 logger = logging.getLogger(__name__)
 
@@ -176,8 +177,13 @@ class BackgroundToolJobs:
                         now = database.utcnow_naive()
                         meta = {'background_job_id': job.id, 'model': session.model,
                             'timestamp': now.isoformat() + 'Z', 'background_tool_result': payload}
+                        # Use the same persisted-message serialization as
+                        # foreground chat and SessionManager replacements.
+                        # This is an internal report (no user upload references).
+                        prepared = prepare_session_message('assistant', content, meta)
                         db.add(database.ChatMessage(id=message_id, session_id=job.session_id,
-                            role='assistant', content=content, meta_data=json.dumps(meta), timestamp=now))
+                            role=prepared.role, content=prepared.content,
+                            meta_data=prepared.metadata_json, timestamp=now))
                         session.message_count = (session.message_count or 0) + 1
                         session.last_message_at = now
                     job.message_id = message_id
