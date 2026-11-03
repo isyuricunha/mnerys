@@ -6,6 +6,8 @@ __pycache__/
 dist/
 build/
 !static/js/editor/build/
+# The inherited distribution source scripts (and their README) are not build output.
+!scripts/build/
 venv/
 .venv/
 *.egg

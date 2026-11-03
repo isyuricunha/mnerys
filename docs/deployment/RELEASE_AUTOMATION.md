@@ -39,6 +39,20 @@ No globally installable Mnerys CLI is published yet. The CLI, TUI and independen
 - Publishing the GitHub Release and publishing container images are separate jobs. If the latter fails, investigate and rerun that job; do not invent another version to disguise a failure.
 - Version tagging and GHCR publication do not redeploy the private native preview or modify its PostgreSQL database.
 
+## CI regression baselines during rebranding
+
+The complete Python CI remains blocking. Rebranding must update outdated assertions rather than restore upstream branding or disable tests:
+
+- README checks require the **Mnerys** wordmark and explicit `AUTH_ENABLED=true` / `LOCALHOST_BYPASS=false` deployment guidance.
+- The generated website configuration reference must be regenerated and verified with `python3 scripts/generate_env_reference.py --check` when source reads change.
+- The PWA manifest and icon tests validate the current Mnerys assets. The archived Odysseus restoration hashes remain untouched; the current three rebranded icons are intentionally not byte-identical to the historical assets. All other restored artifacts still require their recorded hashes.
+- The computed-style snapshot baseline is measured against the approved Eclipse default. Baseline regeneration requires an actual Playwright capture and explicit design review, not a blanket removal of the regression gate.
+- The gallery editor's offline cache test follows the current `mnerys-v*` service-worker cache naming scheme.
+- `scripts/build/README.md` is tracked as source documentation despite the generic `build/` output exclusion; CI must not depend on an ignored local-only file.
+- GitHub Pages guides use published-site-relative links only for files inside `website/`. Documentation outside that source uses public GitHub repository links instead.
+
+Local focused tests do not replace a successful GitHub Actions run on the published commit; the first release remains blocked until the full hosted CI succeeds.
+
 ## GitLab and Forgejo mirrors
 
 Automated tag synchronization is **not configured**: the GitHub repository has no mirror-publishing credentials. After an explicitly authorized publication, synchronize and verify release tags with the existing secure Git remotes; do not add private addresses, tokens or infrastructure data to this public workflow.

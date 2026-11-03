@@ -95,7 +95,7 @@ docker compose logs odysseus
 
 The initial Compose stack also includes ChromaDB, SearXNG, and ntfy. Review `docker-compose.yml` and `.env.example` before deployment; external-service options and a more modular setup are part of the planned architecture work.
 
-**Security:** The default Compose web port binds to localhost. Keep authentication enabled, do not publish internal service ports, and use an HTTPS reverse proxy or trusted VPN for remote access. The application currently supports powerful local tools, so only grant permissions you understand.
+**Security:** The default Compose web port binds to localhost. Keep `AUTH_ENABLED=true` for any network-accessible deployment. Keep `LOCALHOST_BYPASS=false` outside local development. Do not publish internal service ports; use an HTTPS reverse proxy or trusted VPN for remote access. The application currently supports powerful local tools, so only grant permissions you understand.
 
 The existing [setup guide](website/setup.md) describes more installation options, but it still contains upstream-era instructions and names while migration is in progress.
 

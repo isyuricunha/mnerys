@@ -37,11 +37,24 @@ def test_removed_resource_ledger_has_no_runtime_references():
     assert len(restore_entries) == 14
 
     restored_paths = {path for path, _ in restore_entries}
+    # These three original PWA icons were intentionally replaced by the Mnerys
+    # identity. Preserve the immutable Odysseus restoration record, but do not
+    # require active Mnerys icons to have historical Odysseus bytes.
+    rebranded_icons = {
+        'static/icons/icon-192.png',
+        'static/icons/icon-512.png',
+        'static/icons/icon-maskable-512.png',
+    }
     for path, expected_sha in restore_entries:
         target = ROOT / path
         assert target.is_file(), f"restored asset missing on disk: {path}"
-        actual_sha = hashlib.sha256(target.read_bytes()).hexdigest()
-        assert actual_sha == expected_sha, f"sha256 mismatch for {path}"
+        data = target.read_bytes()
+        actual_sha = hashlib.sha256(data).hexdigest()
+        if path in rebranded_icons:
+            assert actual_sha != expected_sha, f"Mnerys icon still matches historical Odysseus asset: {path}"
+            assert data.startswith(b'\x89PNG\r\n\x1a\n'), f"invalid Mnerys PNG icon: {path}"
+        else:
+            assert actual_sha == expected_sha, f"sha256 mismatch for {path}"
 
     still_omitted = [path for path in san_entries if path not in restored_paths]
     assert len(still_omitted) == 7
@@ -142,8 +155,8 @@ def test_distribution_paths_include_all_notices():
     assert manifest.get('icons')
     assert manifest['display'] == 'standalone'
     expected_icons = [
-        {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
-        {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+        {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+        {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
         {"src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
     ]
     assert manifest['icons'] == expected_icons

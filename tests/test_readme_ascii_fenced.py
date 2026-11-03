@@ -1,7 +1,7 @@
 """Regression guard for the README title presentation.
 
 The original ASCII-art banner needed a code fence to preserve whitespace.
-Keep the wordmark title identity and the historical ASCII-fencing guard.
+Keep the Mnerys wordmark identity and the historical ASCII-fencing guard.
 """
 from pathlib import Path
 
@@ -20,7 +20,7 @@ def _fenced_segments(text: str):
 
 def test_readme_opens_with_wordmark_title():
     head = "\n".join(README.read_text(encoding="utf-8").splitlines()[:15])
-    assert 'alt="Odysseus"' in head, "README must open with the Odysseus wordmark image"
+    assert 'alt="Mnerys"' in head, "README must open with the Mnerys wordmark image"
 
 
 def test_reintroduced_ascii_banner_stays_fenced():

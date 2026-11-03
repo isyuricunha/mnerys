@@ -16,7 +16,7 @@ baseline. It moves no CSS itself.
 |---|---|
 | Pages | `static/index.html` (app shell, 76 elements), `static/login.html` (14), the bench (586 selectors) |
 | Viewports | 1440x900, 820x1000, 768x1024 (touch), 390x844 (touch) |
-| Themes | dark (default) and `:root.light` |
+| Themes | default dark (currently Eclipse, labeled `dark` by the harness) and `:root.light` |
 | Density | default, `:root.density-compact`, `:root.density-spacious` |
 | Properties | 122 pinned properties per element, plus every custom property on `:root` and `body` |
 
@@ -65,6 +65,10 @@ pytest. Under pytest the session static server is reused through
 
 `npm ci` is required: the capture drives Playwright's Chromium. Without it the
 browser tests skip.
+
+## Mnerys Eclipse baseline
+
+The baseline was recaptured for the approved Mnerys Eclipse default after the Odysseus-to-Mnerys theme and branding transition. The recorded digest is `88141024fa670a16`. The inventory, 122 measured properties and all 24 viewport/theme/density variants remain under the same regression gate; a new visual change must still be reviewed before another baseline update.
 
 ## When the test fails
 
