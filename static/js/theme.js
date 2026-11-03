@@ -1000,20 +1000,40 @@ export function initThemeUI() {
     const newReset = resetBtn.cloneNode(true);
     resetBtn.parentNode.replaceChild(newReset, resetBtn);
     newReset.addEventListener('click', () => {
-      Storage.remove(LS_KEY);
       const colors = THEMES[DEFAULT_THEME];
+      const defaultPattern = THEME_DEFAULT_PATTERN[DEFAULT_THEME] || 'none';
+      const defaultEffectColor = THEME_DEFAULT_EFFECT_COLOR[DEFAULT_THEME] || '';
       applyColors(colors);
       syncPickers(colors);
       applyFontDensity(DEFAULT_FONT, DEFAULT_DENSITY);
-      const defaultPattern = THEME_DEFAULT_PATTERN[DEFAULT_THEME] || 'none';
       applyBgPattern(defaultPattern);
-      applyBgEffectColor(THEME_DEFAULT_EFFECT_COLOR[DEFAULT_THEME] || '');
+      applyBgEffectColor(defaultEffectColor);
+      applyBgEffectIntensity(1);
+      applyBgEffectSize(1);
+      applyBgEffectSpeed(1);
+      applyFrostedGlass(false);
+      // Persist the reset to the server as well as localStorage, otherwise
+      // the previous synced selection is restored on the next page reload.
+      save(DEFAULT_THEME, colors, {
+        font: DEFAULT_FONT, density: DEFAULT_DENSITY,
+        bgPattern: defaultPattern, bgEffectColor: defaultEffectColor,
+      });
       const fs = document.getElementById('theme-font-select');
       const ds = document.getElementById('theme-density-select');
       const ps = document.getElementById('theme-bg-pattern-select');
+      const ec = document.getElementById('theme-bg-effect-color');
+      const intensity = document.getElementById('theme-bg-intensity');
+      const size = document.getElementById('theme-bg-size');
+      const speed = document.getElementById('theme-bg-speed');
+      const frosted = document.getElementById('theme-frosted-toggle');
       if (fs) fs.value = DEFAULT_FONT;
       if (ds) ds.value = DEFAULT_DENSITY;
       if (ps) ps.value = defaultPattern;
+      if (ec) ec.value = defaultEffectColor || colors.fg;
+      if (intensity) intensity.value = '100';
+      if (size) size.value = '100';
+      if (speed) speed.value = '100';
+      if (frosted) frosted.checked = false;
       grid.querySelectorAll('.theme-swatch').forEach(s => s.classList.remove('active'));
       const defaultSwatch = grid.querySelector('[data-theme="' + DEFAULT_THEME + '"]');
       if (defaultSwatch) defaultSwatch.classList.add('active');

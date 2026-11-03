@@ -112,7 +112,7 @@ There is no requirement to retain compatibility with future Odysseus releases, a
 
 ## Interface preview
 
-The desktop and mobile screenshots were captured from a **clean, isolated Mnerys development instance** using Chromium, without user data or configured models. The login screenshot uses the actual application login HTML and CSS in a standalone browser preview. No conversations or model configurations were invented. See the [screenshot provenance and limitations](docs/screenshots/README.md).
+The workspace screenshots were captured from a **clean, isolated Mnerys development instance** using Chromium before the default theme changed to Eclipse, without user data or configured models. The login screenshot below is a **real capture of the running native Eclipse preview**, with no credentials entered. The [mobile Eclipse login capture](docs/screenshots/mnerys-eclipse-login-mobile.png) is also available. No conversations or model configurations were invented. See the [screenshot provenance and limitations](docs/screenshots/README.md).
 
 <p align="center">
   <img src="docs/screenshots/mnerys-workspace-desktop.png" alt="Mnerys desktop workspace showing sidebar tools, welcome screen, and chat composer" width="100%">
@@ -130,7 +130,7 @@ The desktop and mobile screenshots were captured from a **clean, isolated Mnerys
   <summary>Login UI preview</summary>
 
   <p align="center">
-    <img src="docs/screenshots/mnerys-login.png" alt="Mnerys login form and Nery mascot (historical terracotta screenshot)" width="100%">
+    <img src="docs/screenshots/mnerys-eclipse-login-desktop.png" alt="Real Mnerys Eclipse login screen with graphite panels, teal accents and starfield background" width="100%">
   </p>
 </details>
 

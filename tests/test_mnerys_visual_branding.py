@@ -58,6 +58,7 @@ def test_eclipse_default_while_terracotta_remains_optional():
     assert "eclipse:    'starfield-depth'" in THEME
     assert "dark:       'none'" in THEME
     assert "applyBgPattern(defaultPattern)" in THEME
+    assert "save(DEFAULT_THEME, colors, {" in THEME  # reset survives server-side theme sync
     assert "THEME_DEFAULT_PATTERN[(saved && saved.name) || DEFAULT_THEME]" in THEME
     assert "var name = (t && t.name) || 'eclipse'" in login
     assert "THEME_DEFAULT_PATTERN.eclipse" in login
@@ -75,6 +76,7 @@ def test_eclipse_default_while_terracotta_remains_optional():
 
 
 def test_screenshots_are_real_png_files():
-    for name in ("mnerys-workspace-desktop.png", "mnerys-workspace-mobile.png", "mnerys-login.png"):
+    for name in ("mnerys-workspace-desktop.png", "mnerys-workspace-mobile.png", "mnerys-login.png",
+                 "mnerys-eclipse-login-desktop.png", "mnerys-eclipse-login-mobile.png"):
         path = ROOT / "docs/screenshots" / name
         assert path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"

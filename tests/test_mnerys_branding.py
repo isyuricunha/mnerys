@@ -52,12 +52,15 @@ def test_preview_screenshots_are_real_files_referenced_by_readme() -> None:
     for filename in (
         "mnerys-workspace-desktop.png",
         "mnerys-workspace-mobile.png",
-        "mnerys-login.png",
+        "mnerys-eclipse-login-desktop.png",
+        "mnerys-eclipse-login-mobile.png",
     ):
         path = ROOT / "docs" / "screenshots" / filename
         assert path.is_file()
         assert path.read_bytes().startswith(bytes.fromhex("89504e470d0a1a0a"))
         assert f"docs/screenshots/{filename}" in readme
+    # Historic login capture is preserved for provenance but not shown as current.
+    assert (ROOT / "docs/screenshots/mnerys-login.png").is_file()
 
 
 def test_official_mascot_assets_and_identity() -> None:
