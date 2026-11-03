@@ -6,7 +6,9 @@ module does not authenticate requests, issue tokens or implement durable turns.
 """
 
 from dataclasses import dataclass, field
-from typing import Callable, FrozenSet, Literal, Optional
+from typing import FrozenSet, Literal, Optional
+
+from src.session_repository import SessionOwnership, SessionOwnershipLookup
 
 
 CredentialKind = Literal["browser", "bearer", "single_user"]
@@ -23,13 +25,6 @@ class Principal:
     @property
     def delegated(self) -> bool:
         return self.credential_kind == "bearer"
-
-
-@dataclass(frozen=True)
-class SessionOwnership:
-    """Existing session lookup result. None from lookup means not found."""
-
-    owner_id: Optional[str]
 
 
 class AdmissionDenied(Exception):
@@ -65,7 +60,7 @@ class GatewayAdmission:
         self,
         principal: Principal,
         session_id: str,
-        lookup: Callable[[str], Optional[SessionOwnership]],
+        lookup: SessionOwnershipLookup,
     ) -> AdmittedSession:
         if not isinstance(principal, Principal):
             raise AdmissionDenied(401, "Authentication required")

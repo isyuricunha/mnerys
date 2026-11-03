@@ -309,7 +309,7 @@ async def _clean_route_contract(monkeypatch, message, *, history=(), native=Fals
             yield 'data: {"delta":"Contract constructed."}\n\n'
             yield "data: [DONE]\n\n"
 
-        route_patch.setattr(chat_routes, "stream_agent_loop", capture_agent)
+        route_patch.setattr("src.turn_service.stream_agent_loop", capture_agent)
         request = _RouteRequest("agent")
         request._form.update({"message": message, "compare_mode": "false"})
         if native:
@@ -463,9 +463,44 @@ def test_native_declared_input_files_establish_workspace_intent():
 def test_chat_tool_privileges_use_effective_bearer_owner():
     """Bearer TUI/WebUI turns must not be denied as the synthetic ``api`` user."""
     source = _CHAT_ROUTES.read_text(encoding="utf-8")
-    privilege_gate = source[source.index("# Enforce per-user privileges"):]
+    privilege_gate = source[source.index("# Enforce account privileges AFTER web/tool intent routing"):]
     assert "_user = effective_user(request)" in privilege_gate
+    assert "_privs = _request_privileges(request, _user)" in privilege_gate
+    assert "execution_limits_for_admission(" in privilege_gate
+    assert "_admitted_session, _privs" in privilege_gate
     assert "_user = ctx.user" not in privilege_gate
+
+
+@pytest.mark.asyncio
+async def test_browser_privilege_denial_survives_explicit_web_opt_in(monkeypatch):
+    """Intent-based web enabling cannot undo a server-owned account denial."""
+    from routes import chat_routes
+
+    with monkeypatch.context() as route_patch:
+        endpoint = _chat_stream_endpoint(route_patch, "agent", {})
+        denied = []
+
+        async def capture_agent(*args, **kwargs):
+            denied.append(set(kwargs.get("disabled_tools") or ()))
+            yield "data: [DONE]\n\n"
+
+        route_patch.setattr("src.turn_service.stream_agent_loop", capture_agent)
+        request = _RouteRequest(
+            "agent", privileges={"can_use_browser": False},
+        )
+        request._form.update({
+            "message": "Search for the official information on example.com.",
+            "compare_mode": "false",
+            "allow_web_search": "true",
+            "use_web": "true",
+        })
+        response = await endpoint(request)
+        async for _ in response.body_iterator:
+            pass
+
+        assert len(denied) == 1
+        assert "private_browser" in denied[0]
+        assert chat_routes._BROWSER_MCP_TOOLS <= denied[0]
 
 
 # ── Functional tests of the disabled-tools logic ───────────────

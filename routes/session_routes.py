@@ -24,7 +24,8 @@ from src.session_image_cleanup import _generated_image_path_for_cleanup, session
 from src.session_actions import is_session_recently_active
 from src.upload_handler import reserve_message_upload_references
 from src.tool_approval_scopes import sanitize_client_message_metadata
-from src.gateway_admission import AdmissionDenied, SessionOwnership, gateway_admission
+from src.gateway_admission import AdmissionDenied, gateway_admission
+from src.session_repository import SqlSessionOwnershipLookup
 from routes.gateway_principal import principal_for_chat_request
 
 
@@ -214,19 +215,10 @@ def _reject_compact_during_active_run(session_id: str) -> None:
 
 
 def _lookup_session_ownership(session_id: str, session_manager=None):
-    """Read the existing session owner; DB rows override in-memory ghosts."""
-    db = SessionLocal()
-    try:
-        row = db.query(DbSession.owner).filter(DbSession.id == session_id).first()
-    finally:
-        db.close()
-    if row is not None:
-        return SessionOwnership(owner_id=row.owner)
-    if session_manager is not None:
-        ghost = getattr(session_manager, "sessions", {}).get(session_id)
-        if ghost is not None:
-            return SessionOwnership(owner_id=getattr(ghost, "owner", None))
-    return None
+    """Compatibility wrapper around the transport-independent repository port."""
+    return SqlSessionOwnershipLookup(
+        SessionLocal, DbSession, session_manager
+    )(session_id)
 
 
 def _verify_session_owner(request: Request, session_id: str, session_manager=None):

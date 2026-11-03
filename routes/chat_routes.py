@@ -33,6 +33,7 @@ from src.agent_loop import _normalize_ody_qwen_text_artifacts
 from src import agent_runs
 from src.turn_service import turn_service
 from src.gateway_turns import gateway_turns
+from src.gateway_execution_policy import execution_limits_for_admission
 from src.model_context import estimate_tokens
 from src.context_compactor import (
     apply_compaction_state,
@@ -87,7 +88,6 @@ from src.tool_policy import (
 )
 from src.tool_approvals import tool_approval_store
 from src.tool_approval_scopes import stamp_chat_session_grant
-from src.tool_security import delegated_credential_blocked_tools
 from src.workspace_paths import backend_workspace_path
 from src.client_tool_contract import TUI_CLIENT_TOOL_NAMES
 from src.model_profiles import (
@@ -3313,13 +3313,14 @@ def setup_chat_routes(
         _warm_turn_capabilities = frozenset()
         if _use_turn_contract and _turn_capabilities and "search_browser" not in _turn_capabilities:
             _explicit_web_intent = False
-        disabled_tools = set()
-        # Minting is admin-only, so every owner-keyed check below answers
-        # "admin" for a token. Cap it at the non-admin policy instead.
-        # stream_agent_loop repeats this from delegated_credential.
-        _delegated_credential = is_delegated_credential(request)
-        if _delegated_credential:
-            disabled_tools.update(delegated_credential_blocked_tools())
+        # Bearer credentials get their non-admin restrictions immediately.
+        # The later account privilege pass must occur AFTER optional web/tool
+        # intent routing so those restrictions cannot be re-enabled.
+        _delegated_credential = _admitted_session.principal.delegated
+        disabled_tools = set(execution_limits_for_admission(
+            _admitted_session, None,
+            browser_tools=frozenset(_BROWSER_MCP_TOOLS),
+        ).disabled_tools)
         # Only disable bash when the caller *explicitly* set it to a falsy
         # value. When unset (None), defer to per-user privilege checks below.
         # Web search is per-turn opt-in: either the chat pre-search setting
@@ -3454,30 +3455,21 @@ def setup_chat_routes(
                 "mcp__email__reply_to_email",
             })
 
-        # Enforce per-user privileges
-        # Bearer clients enter the agent loop as the sandboxed ``api`` user,
-        # but their token is owned by the real account. Use that owner here so
-        # a permitted TUI/WebUI client does not inherit api's default denial.
+        # Enforce account privileges AFTER web/tool intent routing, as in the
+        # inherited route. The Gateway computes the denylist from the admitted
+        # principal and trusted per-user privileges; HTTP never mints grants.
         _user = effective_user(request)
         _privs = _request_privileges(request, _user)
-        if _privs:
-            if not _privs.get("can_use_bash", True):
-                disabled_tools.update(FAMILY_TOOLS["shell_files"])
-            if not _privs.get("can_use_browser", True):
-                disabled_tools.update(_BROWSER_MCP_TOOLS)
-                disabled_tools.add("private_browser")
-            if not _privs.get("can_use_documents", True):
-                disabled_tools.update({"manage_documents", "create_document", "edit_document", "update_document", "suggest_document"})
-            if not _privs.get("can_generate_images", True):
-                disabled_tools.update({"generate_image", "edit_image"})
-            if not _privs.get("can_manage_memory", True):
-                disabled_tools.update({"manage_memory", "manage_skills"})
-            if not _privs.get("can_use_research", True):
-                _research_flags["do"] = False
-                disabled_tools.update({"trigger_research", "manage_research"})
-            if not _privs.get("can_use_agent", True):
-                _effective_mode = 'chat'
-                chat_mode = 'chat'
+        _limits = execution_limits_for_admission(
+            _admitted_session, _privs,
+            browser_tools=frozenset(_BROWSER_MCP_TOOLS),
+        )
+        disabled_tools.update(_limits.disabled_tools)
+        if not _limits.allow_research:
+            _research_flags["do"] = False
+        if not _limits.allow_agent:
+            _effective_mode = 'chat'
+            chat_mode = 'chat'
         # Global admin disabled tools
         from src.settings import get_setting
         _global_disabled = get_setting("disabled_tools", [])

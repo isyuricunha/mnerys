@@ -57,6 +57,47 @@ No database tables, authentication credentials, remote endpoints, model/tool dis
 
 Regression evidence: `tests/test_mnerys_gateway_admission.py`, `tests/test_mnerys_m1_gateway_boundary_baseline.py`, `tests/test_session_owner_attribution.py` and `tests/test_session_ghost_delete.py`, together with the agent/runtime suites listed in the [M1 baseline](M1_CONTRACT_TEST_BASELINE.md).
 
+## M1 incremental implementation: ownership lookup and privilege limits
+
+**Implemented internally, partial ports only.** The first session repository seam is
+`src/session_repository.py`, which defines a callable `SessionOwnershipLookup`
+protocol and an injected `SqlSessionOwnershipLookup` adapter. The current
+`routes/session_routes.py` compatibility helper forwards to that adapter using
+the existing session factory/model, keeping database rows authoritative over
+optional in-process ghost sessions. Connections are closed on both success and
+failure. SQLite and PostgreSQL continue through the same configured SQLAlchemy
+session factory; **no data conversion, migration or schema revision occurs**.
+This is **not** the full owner-scoped CRUD/revision `SessionRepository` proposed
+above. The admission service accepts a repository port rather than importing
+FastAPI, ORM models, or database connection state.
+
+`src/gateway_execution_policy.py` now prepares a frozen
+`ExecutionPrivilegeLimits` snapshot for an admitted session from **server
+privileges only**. Delegated bearer tokens retain non-admin tool restrictions
+regardless of their token owner's administrator status. Existing
+`can_use_bash`, `can_use_browser`, document, image, memory, research and agent
+flags keep the same tool/mode results. The Web adapter applies bearer
+restrictions before request intent processing and account restrictions *after*
+search/tool toggles, preventing those toggles from reopening an account denial.
+Malformed privilege configuration fails closed.
+
+**What has NOT moved yet:** model/prompt context preparation, global settings,
+per-turn web intent, active document and compare/plan mode restrictions,
+`request_authority_for_http`, tool-contract reconciliation, persisted messages,
+approval storage, or the tool dispatcher. Their existing checks remain active
+on every turn, and the authenticated client boundary is still the inherited
+Web/API routes. This work does not create a new CLI/TUI authorization entry
+point, durable transaction, or portable authenticated Gateway API.
+
+Tests: `tests/test_mnerys_session_repository.py`,
+`tests/test_mnerys_gateway_execution_policy.py`, the Web compatibility
+and security suites in [M1 regression baseline](M1_CONTRACT_TEST_BASELINE.md).
+The source-level protocol and explicit resource management patterns follow
+[Python 3.11 typing.Protocol](https://docs.python.org/3.11/library/typing.html#typing.Protocol)
+and [SQLAlchemy 2.0 Session Basics](https://docs.sqlalchemy.org/en/20/orm/session_basics.html).
+Their references are conceptual: the existing persistence dependencies remain
+as configured in Mnerys.
+
 ## M1 incremental implementation: internal TurnService seam
 
 **Implemented internally, NOT the proposed public Gateway/TurnService v1 contract.** The first extraction in `src/turn_service.py` moves two existing operations out of `routes/chat_routes.py` without duplicating the Python agent engine:
