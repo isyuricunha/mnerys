@@ -78,7 +78,16 @@ def test_version_is_release_defined_and_initial_manifest_is_clear():
     package = json.loads((ROOT / "package.json").read_text())
     assert package["private"] is True
     assert package["devDependencies"]["semantic-release"] == "25.0.9"
-    assert package["devDependencies"]["conventional-changelog-conventionalcommits"] == "10.4.1"
+    preset_version = package["devDependencies"]["conventional-changelog-conventionalcommits"]
+    lock = json.loads((ROOT / "package-lock.json").read_text())
+    assert re.fullmatch(r"\d+\.\d+\.\d+", preset_version)
+    assert lock["packages"][""]["devDependencies"]["conventional-changelog-conventionalcommits"] == preset_version
+    assert lock["packages"]["node_modules/conventional-changelog-conventionalcommits"]["version"] == preset_version
+    # Writer 8 cannot render the v10 conventionalcommits preset. The Node
+    # release suite also renders actual notes with these locked dependencies.
+    writer_version = lock["packages"]["node_modules/conventional-changelog-writer"]["version"]
+    assert int(writer_version.split(".", 1)[0]) == 8
+    assert int(preset_version.split(".", 1)[0]) == 9
     assert "@semantic-release/npm" not in json.dumps(policy)
 
 
