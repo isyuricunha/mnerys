@@ -78,7 +78,7 @@ async def test_actual_route_constructs_contract_with_real_mcp_apis(
         yield 'data: {"delta":"Route contract constructed."}\n\n'
         yield "data: [DONE]\n\n"
 
-    monkeypatch.setattr(chat_routes, "stream_agent_loop", capture_agent)
+    monkeypatch.setattr("src.turn_service.stream_agent_loop", capture_agent)
     request = _RouteRequest("agent")
     request._form["message"] = message
     if case == "plan":
@@ -153,7 +153,7 @@ async def test_native_product_browser_turn_cannot_bypass_family_contract(
         yield 'data: {"delta":"Browser contract constructed."}\n\n'
         yield "data: [DONE]\n\n"
 
-    monkeypatch.setattr(chat_routes, "stream_agent_loop", capture_agent)
+    monkeypatch.setattr("src.turn_service.stream_agent_loop", capture_agent)
     request = _RouteRequest("agent")
     request._form.update({
         "message": message,
@@ -202,7 +202,7 @@ async def test_native_transcription_turn_does_not_offer_shell_fallbacks(
         yield 'data: {"delta":"Transcription contract constructed."}\n\n'
         yield "data: [DONE]\n\n"
 
-    monkeypatch.setattr(chat_routes, "stream_agent_loop", capture_agent)
+    monkeypatch.setattr("src.turn_service.stream_agent_loop", capture_agent)
     request = _RouteRequest("agent")
     request._form.update({
         "message": message,
@@ -256,7 +256,7 @@ async def test_native_ocr_turn_offers_only_extract_text(
         yield 'data: {"delta":"OCR contract constructed."}\n\n'
         yield "data: [DONE]\n\n"
 
-    monkeypatch.setattr(chat_routes, "stream_agent_loop", capture_agent)
+    monkeypatch.setattr("src.turn_service.stream_agent_loop", capture_agent)
     request = _RouteRequest("agent")
     request._form.update({
         "message": message,
@@ -310,7 +310,7 @@ async def test_native_sft_owner_can_use_confined_read_file_tool(
         yield 'data: {"delta":"Native read contract constructed."}\n\n'
         yield "data: [DONE]\n\n"
 
-    monkeypatch.setattr(chat_routes, "stream_agent_loop", capture_agent)
+    monkeypatch.setattr("src.turn_service.stream_agent_loop", capture_agent)
     request = _RouteRequest("agent")
     request._form.update({
         "message": message,
@@ -366,7 +366,7 @@ async def test_exact_odysseus_clean_route_offers_only_requested_compact_family(
         yield 'data: {"delta":"Tasks read."}\n\n'
         yield "data: [DONE]\n\n"
 
-    monkeypatch.setattr(chat_routes, "stream_agent_loop", capture_agent)
+    monkeypatch.setattr("src.turn_service.stream_agent_loop", capture_agent)
     request = _RouteRequest("agent")
     request._form.update({"message": message, "compare_mode": "false"})
     response = await endpoint(request)
@@ -402,7 +402,7 @@ async def test_native_terminal_workspace_keeps_environment_execution_contract(
         yield 'data: {"delta":"Workspace contract retained."}\n\n'
         yield "data: [DONE]\n\n"
 
-    monkeypatch.setattr(chat_routes, "stream_agent_loop", capture_agent)
+    monkeypatch.setattr("src.turn_service.stream_agent_loop", capture_agent)
     request = _RouteRequest("agent")
     request._form.update({
         "message": message,

@@ -1,6 +1,6 @@
 # M1 — Baseline for shared Gateway contract regression tests
 
-**Status:** first characterization slice implemented and tested on 2026-11-03; the Gateway / `TurnService` remain **planned**, not shipped. These tests protect inherited HTTP behavior, not a new API.
+**Status:** first characterization slice implemented and tested on 2026-11-03; an internal, transport-neutral `TurnService` seam is now present, but the authenticated Gateway and full shared contract remain **planned**. These tests protect inherited HTTP behavior, not a new API.
 
 ## What is frozen in this slice
 
@@ -42,4 +42,6 @@ python -m pytest -q tests/test_mnerys_m1_gateway_boundary_baseline.py \
 
 This is **not** Gateway parity across independent Web, CLI and TUI clients: they do not yet share a new `TurnService`. The inherited run manager has an **in-memory** buffer, not a restart-durable sequence/event journal. The current route replaces active runs; deterministic future one-writer admission/fencing remains to be specified and built. Approval storage is process-local. These tests do not validate SQL concurrency, real credential issuance, migrations, PostgreSQL restoration or a production deployment.
 
-**Next:** design the smallest transport-neutral `TurnService` facade around the inherited loop and dispatcher, add contract-level tests for cancellation and authorization, and keep the existing Web endpoints as compatibility adapters. Do not introduce new public endpoints or alter the persistent preview until behavioral parity, schema/migration review and security gates are demonstrated.
+The first internal `TurnService` extraction was subsequently exercised with **537 passing local regression tests**, including the new service lifecycle tests, HTTP ownership baseline, foreground model selection, context preparation, contract enforcement, exact approvals, SSE replay, cancellation, nested invocation and stream error handling. The test suite still uses isolated fixtures, not real cross-client or restarted-server acceptance checks.
+
+**Next:** move server-owned admission and session ownership to a typed Gateway boundary, then progressively extract policy/context orchestration and persistence behind explicit interfaces. Preserve the same tool dispatcher and existing Web endpoints. Do not introduce new public endpoints or alter the persistent preview until behavioral parity, schema/migration review and security gates are demonstrated.

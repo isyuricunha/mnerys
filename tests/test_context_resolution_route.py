@@ -137,7 +137,7 @@ async def _drive_route(monkeypatch, *, model=COMPACT_MODEL, message="hello"):
         chat_routes, "coerce_message_and_session", lambda *args, **kwargs: (message, "session-1"),
     )
     # The real agent loop, compact dispatch and compact runtime run below.
-    monkeypatch.setattr(chat_routes, "stream_agent_loop", agent_loop.stream_agent_loop)
+    monkeypatch.setattr("src.turn_service.stream_agent_loop", agent_loop.stream_agent_loop)
     request = _RouteRequest("agent")
     request._form.update({"message": message, "compare_mode": "false"})
     response = await endpoint(request)
@@ -223,7 +223,7 @@ async def test_regular_model_route_does_not_prepare_a_compact_resolution(
         captured["agent_kwargs"] = kwargs
         yield "data: [DONE]\n\n"
 
-    monkeypatch.setattr(chat_routes, "stream_agent_loop", capture_agent)
+    monkeypatch.setattr("src.turn_service.stream_agent_loop", capture_agent)
     request = _RouteRequest("agent")
     request._form.update({"message": "hello", "compare_mode": "false"})
     response = await endpoint(request)
@@ -456,7 +456,7 @@ async def test_route_preparation_and_compact_dispatch_cannot_diverge(
         raise _RegularPath()
 
     monkeypatch.setattr(agent_loop, "_contract_allows_single_action_terminal", stop_regular)
-    monkeypatch.setattr(chat_routes, "stream_agent_loop", agent_loop.stream_agent_loop)
+    monkeypatch.setattr("src.turn_service.stream_agent_loop", agent_loop.stream_agent_loop)
 
     request = _RouteRequest(mode, privileges=privileges)
     request._form.update({"message": "hello", "compare_mode": "false"})

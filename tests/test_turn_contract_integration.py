@@ -136,6 +136,7 @@ async def test_stream_bridge_binds_contract_for_actual_generator_and_resets(
 @pytest.mark.parametrize("use_bridge", [False, True])
 async def test_stream_bridge_resets_binding_on_abnormal_exit(monkeypatch, ending, use_bridge):
     from routes import chat_routes
+    from src import turn_service as turn_service_module
     from src.tool_execution import (
         AgentExecutionBridge, bind_execution_bridge, get_active_execution_bridge,
     )
@@ -155,7 +156,7 @@ async def test_stream_bridge_resets_binding_on_abnormal_exit(monkeypatch, ending
         if ending == "cancel":
             raise asyncio.CancelledError()
 
-    monkeypatch.setattr(chat_routes, "stream_agent_loop", controlled_stream)
+    monkeypatch.setattr(turn_service_module, "stream_agent_loop", controlled_stream)
     previous = active_turn_contract(), get_active_execution_bridge()
     with bind_turn_contract(outer), bind_execution_bridge(outer_bridge):
         stream = chat_routes._stream_agent_with_execution_bridge(

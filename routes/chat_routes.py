@@ -25,13 +25,13 @@ from src.llm_core import (
     stream_llm_with_fallback,
 )
 from src.agent_loop import (
-    stream_agent_loop,
     _configured_model_tool_surface,
     _local_media_needs_browser_render,
     _looks_like_workspace_coding_request,
 )
 from src.agent_loop import _normalize_ody_qwen_text_artifacts
 from src import agent_runs
+from src.turn_service import turn_service
 from src.model_context import estimate_tokens
 from src.context_compactor import (
     apply_compaction_state,
@@ -93,11 +93,11 @@ from src.model_profiles import (
     ODYSSEUS_COMPACT_TOOL_SCHEMA_PROFILE,
     tool_schema_profile,
 )
-from src.tool_execution import AgentExecutionBridge, bind_execution_bridge
+from src.tool_execution import AgentExecutionBridge
 from src.agent_runtime.authority import is_internal_tool_request, request_authority_for_http
 from src.agent_runtime.runtime_selection import uses_compact_preview_runtime
 from src.turn_contract import (
-    FAMILY_TOOLS, bind_turn_contract, preserve_bound_editor_selected_tools,
+    FAMILY_TOOLS, preserve_bound_editor_selected_tools,
     requested_capabilities, resolve_turn_contract,
     requests_independent_web_source, requires_external_web_verification,
     selected_tools_for_request,
@@ -850,15 +850,9 @@ def _external_execution_bridge(
     )
 
 
-async def _stream_agent_with_execution_bridge(bridge, *args, **kwargs):
-    with bind_turn_contract(kwargs.get("turn_contract")):
-        if bridge is None:
-            async for chunk in stream_agent_loop(*args, **kwargs):
-                yield chunk
-            return
-        with bind_execution_bridge(bridge):
-            async for chunk in stream_agent_loop(*args, **kwargs):
-                yield chunk
+# Keep the inherited internal helper name for compatibility with older
+# integration tests. The real agent execution now lives in the shared service.
+_stream_agent_with_execution_bridge = turn_service.stream_agent
 
 
 def _should_detach_chat_stream(
@@ -4609,7 +4603,7 @@ def setup_chat_routes(
                     if _turn_contract is not None:
                         _forced_tools = set(_turn_contract.offered)
 
-                    async for chunk in _stream_agent_with_execution_bridge(
+                    async for chunk in turn_service.stream_agent(
                         _external_execution_bridge(client_runtime_context),
                         sess.endpoint_url,
                         sess.model,
@@ -4991,9 +4985,9 @@ def setup_chat_routes(
                     "X-Accel-Buffering": "no",
                 })
 
-        _detached_run = agent_runs.start(session, _safe_stream())
+        _detached_run = turn_service.start_detached(session, _safe_stream())
         return StreamingResponse(
-            agent_runs.subscribe(session, _detached_run),
+            _detached_run.events,
             media_type="text/event-stream",
             headers={
                 "X-Odysseus-Run-Id": _detached_run.run_id,
@@ -5009,11 +5003,11 @@ def setup_chat_routes(
     @router.get("/api/chat/resume/{session_id}")
     async def chat_resume(request: Request, session_id: str) -> StreamingResponse:
         _verify_session_owner(request, session_id)
-        _active_run = agent_runs.get_active_run(session_id)
+        _active_run = turn_service.resume_active(session_id)
         if _active_run is None:
             raise HTTPException(404, "No active run for this session")
         return StreamingResponse(
-            agent_runs.subscribe(session_id, _active_run),
+            _active_run.events,
             media_type="text/event-stream",
             headers={
                 "X-Odysseus-Run-Id": _active_run.run_id,
@@ -5030,7 +5024,7 @@ def setup_chat_routes(
     async def chat_stop(request: Request, session_id: str) -> Dict[str, Any]:
         _verify_session_owner(request, session_id)
         _expected_run_id = request.headers.get("X-Odysseus-Run-Id")
-        stopped = agent_runs.stop(session_id, _expected_run_id)
+        stopped = turn_service.stop(session_id, _expected_run_id)
         return {"stopped": stopped}
 
     @router.post("/api/chat/finish/{session_id}")
@@ -5038,7 +5032,7 @@ def setup_chat_routes(
         """Finish an editor run without discarding completed tools or review cards."""
         _verify_session_owner(request, session_id)
         expected_run_id = request.headers.get("X-Odysseus-Run-Id")
-        accepted = agent_runs.request_finish(session_id, expected_run_id)
+        accepted = turn_service.finish(session_id, expected_run_id)
         return {"accepted": accepted}
 
     # ------------------------------------------------------------------ #
@@ -5054,7 +5048,7 @@ def setup_chat_routes(
         # entry in between (same pattern _stream_set already uses).
         rec = _active_streams.get(session_id)
         if rec is None:
-            if agent_runs.is_active(session_id):
+            if turn_service.is_active(session_id):
                 return {"status": "streaming", "detached": True}
             raise HTTPException(404, "No active stream for this session")
         return rec

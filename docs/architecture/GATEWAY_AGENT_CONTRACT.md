@@ -45,6 +45,18 @@ A terminal state must not return to running. A cancellation request is idempoten
 
 A single writer per session is the initial consistency policy. Every active turn has a revision/fencing token so late background tasks, stale UI tabs or disconnected clients cannot persist into a replaced run. Explicitly define behavior for same-session concurrency (reject or queue), preserve partial output on stop, and reconcile interrupted tool effects after process loss. Do not claim exactly-once effects unless an operation-specific idempotency key and durable receipt enforce it.
 
+## M1 incremental implementation: internal TurnService seam
+
+**Implemented internally, NOT the proposed public Gateway/TurnService v1 contract.** The first extraction in `src/turn_service.py` moves two existing operations out of `routes/chat_routes.py` without duplicating the Python agent engine:
+
+- `TurnService.stream_agent(bridge, *args, **kwargs)` delegates to the inherited `stream_agent_loop`, retaining `TurnContract` and execution-bridge context for the whole stream. It explicitly closes the underlying async generator before releasing these bindings when callers disconnect, close, cancel or raise.
+- `start_detached`, `resume_active`, `stop`, `finish` and `is_active` delegate to the existing `src/agent_runs.py` registry. A `TurnStream` contains the exact run ID and an async iterator of **legacy SSE-formatted frames**, separate from HTTP response construction. It is **not** the proposed typed `TurnEvent` stream. Run replacement, cancellation identity, persistence timing, replay window and frame bytes remain inherited behavior.
+- The existing Web routes continue to authenticate bearer scopes and check session ownership **before** calling this internal service. They still construct request authority, models, policy, approvals and persistence; downstream tool execution still uses `src/tool_execution.py`. The legacy `X-Odysseus-Run-Id` response header is retained for client compatibility.
+
+**Security limitation:** this internal seam is not a remotely callable entry point or a standalone authorization boundary. It must **never** be exposed to CLI/TUI or a new route without server-owned principal admission and session/operation checks. Its run-state registry is process-local, and no event/approval database or migration was introduced.
+
+Coverage: `tests/test_mnerys_turn_service.py`, `tests/test_mnerys_m1_gateway_boundary_baseline.py`, and the inherited `test_turn_contract_integration.py`, `test_client_tool_routing.py` and detached-run regressions. Next steps are typed server-owned admission, owner-scoped repository ports, policy/context orchestration and real cross-transport contract tests.
+
 ## M1 incremental implementation: process-local SSE replay cursor
 
 The inherited detached-run manager now has a **tested opt-in primitive**, not a public Gateway API:

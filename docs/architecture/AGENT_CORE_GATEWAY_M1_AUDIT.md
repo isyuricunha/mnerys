@@ -1,6 +1,6 @@
 # M1 — Agent runtime audit and extraction plan
 
-Status: **audit completed; extraction and shared contracts are proposed, NOT implemented.**
+Status: **audit completed; first internal TurnService extraction implemented; shared Gateway contract and durable state NOT implemented.**
 Scope: source inspection and isolated unit/regression checks at the beginning of Mnerys milestone M1. No runtime, database, authentication, public API or deployment changes were made by this audit.
 
 Read this with [Mnerys roadmap](../ROADMAP.md) and the [proposed shared contract](GATEWAY_AGENT_CONTRACT.md). File paths and line ranges below refer to the audited source tree, not to an installed release; recheck after refactoring.

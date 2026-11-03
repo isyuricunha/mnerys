@@ -899,7 +899,7 @@ def test_chat_stream_parses_and_injects_tui_runtime_context():
     assert "ctx.messages.insert(0, runtime_msg)" in chat_stream_source
     assert "cwd=_agent_turn_cwd(sess, client_runtime_context)" in chat_stream_source
     assert "client_runtime_context=client_runtime_context" in chat_stream_source
-    assert "_stream_agent_with_execution_bridge(" in chat_stream_source
+    assert "turn_service.stream_agent(" in chat_stream_source
     assert "_external_execution_bridge(client_runtime_context)" in chat_stream_source
 
 
