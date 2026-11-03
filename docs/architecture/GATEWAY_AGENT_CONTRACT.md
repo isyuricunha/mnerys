@@ -290,6 +290,26 @@ and [negative selection tests](../../tests/test_mnerys_gateway_tool_intent.py).
 Durable turn records, the public Gateway and independently authenticated
 transport clients are still planned.
 
+## M2.1 incremental implementation: admitted initial capabilities
+
+**Implemented internally; the full turn boundary remains partial.**
+[GatewayTurns](../../src/gateway_turns.py) now calls an
+[owner-admitted classifier service](../../src/gateway_turn_capabilities.py)
+for the earliest candidate-family decision. It reuses the original
+[request and browser-correction classifiers](../../src/turn_contract.py)
+over server-loaded session history, retains the distinction between
+required active families and optionally offered visible-document tools,
+and inherits browser state only when no unrelated explicit family is
+present. A browser correction or image-edit signal is *context and
+selection metadata*, never a new operation grant.
+
+The Web adapter still checks document and workspace ownership, classifies
+its earlier transport-specific browser facts and builds attachment context;
+the original policy, tool contracts and runtime execute the turn. No
+standalone HTTP Gateway or durable turn/event store is provided by this
+slice. See [M2.1 evidence](M2_GATEWAY_IMPLEMENTATION_PLAN.md)
+and [negative/parity tests](../../tests/test_mnerys_gateway_turn_capabilities.py).
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

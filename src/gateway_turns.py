@@ -34,6 +34,10 @@ from src.gateway_tool_inventory import (
     AdmittedToolInventory,
     prepare_admitted_tool_inventory,
 )
+from src.gateway_turn_capabilities import (
+    AdmittedTurnCapabilities,
+    classify_admitted_turn_capabilities,
+)
 from src.gateway_tool_intent import (
     AdmittedToolIntent,
     select_admitted_tool_intent,
@@ -252,6 +256,37 @@ class GatewayTurns:
             message=message,
             plan_mode=plan_mode,
             native_workspace_contract=native_workspace_contract,
+        )
+
+    def classify_turn_capabilities(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        message: str,
+        use_turn_contract: bool,
+        active_document: bool,
+        workspace_bound: bool,
+        image_attachment: bool,
+        explicit_browser_intent: bool,
+        external_discovery_intent: bool,
+        private_browser_warm: bool,
+        contextual_browser_followup_lookup: Callable[[], bool],
+    ) -> AdmittedTurnCapabilities:
+        """Select candidate families from the admitted session and intent."""
+        return classify_admitted_turn_capabilities(
+            admission, session,
+            context_owner=context_owner,
+            message=message,
+            use_turn_contract=use_turn_contract,
+            active_document=active_document,
+            workspace_bound=workspace_bound,
+            image_attachment=image_attachment,
+            explicit_browser_intent=explicit_browser_intent,
+            external_discovery_intent=external_discovery_intent,
+            private_browser_warm=private_browser_warm,
+            contextual_browser_followup_lookup=contextual_browser_followup_lookup,
         )
 
     def select_tool_intent(

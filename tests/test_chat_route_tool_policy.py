@@ -675,8 +675,13 @@ def test_trained_odysseus_route_uses_explicit_web_intent_without_ui_toggle_gate(
 
 def test_browser_intent_is_promoted_to_search_browser_capability():
     source = _CHAT_ROUTES.read_text(encoding="utf-8")
-    assert "if _use_turn_contract and _explicit_browser_intent:" in source
-    assert '_turn_capabilities = _turn_capabilities | {"search_browser"}' in source
+    selector = (
+        _CHAT_ROUTES.parents[1] / "src" / "gateway_turn_capabilities.py"
+    ).read_text(encoding="utf-8")
+    assert "gateway_turns.classify_turn_capabilities(" in source
+    assert "explicit_browser_intent=_explicit_browser_intent" in source
+    assert "if use_turn_contract and (explicit_browser_intent or external_discovery_intent):" in selector
+    assert 'augmented = augmented | {"search_browser"}' in selector
 
 
 def test_prompt_web_intent_enables_web_without_frontend_toggle():

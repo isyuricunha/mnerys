@@ -349,6 +349,44 @@ now asserts the rule at its new location. Local checks passed
 schema/API-token/file-edit** tests (test suites may overlap).
 Hosted CI and real preview validation are still pending for these local commits.
 
+**Eighteenth incremental slice — admitted initial capability classification:**
+the Web adapter now delegates its initial request-family classification to
+[GatewayTurns.classify_turn_capabilities](../../src/gateway_turns.py), backed by
+[one transport-neutral service](../../src/gateway_turn_capabilities.py). The
+service verifies the issued session admission, loaded owner and context owner
+**before** invoking the original
+[requested_capabilities and corrected_browser_target classifiers](../../src/turn_contract.py)
+with server-loaded session history. It preserves explicit browser/discovery
+intent, typed warm-browser contextual inheritance only when the original
+classifier found no family, and a corrected browser URL even when tool
+contracts are disabled. It returns distinct **active capabilities** required
+by routing and **offered capabilities** after adding a server-owner-checked
+visible document; that document never becomes a required mutation merely
+because its editor is open. The original Web suppression of unrelated
+explicit-web intent and pre-augmentation image-edit classification also
+remain intact.
+
+The Web route continues to verify active-document ownership, derive
+workspace and browser routing facts, and inject image-edit attachment
+instructions into its context. The same earlier account/mode policy, exact
+tool selection, immutable contract resolution, compact scoping and hardened
+tool dispatcher remain in effect. This is an in-process authority seam, **not**
+a new classifier, tool engine, remote Gateway API or model executor. No
+database, persisted session or running preview was modified.
+
+[New parity and denial tests](../../tests/test_mnerys_gateway_turn_capabilities.py)
+compare the inherited route rules across document, workspace, image,
+browser/discovery, typed history and no-contract branches; assert that warm
+browser evidence cannot override an unrelated family; check bearer,
+browser and single-user admissions and deny forged/mismatched sessions or
+malformed trusted flags before classification. The
+[existing browser-capability source guard](../../tests/test_chat_route_tool_policy.py)
+now verifies its relocated Gateway boundary. Local suites passed
+**379 focused**, **185 routing/streaming**, **159 authority/approval**,
+**160 peripheral**, **1,129 contract compatibility** and
+**148 external schema/API-token/file-edit** tests (overlap is possible).
+Hosted CI and preview acceptance checks remain pending for these local commits.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

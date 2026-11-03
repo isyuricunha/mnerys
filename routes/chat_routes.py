@@ -93,8 +93,8 @@ from src.agent_runtime.authority import is_internal_tool_request
 from src.gateway_turn_contract_selection import turn_contract_enabled as _turn_contract_enabled
 from src.gateway_tool_inventory import explicitly_denies_tool_use as _explicitly_denies_tool_use
 from src.turn_contract import (
-    FAMILY_TOOLS, requested_capabilities,
-    requires_external_web_verification, selected_tools_for_request,
+    FAMILY_TOOLS, requires_external_web_verification,
+    selected_tools_for_request,
 )
 
 logger = logging.getLogger(__name__)
@@ -3094,14 +3094,30 @@ def setup_chat_routes(
         _native_workspace_contract = _contract_scope.native_workspace_contract
         _use_turn_contract = _contract_scope.enabled
         _turn_history = getattr(sess, "history", []) or []
-        from src.turn_contract import corrected_browser_target
-        _corrected_browser_target = corrected_browser_target(message, _turn_history)
-        _turn_capabilities = requested_capabilities(
-            message, _turn_history,
-            active_document=bool(active_doc), workspace=bool(workspace),
-            image_attachment=any(str(a.get('mime') or '').startswith('image/') for a in (ctx.preprocessed.attachment_meta or [])),
-        ) if _use_turn_contract else frozenset()
-        if 'image_editing' in _turn_capabilities and ctx.preprocessed.attachment_meta:
+        # Classify request families once under the issued session admission.
+        # A visible document can be offered without becoming a required call.
+        _initial_turn_capabilities = gateway_turns.classify_turn_capabilities(
+            _admitted_session, sess,
+            context_owner=ctx.user,
+            message=message,
+            use_turn_contract=_use_turn_contract,
+            active_document=bool(active_doc),
+            workspace_bound=bool(workspace),
+            image_attachment=any(
+                str(a.get("mime") or "").startswith("image/")
+                for a in (ctx.preprocessed.attachment_meta or [])
+            ),
+            explicit_browser_intent=_explicit_browser_intent,
+            external_discovery_intent=_external_discovery_intent,
+            private_browser_warm=_clean_v3_private_browser_warm,
+            contextual_browser_followup_lookup=lambda: _is_contextual_browser_followup(
+                message, sess,
+            ),
+        )
+        _corrected_browser_target = _initial_turn_capabilities.corrected_browser_target
+        _turn_capabilities = _initial_turn_capabilities.capabilities
+        _active_turn_capabilities = _initial_turn_capabilities.active_capabilities
+        if _initial_turn_capabilities.image_editing_requested and ctx.preprocessed.attachment_meta:
             image_refs = ['odysseus://attachment/' + str(a['id']) for a in ctx.preprocessed.attachment_meta
                           if a.get('id') and str(a.get('mime') or '').startswith('image/')]
             if image_refs:
@@ -3111,43 +3127,10 @@ def setup_chat_routes(
                 ctx.messages.insert(0, image_edit_context)
                 if foreground_policy.enabled:
                     getattr(ctx, 'route_messages', ctx.messages).insert(0, dict(image_edit_context))
-        if _use_turn_contract and _explicit_browser_intent:
-            # Interactive navigation is already an unambiguous request for
-            # the browser family.  The lexical family classifier intentionally
-            # stays conservative, so phrases such as "go to IKEA's site" can
-            # otherwise produce an empty contract despite the browser router
-            # having classified them correctly.
-            _turn_capabilities = _turn_capabilities | {"search_browser"}
-        if _use_turn_contract and _external_discovery_intent:
-            _turn_capabilities = _turn_capabilities | {"search_browser"}
-        if (
-            _use_turn_contract
-            and not _turn_capabilities
-            and _clean_v3_private_browser_warm
-            and _is_contextual_browser_followup(message, sess)
-        ):
-            # Typed successful browser state plus a referential page request is
-            # sufficient to retain the browser family. Do not union this into
-            # explicit notes/calendar/email requests merely because a browser
-            # happened to run earlier in the session.
-            _turn_capabilities = frozenset({'search_browser'})
-        _active_turn_capabilities = _turn_capabilities
-        if _use_turn_contract and active_doc:
-            # A visible, owner-checked editor is a turn capability even when
-            # the request classifier focuses on another task or misses a
-            # pasted revision request. This only offers permitted schemas;
-            # it never requires or performs a document mutation.
-            _turn_capabilities = _turn_capabilities | {"documents"}
-        # Same decision that prepared the turn; it only stamps the contract
-        # inside the agent-contract branch below.
+        # Same compact-runtime decision that prepared context; the admitted
+        # classifier only supplies candidate families, not execution grants.
         _clean_v3_preview = _compact_preview_turn
-        # requested_capabilities already inherits a typed, recently executed
-        # family for referential follow-ups. Do not additionally union stale
-        # families into an explicit new request: that inflated regular-model
-        # schemas and made family switches less reliable. The exact Odysseus
-        # model receives the trained compact form of this same contract below.
-        _warm_turn_capabilities = frozenset()
-        if _use_turn_contract and _turn_capabilities and "search_browser" not in _turn_capabilities:
+        if _initial_turn_capabilities.suppress_explicit_web_intent:
             _explicit_web_intent = False
         # Bearer credentials get their non-admin restrictions immediately.
         # The later account privilege pass must occur AFTER optional web/tool
