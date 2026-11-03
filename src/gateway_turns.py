@@ -5,7 +5,7 @@ requires an AdmittedSession produced by the Gateway session policy. It keeps
 Web adapters from calling the unrestricted legacy run manager directly.
 """
 
-from typing import Any, AsyncGenerator, Iterable, Optional
+from typing import Any, AsyncGenerator, Callable, Iterable, Optional
 
 from src.agent_runtime.authority import RequestAuthority
 from src.gateway_admission import AdmittedSession, require_admitted_session
@@ -33,6 +33,10 @@ from src.gateway_routed_contract import (
 from src.gateway_tool_inventory import (
     AdmittedToolInventory,
     prepare_admitted_tool_inventory,
+)
+from src.gateway_tool_intent import (
+    AdmittedToolIntent,
+    select_admitted_tool_intent,
 )
 from src.gateway_contract_scoping import (
     AdmittedScopedContract,
@@ -248,6 +252,41 @@ class GatewayTurns:
             message=message,
             plan_mode=plan_mode,
             native_workspace_contract=native_workspace_contract,
+        )
+
+    def select_tool_intent(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        inventory: AdmittedToolInventory,
+        message: str,
+        capabilities: Iterable[str],
+        active_capabilities: Iterable[str],
+        warm_tools: frozenset[str],
+        recent_web_tool_lookup: Callable[[], str | None],
+        active_document: bool,
+        contextual_browser_followup: bool,
+        contextual_web_followup: bool,
+        active_email_review: bool,
+        corrected_browser_target: bool,
+    ) -> AdmittedToolIntent:
+        """Select exact request tools and verified follow-ups under admission."""
+        return select_admitted_tool_intent(
+            admission, session,
+            context_owner=context_owner,
+            inventory=inventory,
+            message=message,
+            capabilities=capabilities,
+            active_capabilities=active_capabilities,
+            warm_tools=warm_tools,
+            recent_web_tool_lookup=recent_web_tool_lookup,
+            active_document=active_document,
+            contextual_browser_followup=contextual_browser_followup,
+            contextual_web_followup=contextual_web_followup,
+            active_email_review=active_email_review,
+            corrected_browser_target=corrected_browser_target,
         )
 
     def scope_routed_contract(

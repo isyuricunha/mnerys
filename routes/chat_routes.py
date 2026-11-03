@@ -93,10 +93,8 @@ from src.agent_runtime.authority import is_internal_tool_request
 from src.gateway_turn_contract_selection import turn_contract_enabled as _turn_contract_enabled
 from src.gateway_tool_inventory import explicitly_denies_tool_use as _explicitly_denies_tool_use
 from src.turn_contract import (
-    FAMILY_TOOLS, preserve_bound_editor_selected_tools,
-    requested_capabilities,
-    requests_independent_web_source, requires_external_web_verification,
-    selected_tools_for_request,
+    FAMILY_TOOLS, requested_capabilities,
+    requires_external_web_verification, selected_tools_for_request,
 )
 
 logger = logging.getLogger(__name__)
@@ -3387,80 +3385,41 @@ def setup_chat_routes(
             _owner_blocked = _tool_inventory.owner_blocked
             disabled_tools = set(_tool_inventory.disabled_tools)
             _contract_policy = _tool_inventory.policy
-            _warm_tools = _successful_session_tool_names(sess)
-            _selected_tools = selected_tools_for_request(message)
-            if _selected_tools is None and _contextual_browser_turn_followup:
-                # A referential retry targets the browser state established by
-                # typed successful execution. Keep the exact browser tool;
-                # do not broaden the turn to web search/fetch merely because
-                # the wording no longer repeats the original URL.
-                _selected_tools = frozenset({"private_browser"})
-            _required_tools = set(_selected_tools or ())
-            _selected_tools = preserve_bound_editor_selected_tools(
-                message,
-                _selected_tools,
+            # Selection hints are derived from the admitted session and
+            # inherited classifier. Only the contract/authority can offer or
+            # execute the resulting exact tool names.
+            _selected_intent = gateway_turns.select_tool_intent(
+                _admitted_session, sess,
+                context_owner=ctx.user,
+                inventory=_tool_inventory,
+                message=message,
+                capabilities=_turn_capabilities,
+                active_capabilities=_active_turn_capabilities,
+                warm_tools=_successful_session_tool_names(sess),
+                recent_web_tool_lookup=lambda: _most_recent_successful_web_tool(sess),
                 active_document=bool(active_doc),
+                contextual_browser_followup=_contextual_browser_turn_followup,
+                contextual_web_followup=_contextual_web_turn_followup,
+                active_email_review=bool(
+                    active_email_ctx and active_email_ctx.get("uid")
+                ),
+                corrected_browser_target=bool(_corrected_browser_target),
             )
-            _explicit_fixture_personal_tools = (
-                set(_selected_tools or ())
-                & {"manage_notes", "manage_calendar", "manage_tasks"}
-            ) - disabled_tools - set(_owner_blocked)
+            _warm_tools = _selected_intent.warm_tools
+            _selected_tools = _selected_intent.selected_tools
+            _required_tools = _selected_intent.required_tools
+            _turn_capabilities = _selected_intent.capabilities
+            _active_turn_capabilities = _selected_intent.active_capabilities
+            _contract_policy = _selected_intent.policy
             if (
                 str(_user or "").startswith("sft_")
-                and _explicit_fixture_personal_tools
+                and _selected_intent.fixture_personal_tools
             ):
-                _fixture_tool_families = {
-                    "manage_notes": "notes",
-                    "manage_calendar": "calendar",
-                    "manage_tasks": "tasks",
-                }
-                # Explicit permitted personal tools may restore a family,
-                # but never override disabled tools or owner restrictions.
-                # Do not erase other
-                # domains already detected for a causal multi-store request
-                # (for example calendar -> email -> calendar).
-                _turn_capabilities = frozenset(
-                    set(_turn_capabilities)
-                    | {
-                        _fixture_tool_families[name]
-                        for name in _explicit_fixture_personal_tools
-                    }
-                )
-                _active_turn_capabilities = _turn_capabilities
-                _contract_policy = build_effective_tool_policy(
-                    disabled_tools=disabled_tools | set(_owner_blocked),
-                    last_user_message=message,
-                )
                 logger.info(
                     "[sft-policy-audit] explicit personal contract tools=%s capabilities=%s",
-                    sorted(_explicit_fixture_personal_tools),
+                    sorted(_selected_intent.fixture_personal_tools),
                     sorted(_turn_capabilities),
                 )
-            if (
-                _selected_tools == {"web_search"}
-                and requests_independent_web_source(message)
-                and _most_recent_successful_web_tool(sess) in {"web_search", "web_fetch"}
-            ):
-                # Candidate URLs already exist in typed web evidence. A second
-                # source is a different page read, not the cached search again.
-                _selected_tools = {"web_fetch"}
-            if _selected_tools is None and _contextual_web_turn_followup:
-                # A referential follow-up should retain the proven web route,
-                # not reopen every search/browser schema. Besides reducing
-                # ambiguity, this avoids one unrelated provider-incompatible
-                # schema invalidating an otherwise valid follow-up request.
-                _recent_web_tool = _most_recent_successful_web_tool(sess)
-                if _recent_web_tool:
-                    _selected_tools = {_recent_web_tool}
-            if (_selected_tools is None and active_email_ctx
-                    and active_email_ctx.get("uid") and "email" in _turn_capabilities):
-                # The review UI is a declared dependency, not permission to
-                # substitute direct sending or document creation.
-                _turn_capabilities = _turn_capabilities | {"ui"}
-                _required_tools.add("ui_control")
-            if _corrected_browser_target:
-                _selected_tools = {'private_browser', 'web_fetch', 'web_search'}
-                _required_tools = {'private_browser'}
             _resolved_routed_contract = gateway_turns.resolve_routed_contract(
                 _admitted_session, sess,
                 context_owner=ctx.user,

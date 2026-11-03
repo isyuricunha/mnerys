@@ -312,6 +312,43 @@ product/experiment**, **1,129 contract compatibility**, and **148 external
 schema/API-token/file-edit** tests, with some overlap. Hosted CI and live
 preview behavior have not yet been verified for this local commit.
 
+**Seventeenth incremental slice — admitted exact tool selection and typed follow-ups:**
+the Web adapter now passes the admitted session and existing
+[Gateway tool inventory](../../src/gateway_tool_inventory.py) to
+[GatewayTurns.select_tool_intent](../../src/gateway_turns.py), backed by the
+[transport-neutral intent service](../../src/gateway_tool_intent.py).
+The service validates the original admission, loaded session and context owner
+**before** classifying any request or invoking the inherited, server-sourced
+recent-web-tool lookup. It preserves the exact selection precedence of
+[the original request classifier](../../src/turn_contract.py), typed
+browser/Web follow-ups, visible-editor write helpers, fixture-only personal
+capability restoration, independent-source fetch preference, open-email
+`ui_control` requirements and corrected-browser recovery. The fixture
+exception still subtracts account/global denials and owner-blocked tools;
+Web retains its compatibility audit logging.
+
+The request-specific selected and required names are **schema selection
+hints, not execution grants**. The original immutable routed contract,
+owner-scoped tool inventory, final denylist and
+[hardened tool dispatcher](../../src/tool_execution.py) remain in force.
+The Web route continues to determine the earlier request capability families,
+workspace/browser state and typed history evidence and still invokes the
+inherited agent/model loop; no second classifier, remote Gateway API,
+database change or preview deployment was introduced.
+
+[New parity/denial tests](../../tests/test_mnerys_gateway_tool_intent.py)
+compare original ordering for empty versus unspecified selections, browser
+and Web continuations, repeated search versus source fetch, editor,
+email, fixture owners and corrected target. They also verify that invalid
+admissions stop classifier/history access and that malformed flags and
+invalid prior-tool evidence fail closed. The
+[fixture-policy source regression](../../tests/test_review_fixture_policy.py)
+now asserts the rule at its new location. Local checks passed
+**329 focused**, **185 routing/streaming**, **159 authority/approval**,
+**160 peripheral**, **1,129 contract compatibility** and **148 external
+schema/API-token/file-edit** tests (test suites may overlap).
+Hosted CI and real preview validation are still pending for these local commits.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

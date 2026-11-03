@@ -268,6 +268,28 @@ or database migration. The [M2.1 verification](M2_GATEWAY_IMPLEMENTATION_PLAN.md
 and [negative/parity tests](../../tests/test_mnerys_gateway_tool_inventory.py)
 document its limits and compatibility.
 
+## M2.1 incremental implementation: exact intent and follow-up selection
+
+**Implemented as an internal Gateway handoff, not a new tool engine.**
+[GatewayTurns](../../src/gateway_turns.py) delegates exact selected-tool and
+required-name preparation to
+[an admitted selection service](../../src/gateway_tool_intent.py). It
+verifies session/owner binding, retains the inherited
+[request classifier](../../src/turn_contract.py) and editor-preservation
+rules, and uses a lazy, server-side typed-history lookup to keep explicit
+browser/Web follow-ups narrowly selected. It also preserves the fixture-only
+personal capability exception and open-email UI requirement without
+overriding blocked tools. A client message or prior execution record can
+select a candidate schema but **cannot create an executable grant**.
+
+The Web adapter still resolves initial capability intent, active-document
+and browser state, and the actual agent loop/model invocation; the
+immutable resolver and dispatcher remain the only execution path.
+See the [M2.1 verification plan](M2_GATEWAY_IMPLEMENTATION_PLAN.md)
+and [negative selection tests](../../tests/test_mnerys_gateway_tool_intent.py).
+Durable turn records, the public Gateway and independently authenticated
+transport clients are still planned.
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

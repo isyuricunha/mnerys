@@ -6,20 +6,25 @@ import pytest
 
 
 def test_explicit_fixture_selection_respects_all_denials():
-    tree = ast.parse((Path(__file__).resolve().parents[1] / "routes/chat_routes.py").read_text())
+    tree = ast.parse((Path(__file__).resolve().parents[1] / "src/gateway_tool_intent.py").read_text())
     assignment = next(node for node in ast.walk(tree) if isinstance(node, ast.Assign)
-                      and any(isinstance(t, ast.Name) and t.id == "_explicit_fixture_personal_tools" for t in node.targets))
+                      and any(isinstance(t, ast.Name) and t.id == "fixture_personal" for t in node.targets))
     expression = compile(ast.Expression(assignment.value), "fixture-selection", "eval")
+    families = {"manage_calendar": "calendar", "manage_notes": "notes", "manage_tasks": "tasks"}
     for disabled, blocked, expected in [
         (set(), set(), {"manage_calendar"}),
         ({"manage_calendar"}, set(), set()),
         (set(), {"manage_calendar"}, set()),
     ]:
-        assert eval(expression, {"_selected_tools": {"manage_calendar"},
-                                 "disabled_tools": disabled, "_owner_blocked": blocked}) == expected
+        assert eval(expression, {
+            "selected": {"manage_calendar"},
+            "disabled": disabled,
+            "owner_blocked": blocked,
+            "_FIXTURE_PERSONAL_TOOL_FAMILIES": families,
+        }) == expected
     source = ast.unparse(tree)
-    assert '_owner_blocked.difference_update(_explicit_fixture_personal_tools)' not in source
-    assert 'disabled_tools.difference_update(_explicit_fixture_personal_tools)' not in source
+    assert 'owner_blocked.difference_update(fixture_personal)' not in source
+    assert 'disabled.difference_update(fixture_personal)' not in source
 
 
 @pytest.mark.asyncio
