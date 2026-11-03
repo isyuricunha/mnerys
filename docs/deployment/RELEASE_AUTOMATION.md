@@ -8,6 +8,7 @@ Status: **configured, not published**. A committed workflow is not evidence of a
 - .github/workflows/release.yml runs after the existing full CI workflow passes. It checks that the tested SHA is still main HEAD before publishing.
 - Its intentional `workflow_run` privilege boundary is restricted to successful `push`-triggered CI from this same repository's `main` branch. It checks out only the tested SHA, revalidates that SHA against remote `main`, never downloads artifacts or checks out pull-request code, and grants write scope only to the release job. The precise `zizmor` dangerous-trigger exception is documented at that trigger; all other workflow findings remain enforced.
 - Docker manifest creation and verification use shell environment variables rather than interpolating GitHub expressions inside shell commands, preventing script injection via expression expansion.
+- The image-name normalization regression test invokes only its dedicated shell step, with a separate assertion that normalization precedes Docker actions. Release-tag and version setup are covered independently, avoiding false failures from missing GitHub Actions-injected step variables.
 - .releaserc.json pins semantic-release 25.0.9 and Conventional Commits. The npm package is private: nothing is published to npm.
 - GitHub's short-lived GITHUB_TOKEN is used for the GitHub Release. No personal access tokens or private endpoints are embedded.
 
