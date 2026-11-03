@@ -150,6 +150,35 @@ Local regression groups passed **103**, **130** and **182** tests with the
 existing pytest-asyncio/SQLAlchemy warnings (group overlap possible).
 The full hosted CI and preview have not been verified for this local slice.
 
+**Twelfth incremental slice — admission-bound final tool policy:** the
+[existing Gateway execution policy service](../../src/gateway_execution_policy.py)
+now composes the final server-side tool denylist **after** the inherited Web
+request-intent, web-search, incognito and email constraints. It requires an
+issued session admission, the matching loaded session and the context-builder
+owner; all comparisons fail before a tool policy is returned. The
+[GatewayTurns facade](../../src/gateway_turns.py) consumes trusted
+account privileges, global disabled-tool settings and browser-tool inventory
+from the Web adapter. It preserves the original precedence of delegated-token
+denials, account restrictions, global restrictions, light personal-tool
+auto-escalation, Compare session limits, Compare Chat restrictions, Plan
+read-only limits and guide-only tool suppression. An account with no Agent
+privilege is demoted **before** Compare's chat-only clamp. Legacy callers
+without an explicit mode remain accepted; Compare treats non-Agent modes
+conservatively.
+
+[Focused policy tests](../../tests/test_mnerys_gateway_final_tool_policy.py)
+cover forged, tampered and foreign-owner session admission; bearer and
+browser privileges; global denials; workspace versus personal auto-escalation;
+Compare/Plan/guide-only behavior; legacy empty-mode routing; and the real
+Web handoff. [Existing route regression tests](../../tests/test_chat_route_tool_policy.py)
+now check the new service boundary rather than the old source-code location.
+This is still **partial M2.1**: intent parsing, model execution, tool
+contract/schema selection, runtime tool dispatch and persistence remain in
+their inherited implementations. No public API, scheduler, database schema,
+preview deployment or second tool-policy engine was introduced. Local tests
+passed **133 focused**, **245 streaming/model** and **114 context/tool**
+cases; suites may overlap. Hosted CI was not run for this local slice.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

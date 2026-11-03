@@ -26,6 +26,10 @@ from src.tool_approvals import ExactToolApproval, ToolApprovalStore
 from src.turn_service import TurnService, TurnStream, turn_service
 from src.gateway_stream_delivery import TurnDelivery, open_admitted_stream
 from src.gateway_post_response import dispatch_admitted_post_response
+from src.gateway_execution_policy import (
+    FinalTurnToolPolicy,
+    finalize_admitted_turn_tool_policy,
+)
 
 
 class GatewayTurns:
@@ -169,6 +173,43 @@ class GatewayTurns:
             admission, self._turns, stream,
             compare_mode=compare_mode,
             client_runtime_context=client_runtime_context,
+        )
+
+    def finalize_tool_policy(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        base_disabled_tools: frozenset[str] | set[str],
+        privileges: dict[str, Any] | None,
+        global_disabled_tools: Any,
+        browser_tools: frozenset[str],
+        last_user_message: Any,
+        chat_mode: str,
+        auto_escalated: bool,
+        workspace_agent_intent: bool,
+        use_turn_contract: bool,
+        allow_browser_for_web_turn: bool,
+        compare_mode: bool,
+        plan_mode: bool,
+    ) -> FinalTurnToolPolicy:
+        """Compose final account/global/mode tool restrictions with admission."""
+        return finalize_admitted_turn_tool_policy(
+            admission, session,
+            context_owner=context_owner,
+            base_disabled_tools=base_disabled_tools,
+            privileges=privileges,
+            global_disabled_tools=global_disabled_tools,
+            browser_tools=browser_tools,
+            last_user_message=last_user_message,
+            chat_mode=chat_mode,
+            auto_escalated=auto_escalated,
+            workspace_agent_intent=workspace_agent_intent,
+            use_turn_contract=use_turn_contract,
+            allow_browser_for_web_turn=allow_browser_for_web_turn,
+            compare_mode=compare_mode,
+            plan_mode=plan_mode,
         )
 
     def dispatch_post_response(

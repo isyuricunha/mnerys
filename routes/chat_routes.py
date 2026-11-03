@@ -3327,68 +3327,36 @@ def setup_chat_routes(
                 "mcp__email__reply_to_email",
             })
 
-        # Enforce account privileges AFTER web/tool intent routing, as in the
-        # inherited route. The Gateway computes the denylist from the admitted
-        # principal and trusted per-user privileges; HTTP never mints grants.
+        # Server-owned final veto after request intent and Web-specific gating.
+        # The adapter supplies only trusted account/global config and the
+        # already-computed denylist. No client hint restores denied tools.
         _user = effective_user(request)
         _privs = _request_privileges(request, _user)
-        _limits = execution_limits_for_admission(
-            _admitted_session, _privs,
-            browser_tools=frozenset(_BROWSER_MCP_TOOLS),
-        )
-        disabled_tools.update(_limits.disabled_tools)
-        if not _limits.allow_research:
-            _research_flags["do"] = False
-        if not _limits.allow_agent:
-            _effective_mode = 'chat'
-            chat_mode = 'chat'
-        # Global admin disabled tools
         from src.settings import get_setting
         _global_disabled = get_setting("disabled_tools", [])
-        if _global_disabled and isinstance(_global_disabled, list):
-            disabled_tools.update(_global_disabled)
-
-        # Light auto-escalation: the user is in chat mode and just expressed a
-        # notes/calendar/email intent. Grant the relevant managers but withhold
-        # the heavy "do things on the computer" tools — otherwise the model
-        # tries to shell out for a request that never needed it, then fails
-        # (and looks broken when the shell is disabled).
-        if auto_escalated and not _workspace_agent_intent and not _use_turn_contract:
-            disabled_tools.update({
-                "bash", "python", "read_file", "write_file",
-            })
-            if not _allow_browser_for_web_turn:
-                disabled_tools.update(_BROWSER_MCP_TOOLS)
-
-        # Disable document tools in compare sessions — they break the pane UI
-        if sess.name and sess.name.startswith("[CMP]"):
-            disabled_tools.update({"create_document", "edit_document", "update_document"})
-
-        # Compare mode: disable tools based on compare type
-        if compare_mode:
-            _compare_strip = {
-                "create_document", "edit_document", "update_document",
-                "chat_with_model", "create_session", "list_sessions",
-                "send_to_session",
-                "pipeline", "manage_session", "manage_memory", "list_models",
-                "generate_image", "ui_control",
-            }
-            disabled_tools.update(_compare_strip)
-            # In chat mode compare, disable ALL agent tools (no bash, python, file ops)
-            if chat_mode == 'chat':
-                disabled_tools.update({"bash", "python", "read_file", "write_file", "web_search", "web_fetch", "search_chats", "manage_tasks"})
-
-        # Plan mode: investigate read-only, propose a plan, don't mutate. Block
-        # every tool not on the read-only allowlist. (stream_agent_loop enforces
-        # this again + drops MCP, so this is belt-and-suspenders.)
-        if plan_mode:
-            from src.tool_security import plan_mode_disabled_tools
-            disabled_tools.update(plan_mode_disabled_tools())
-
-        tool_policy = build_effective_tool_policy(
-            disabled_tools=disabled_tools,
+        _final_tool_policy = gateway_turns.finalize_tool_policy(
+            _admitted_session, sess,
+            context_owner=ctx.user,
+            base_disabled_tools=disabled_tools,
+            privileges=_privs,
+            global_disabled_tools=_global_disabled,
+            browser_tools=frozenset(_BROWSER_MCP_TOOLS),
             last_user_message=message,
+            chat_mode=chat_mode,
+            auto_escalated=auto_escalated,
+            workspace_agent_intent=_workspace_agent_intent,
+            use_turn_contract=_use_turn_contract,
+            allow_browser_for_web_turn=_allow_browser_for_web_turn,
+            compare_mode=compare_mode,
+            plan_mode=plan_mode,
         )
+        if not _final_tool_policy.allow_research:
+            _research_flags["do"] = False
+        if not _final_tool_policy.allow_agent:
+            _effective_mode = "chat"
+        chat_mode = _final_tool_policy.chat_mode
+        tool_policy = _final_tool_policy.policy
+        disabled_tools = tool_policy.all_disabled_names()
         if str(_user or "").startswith("sft_"):
             logger.info(
                 "[sft-policy-audit] owner=%s personal_disabled=%s "

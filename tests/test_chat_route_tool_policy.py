@@ -442,7 +442,12 @@ def test_workspace_auto_escalation_keeps_shell_tools():
     assert '_native_workspace_contract = bool(' in source
     assert "allow_bash = \"true\"" in source
     assert '_forced_tools.update({"bash", "ls", "manage_bg_jobs"})' in source
-    assert "if auto_escalated and not _workspace_agent_intent and not _use_turn_contract:" in source
+    # The light clamp now lives in the admitted Gateway finalizer.
+    from src.gateway_execution_policy import finalize_admitted_turn_tool_policy
+    import inspect
+    finalizer = inspect.getsource(finalize_admitted_turn_tool_policy)
+    assert "if auto_escalated and not workspace_agent_intent and not use_turn_contract:" in finalizer
+    assert "gateway_turns.finalize_tool_policy(" in source
 
 
 def test_native_declared_input_files_establish_workspace_intent():
@@ -463,11 +468,12 @@ def test_native_declared_input_files_establish_workspace_intent():
 def test_chat_tool_privileges_use_effective_bearer_owner():
     """Bearer TUI/WebUI turns must not be denied as the synthetic ``api`` user."""
     source = _CHAT_ROUTES.read_text(encoding="utf-8")
-    privilege_gate = source[source.index("# Enforce account privileges AFTER web/tool intent routing"):]
+    privilege_gate = source[source.index("# Server-owned final veto after request intent and Web-specific gating."):]
     assert "_user = effective_user(request)" in privilege_gate
     assert "_privs = _request_privileges(request, _user)" in privilege_gate
-    assert "execution_limits_for_admission(" in privilege_gate
-    assert "_admitted_session, _privs" in privilege_gate
+    assert "gateway_turns.finalize_tool_policy(" in privilege_gate
+    assert "privileges=_privs" in privilege_gate
+    assert "context_owner=ctx.user" in privilege_gate
     assert "_user = ctx.user" not in privilege_gate
 
 

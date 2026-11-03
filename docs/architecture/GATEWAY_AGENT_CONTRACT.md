@@ -170,6 +170,27 @@ durable job or event record, cross-client control, or preview rollout.
 See [M2.1 verification](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
 [negative authorization tests](../../tests/test_mnerys_gateway_post_response.py).
 
+## M2.1 incremental implementation: final admitted tool policy
+
+**Implemented internally, not a new tool engine.** The
+[Gateway execution policy](../../src/gateway_execution_policy.py)
+finalizes deny-only tool restrictions for an admitted, owner-matched turn,
+and [GatewayTurns](../../src/gateway_turns.py) exposes this operation to the
+legacy Web adapter. The adapter still resolves request intent and the
+server-loaded account/global settings. The service preserves the existing
+account and delegated-credential denials, global disabled tools,
+auto-escalation clamp, Compare and Plan restrictions, guide-only handling,
+and mode demotion when Agent is unavailable. Omitted legacy mode fields
+remain supported; Compare defaults to conservative non-Agent restrictions.
+
+This finalization performs no model invocation, tool execution, schema
+selection or persistence itself. The inherited runtime and hardened
+dispatcher remain the only execution engines. Test evidence and limits are
+in the [M2.1 execution plan](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
+[negative policy tests](../../tests/test_mnerys_gateway_final_tool_policy.py).
+A remotely authenticated Gateway, durable approvals/events and migration
+of the remaining Web authority paths are still planned.
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.
