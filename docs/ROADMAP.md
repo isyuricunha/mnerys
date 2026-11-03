@@ -52,7 +52,7 @@ See [native preview deployment](deployment/NATIVE_PREVIEW.md) and [PostgreSQL 17
 
 ### M1 — Audit and define the shared runtime contract
 
-**In progress.** The [runtime audit](architecture/AGENT_CORE_GATEWAY_M1_AUDIT.md) and [shared contract proposal](architecture/GATEWAY_AGENT_CONTRACT.md) are documented. They are **design artifacts**, not an implemented service contract. Runtime extraction, cross-transport integration and acceptance tests remain pending.
+**In progress.** The [runtime audit](architecture/AGENT_CORE_GATEWAY_M1_AUDIT.md) and [shared contract proposal](architecture/GATEWAY_AGENT_CONTRACT.md) are documented. The detached-run manager now supports tested, opt-in process-local SSE replay cursors. Durable events and the Gateway service contract remain planned; runtime extraction, cross-transport integration and acceptance tests are pending.
 
 - Inventory existing agent loop, model adapters, tool execution, MCP, skills, memory, session state and background jobs.
 - Identify coupling to web routes, local files, storage, environment variables and global singletons.

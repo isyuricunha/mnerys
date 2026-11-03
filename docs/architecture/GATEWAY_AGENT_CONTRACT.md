@@ -45,6 +45,18 @@ A terminal state must not return to running. A cancellation request is idempoten
 
 A single writer per session is the initial consistency policy. Every active turn has a revision/fencing token so late background tasks, stale UI tabs or disconnected clients cannot persist into a replaced run. Explicitly define behavior for same-session concurrency (reject or queue), preserve partial output on stop, and reconcile interrupted tool effects after process loss. Do not claim exactly-once effects unless an operation-specific idempotency key and durable receipt enforce it.
 
+## M1 incremental implementation: process-local SSE replay cursor
+
+The inherited detached-run manager now has a **tested opt-in primitive**, not a public Gateway API:
+
+- `src/agent_runs.py:subscribe(session_id, expected_run, *, after_cursor=None, with_event_ids=False)` retains byte-for-byte legacy SSE frames by default.
+- With `with_event_ids=True`, each published SSE frame carries an `id: <run_id>:<zero-based-seq>` header; `after_cursor` resumes strictly after that exact event.
+- The run is bound to its original session. A cursor for a different/replaced run, malformed cursor or cursor beyond the current buffer is rejected rather than silently resuming the wrong stream. A previously bound response may continue consuming its original replaced run.
+- These IDs are **in-memory and transient**. They do not survive restart, run eviction or changes to the detached-run implementation. This is a stepping stone toward the proposed durable event contract, **not** the event schema, event store, `/api/v1` transport, or an authorization mechanism.
+- Future authenticated adapters must check session ownership **before** resolving/using a run and map missing/mismatched/expired cursors into explicit client errors or gap-state responses; never reflect raw exceptions or assume possession of a cursor authorizes access.
+
+Regression coverage: `tests/test_agent_runs_resume_cursor.py` and `tests/test_agent_runs_terminal_order.py`. The proposed versioned event envelope, durable cursor semantics and multi-client Gateway acceptance tests below remain planned.
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

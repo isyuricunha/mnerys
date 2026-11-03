@@ -17,6 +17,7 @@ close / navigation / refresh). It does NOT survive a server restart.
 import asyncio
 import json
 import logging
+import re
 import uuid
 from typing import AsyncGenerator, Dict, Optional
 
@@ -24,9 +25,10 @@ logger = logging.getLogger(__name__)
 
 
 class _Run:
-    __slots__ = ("buffer", "subscribers", "status", "task", "evict_task", "run_id", "finish_requested", "finish_event")
+    __slots__ = ("session_id", "buffer", "subscribers", "status", "task", "evict_task", "run_id", "finish_requested", "finish_event")
 
-    def __init__(self) -> None:
+    def __init__(self, session_id: str) -> None:
+        self.session_id = session_id
         self.buffer: list = []          # ordered SSE event strings (replay log)
         self.subscribers: set = set()   # one asyncio.Queue per connected client
         self.status: str = "running"    # running | done | error | stopped
@@ -46,6 +48,31 @@ _RUNS: Dict[str, _Run] = {}
 # replay the result. After this, the run is evicted to bound memory — without
 # it, every session that ever streamed kept its entire event log forever.
 _EVICT_GRACE_S = 180
+_CURSOR_RE = re.compile(r"([0-9a-f]{32}):(0|[1-9][0-9]*)")
+
+
+def _event_for_client(run: _Run, seq: int, event: str, with_event_ids: bool) -> str:
+    """Optionally annotate an SSE frame with an opaque, run-scoped event ID."""
+    if not with_event_ids:
+        return event
+    return f"id: {run.run_id}:{seq}\n{event}"
+
+
+def _replay_start(run: _Run, after_cursor: Optional[str]) -> int:
+    if after_cursor is None:
+        return 0
+    if not isinstance(after_cursor, str) or len(after_cursor) > 80:
+        raise ValueError("Invalid replay cursor")
+    match = _CURSOR_RE.fullmatch(after_cursor)
+    if match is None:
+        raise ValueError("Invalid replay cursor")
+    run_id, sequence = match.groups()
+    if run_id != run.run_id:
+        raise ValueError("Replay cursor belongs to a different run")
+    seq = int(sequence)
+    if seq >= len(run.buffer):
+        raise ValueError("Replay cursor is ahead of the run")
+    return seq + 1
 
 
 def _publish(run: _Run, ev: str) -> None:
@@ -203,7 +230,7 @@ def start(session_id: str, agen: AsyncGenerator[str, None]) -> _Run:
             prev_task = prev.task   # new run awaits this before it starts writing
         if prev.evict_task and not prev.evict_task.done():
             prev.evict_task.cancel()
-    run = _Run()
+    run = _Run(session_id)
     _RUNS[session_id] = run
     run.task = asyncio.create_task(_drain(session_id, run, agen, prev_task))
     return run
@@ -212,18 +239,28 @@ def start(session_id: str, agen: AsyncGenerator[str, None]) -> _Run:
 async def subscribe(
     session_id: str,
     expected_run: Optional[_Run] = None,
+    *,
+    after_cursor: Optional[str] = None,
+    with_event_ids: bool = False,
 ) -> AsyncGenerator[str, None]:
-    """Replay the run's buffer from the start, then stream live until it ends.
-    Safe to call repeatedly (reconnect) and from multiple clients at once.
+    """Replay events, optionally resuming strictly after a run-scoped SSE cursor.
 
-    ``expected_run`` binds a lazy StreamingResponse body to the same run whose
-    identity was put in its response headers. Without that binding, a rapid
-    replacement between response construction and body iteration could replay
-    the replacement run under the prior run's identity.
+    Existing clients still receive the original byte-for-byte SSE frames. New
+    adapters can opt into ``id: <run_id>:<sequence>`` frames and reconnect with
+    ``after_cursor``. Cursors are in-memory only, NOT restart-durable.
+
+    ``expected_run`` binds a lazy StreamingResponse body to the exact run
+    whose identity was put in its response headers, even after replacement.
+    Cross-session run references and foreign/stale cursors are rejected.
     """
     run = expected_run or _RUNS.get(session_id)
     if run is None:
+        if after_cursor is not None:
+            raise ValueError("Replay run is no longer available")
         return
+    if run.session_id != session_id:
+        raise ValueError("Replay run belongs to a different session")
+    next_seq = _replay_start(run, after_cursor)
     q: asyncio.Queue = asyncio.Queue()
     run.subscribers.add(q)            # register BEFORE replaying so nothing is missed
     # A live subscriber is connected — don't let a pending grace timer evict
@@ -231,9 +268,8 @@ async def subscribe(
     if run.evict_task and not run.evict_task.done():
         run.evict_task.cancel()
     try:
-        next_seq = 0
         while next_seq < len(run.buffer):
-            yield run.buffer[next_seq]
+            yield _event_for_client(run, next_seq, run.buffer[next_seq], with_event_ids)
             next_seq += 1
         if run.status != "running":
             return
@@ -253,11 +289,11 @@ async def subscribe(
                 seq, ev = (None, None)
             if seq is None:            # end sentinel
                 while next_seq < len(run.buffer):   # flush any tail the sentinel raced
-                    yield run.buffer[next_seq]
+                    yield _event_for_client(run, next_seq, run.buffer[next_seq], with_event_ids)
                     next_seq += 1
                 break
             if seq >= next_seq:        # skip events already replayed from the buffer
-                yield ev
+                yield _event_for_client(run, seq, ev, with_event_ids)
                 next_seq = seq + 1
     finally:
         run.subscribers.discard(q)
