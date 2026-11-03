@@ -1,7 +1,7 @@
 # Proposed Gateway / Agent Core contract (M1)
 
-**Status: public v1 API and durable schema remain proposals; the first internal runtime and admission seams are implemented.**
-Related: [M1 source audit](AGENT_CORE_GATEWAY_M1_AUDIT.md), [Mnerys roadmap](../ROADMAP.md).
+**Status: M1 design baseline completed; public v1 API and durable schema remain proposals.** The first internal runtime and admission seams are implemented, but the cross-transport contract is **not** a deployed service.
+Related: [M1 exit review](M1_EXIT_REVIEW.md), [M2 execution plan](M2_GATEWAY_IMPLEMENTATION_PLAN.md), [M1 source audit](AGENT_CORE_GATEWAY_M1_AUDIT.md), [Mnerys roadmap](../ROADMAP.md).
 
 ## Goal and boundaries
 
@@ -174,7 +174,7 @@ Use existing session/message tables and primary DB backend (SQLite default; Post
 - Support a single process first. Multi-process coordination (locks, wakeups, leases) is **not** implied merely because PostgreSQL is used.
 - Run isolated database tests, authenticated HTTP/Web regression tests and migration/restore exercises before enabling on the persistent preview.
 
-## M1 acceptance matrix — future tests
+## M2 operational acceptance matrix — future tests
 
 | Scenario | Required outcome |
 | --- | --- |
@@ -192,4 +192,4 @@ Use existing session/message tables and primary DB backend (SQLite default; Post
 | SQLite and PostgreSQL install/restore | successful regression parity, original data preserved |
 | Remote client minimal install | no app startup, scheduler or server DB required |
 
-**Status:** contract proposed. None of these new routes or durable semantics should be described as implemented until code and tests prove them.
+**Status:** this proposed contract is a **completed M1 design deliverable**, not an implemented public Gateway. None of the new routes or durable semantics should be described as operational until code and tests meet the [M2 acceptance plan](M2_GATEWAY_IMPLEMENTATION_PLAN.md).

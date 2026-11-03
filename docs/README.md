@@ -5,7 +5,9 @@ This index is the entry point for **current Mnerys documentation**. Documents in
 ## Product and architecture
 
 - [Mnerys roadmap](ROADMAP.md) — official priorities and planned milestones, including the global CLI, TUI, Agent Core and Gateway.
-- [Architecture index](architecture/README.md) — M1 Agent Core/Gateway source audit and proposed shared contract, plus existing agent-turn contracts and inherited skills lifecycle.
+- [Architecture index](architecture/README.md) — M1 Agent Core/Gateway source audit, internal seams and inherited contracts.
+- [M1 design exit review](architecture/M1_EXIT_REVIEW.md) — verified audit/contract-design completion, not a shipped independent Gateway.
+- [M2 Gateway execution plan](architecture/M2_GATEWAY_IMPLEMENTATION_PLAN.md) — ordered implementation, authorization, migration and cross-transport acceptance gates.
 - [Frontend architecture](frontend-architecture/handbook.md) — frontend design and implementation notes; verify historical assessments against current code.
 - [Runtime decomposition](runtime-decomposition/COMPARISON_PROTOCOL.md) — imported analysis and tests from the runtime refactoring effort; not a substitute for a new Mnerys architectural contract.
 

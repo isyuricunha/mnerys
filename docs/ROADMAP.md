@@ -52,13 +52,13 @@ See [native preview deployment](deployment/NATIVE_PREVIEW.md) and [PostgreSQL 17
 
 ### M1 — Audit and define the shared runtime contract
 
-**In progress.** The [runtime audit](architecture/AGENT_CORE_GATEWAY_M1_AUDIT.md) and [shared contract proposal](architecture/GATEWAY_AGENT_CONTRACT.md) document the extraction strategy.
+**Completed for audit and contract design (2026-11-03); not an operational Gateway.** The [M1 exit review](architecture/M1_EXIT_REVIEW.md) records the accepted design scope, test evidence and non-negotiable [M2 delivery gates](architecture/M2_GATEWAY_IMPLEMENTATION_PLAN.md). The [runtime audit](architecture/AGENT_CORE_GATEWAY_M1_AUDIT.md) and [shared contract proposal](architecture/GATEWAY_AGENT_CONTRACT.md) document the extraction strategy.
 
 **Implemented internal seams:** process-local SSE replay cursors, the [M1 regression baseline](architecture/M1_CONTRACT_TEST_BASELINE.md), the [TurnService extraction](architecture/GATEWAY_AGENT_CONTRACT.md#m1-incremental-implementation-internal-turnservice-seam), [typed principal/session admission](architecture/GATEWAY_AGENT_CONTRACT.md#m1-incremental-implementation-trusted-principal-and-session-admission), [read-only ownership repository plus account privilege limits](architecture/GATEWAY_AGENT_CONTRACT.md#m1-incremental-implementation-ownership-lookup-and-privilege-limits), and a [shared persisted-message preparation boundary](architecture/SESSION_WRITER_INVENTORY.md#incremental-live-compatibility-extraction-message-preparation). Existing Web run controls require an admitted session. The inherited SessionManager, history replacement and background-job delivery now share message serialization, but still own their existing transactions and unversioned writes. The source-of-truth database and hardened tool dispatcher remain unchanged; global/model/intent policy orchestration still follows inherited paths.
 
 **Implemented as isolated prototypes only:** [revision- and incarnation-fenced, owner-scoped session metadata/message updates](architecture/SESSION_REVISION_MIGRATION.md), [atomic background-job delivery and cache reconciliation](architecture/SESSION_WRITER_INVENTORY.md#experimental-fenced-delivery-and-cache-reconciliation) have passing disposable SQLite/PostgreSQL 17 tests for concurrency, idempotency, rollback and synthetic migration preview. The [writer inventory](architecture/SESSION_WRITER_INVENTORY.md) maps remaining legacy integration paths. Live compatibility fixes now prevent failed transcript replacements from publishing uncommitted IDs, roll back single-message cache appends when persistence fails, isolate unmanaged Session objects from the process-wide persistence manager, and keep agent session-tool metadata cache updates post-commit and owner-matched. Agent rename no longer makes an unnecessary second, unscoped database write. **None of the revision-fenced prototypes are enabled** against the live Session or job schemas; full migrations, backups/restores and all-writer integration are still required.
 
-**Still planned:** the complete Gateway/API authorization contract, full owner-scoped session CRUD/revision repository, extracted model/intent/context orchestration, durable turn/event/approval records, persistent fencing, cross-client integration and end-to-end acceptance tests.
+**Deferred to M2 and later milestones:** the operational authenticated Gateway/API, full owner-scoped session CRUD/revision repository, extracted model/intent/context orchestration, durable turn/event/approval records, persistent fencing, cross-client integration and end-to-end acceptance tests. The proposed contract is a design artifact, not a shipped API.
 
 - Inventory existing agent loop, model adapters, tool execution, MCP, skills, memory, session state and background jobs.
 - Identify coupling to web routes, local files, storage, environment variables and global singletons.
@@ -66,11 +66,11 @@ See [native preview deployment](deployment/NATIVE_PREVIEW.md) and [PostgreSQL 17
 - Specify canonical session, agent, turn, event and tool-approval contracts; support resumable streams and explicit cancellation.
 - Reuse working imported capabilities where justified, with regression tests and backward-compatible migrations rather than a wholesale rewrite.
 
-**Done when:** one documented, testable contract can serve multiple frontends without bypassing tool authorization; existing sessions and settings continue working.
+**M1 design exit:** the audited runtime boundaries, proposed reusable contract, authorization invariants, writer/migration map and bounded regression baseline are documented and tested as described in the [exit review](architecture/M1_EXIT_REVIEW.md). **Runtime proof that two real adapters share a permissioned, restart-safe Gateway is an explicit M2 acceptance gate**, not a claim made by this milestone. Existing Web/session compatibility remains mandatory during implementation.
 
 ### M2 — Mnerys Agent Core and Gateway
 
-**Planned.**
+**Planned; implementation has not started as a standalone Gateway.** The [ordered M2 execution and acceptance plan](architecture/M2_GATEWAY_IMPLEMENTATION_PLAN.md) follows the completed [M1 design exit](architecture/M1_EXIT_REVIEW.md).
 
 - Establish a reusable **Python Agent Core** for model invocation, agent lifecycle, tool execution, memory, MCP, skills and workflow coordination.
 - Make the **Gateway** the central authority for remote clients: authentication, session ownership, agent/turn management, streaming events, tool permissions and auditable approvals.
@@ -136,7 +136,7 @@ Running `mnerys` without arguments should open the TUI **when attached to an int
 
 ### M6 — Installer, operational reliability and first releases
 
-**Partially implemented.** CI-gated semantic-release published the initial [v0.1.0 GitHub Release](https://github.com/isyuricunha/mnerys/releases/tag/v0.1.0) and the AMD64/ARM64 GHCR image build completed successfully. The [release automation](deployment/RELEASE_AUTOMATION.md) and [0.1.0 notes](releases/0.1.0.md) document this foundation; clean-machine installation, runtime compatibility and restore validation remain pending.
+**Partially implemented.** CI-gated semantic-release published the initial [v0.1.0 GitHub Release](https://github.com/isyuricunha/mnerys/releases/tag/v0.1.0) and the AMD64/ARM64 GHCR image build completed successfully. The subsequent [v0.2.0 GitHub Release](https://github.com/isyuricunha/mnerys/releases/tag/v0.2.0) and its ARM64/AMD64 container-build and version-tag workflow jobs have completed successfully after CI. Clean-machine installation and runtime image validation remain separate acceptance work. The [release automation](deployment/RELEASE_AUTOMATION.md) and [0.1.0 notes](releases/0.1.0.md) document the foundation; clean-machine installation, runtime compatibility and restore validation remain pending.
 
 - Document distinct installation profiles: **lightweight remote CLI/TUI client**, **native full server**, and **optional Docker Compose**.
 - Maintain a persistent private preview over Tailscale with a stable endpoint, real checks, controlled restarts and verified rollback. **Strict zero downtime is not a requirement.**

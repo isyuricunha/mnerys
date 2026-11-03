@@ -64,9 +64,9 @@ The main technical issue is **where composition lives**: the Web chat route both
 
 ## Milestone status and acceptance gates
 
-**M1 subtask complete:** inventory, ownership/security risks and extraction order documented.
+**M1 audit subtask completed:** inventory, ownership/security risks and extraction order documented. The [exit review](M1_EXIT_REVIEW.md) closes **design scope only**, not the runtime implementation.
 
-**M1 milestone remains incomplete** until the shared contract is implemented and exercised by at least two transport adapters without changing policy semantics. Required evidence:
+**M1 architectural milestone is complete in its bounded audit-and-design scope**, as recorded in the [M1 exit review](M1_EXIT_REVIEW.md). The original requirement to operate at least two actual transport adapters, along with restart/durable control-plane semantics, is **not satisfied**. It is preserved as a mandatory [M2 delivery acceptance gate](M2_GATEWAY_IMPLEMENTATION_PLAN.md), not dropped or counted as implemented. The operational evidence still required for M2 includes:
 - Authorized owner can create/resume/cancel a turn; another owner cannot access it.
 - A tool cannot execute without server-owned request authority, even through CLI, TUI, MCP or background automation.
 - Approval is digest-bound, single-consumption, non-transferable and cannot be replayed across a restart.

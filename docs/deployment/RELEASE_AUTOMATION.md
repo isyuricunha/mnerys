@@ -1,6 +1,6 @@
 # Mnerys release automation
 
-Status: **configured; initial v0.1.0 publication verified on 2026-11-03**. The CI-gated GitHub Release and multiarchitecture container-build workflow completed successfully. Subsequent releases still require their own successful CI and artifact verification.
+Status: **configured and published**. Initial **v0.1.0** and subsequent [**v0.2.0**](https://github.com/isyuricunha/mnerys/releases/tag/v0.2.0) GitHub Releases were verified on 2026-11-03. The [v0.2.0 CI](https://github.com/isyuricunha/mnerys/actions/runs/41674047252) and [release workflow](https://github.com/isyuricunha/mnerys/actions/runs/41675068082) completed successfully, including arm64/amd64 build jobs and manifest/version-tag publication. Clean-machine pull/install, compatibility and recovery drills remain unverified; each later release requires its own CI and artifact checks.
 
 ## CI and versioning
 
