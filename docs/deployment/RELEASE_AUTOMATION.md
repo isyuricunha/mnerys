@@ -1,6 +1,6 @@
 # Mnerys release automation
 
-Status: **configured, not published**. A committed workflow is not evidence of an actual release.
+Status: **configured; initial v0.1.0 publication verified on 2026-11-03**. The CI-gated GitHub Release and multiarchitecture container-build workflow completed successfully. Subsequent releases still require their own successful CI and artifact verification.
 
 ## CI and versioning
 
@@ -54,7 +54,7 @@ The complete Python CI remains blocking. Rebranding must update outdated asserti
 - `scripts/build/README.md` is tracked as source documentation despite the generic `build/` output exclusion; CI must not depend on an ignored local-only file.
 - GitHub Pages guides use published-site-relative links only for files inside `website/`. Documentation outside that source uses public GitHub repository links instead.
 
-Local focused tests do not replace a successful GitHub Actions run on the published commit; the first release remains blocked until the full hosted CI succeeds.
+Local focused tests do not replace a successful GitHub Actions run on the published commit. For v0.1.0, the full hosted CI and release/image jobs succeeded on commit `c2aac50e`; end-to-end clean-machine installation remains a separate, pending acceptance gate.
 
 ## GitLab and Forgejo mirrors
 

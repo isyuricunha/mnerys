@@ -52,7 +52,7 @@ See [native preview deployment](deployment/NATIVE_PREVIEW.md) and [PostgreSQL 17
 
 ### M1 — Audit and define the shared runtime contract
 
-**In progress.** The [runtime audit](architecture/AGENT_CORE_GATEWAY_M1_AUDIT.md) and [shared contract proposal](architecture/GATEWAY_AGENT_CONTRACT.md) are documented. The detached-run manager now supports tested, opt-in process-local SSE replay cursors. Durable events and the Gateway service contract remain planned; runtime extraction, cross-transport integration and acceptance tests are pending.
+**In progress.** The [runtime audit](architecture/AGENT_CORE_GATEWAY_M1_AUDIT.md) and [shared contract proposal](architecture/GATEWAY_AGENT_CONTRACT.md) are documented. The detached-run manager supports tested, opt-in process-local SSE replay cursors. The [M1 regression baseline](architecture/M1_CONTRACT_TEST_BASELINE.md) now also freezes inherited Web owner/scope checks across browser and bearer clients and exact-run cancellation. Durable events and the Gateway service contract remain planned; runtime extraction, independent cross-transport integration and acceptance tests are pending.
 
 - Inventory existing agent loop, model adapters, tool execution, MCP, skills, memory, session state and background jobs.
 - Identify coupling to web routes, local files, storage, environment variables and global singletons.
@@ -130,7 +130,7 @@ Running `mnerys` without arguments should open the TUI **when attached to an int
 
 ### M6 — Installer, operational reliability and first releases
 
-**Partially implemented.** The [CI-gated semantic-release automation](deployment/RELEASE_AUTOMATION.md) and reviewed [0.1.0 baseline notes](releases/0.1.0.md) are prepared; a successful GitHub release, image publication and end-to-end installation validation remain unverified.
+**Partially implemented.** CI-gated semantic-release published the initial [v0.1.0 GitHub Release](https://github.com/isyuricunha/mnerys/releases/tag/v0.1.0) and the AMD64/ARM64 GHCR image build completed successfully. The [release automation](deployment/RELEASE_AUTOMATION.md) and [0.1.0 notes](releases/0.1.0.md) document this foundation; clean-machine installation, runtime compatibility and restore validation remain pending.
 
 - Document distinct installation profiles: **lightweight remote CLI/TUI client**, **native full server**, and **optional Docker Compose**.
 - Maintain a persistent private preview over Tailscale with a stable endpoint, real checks, controlled restarts and verified rollback. **Strict zero downtime is not a requirement.**
