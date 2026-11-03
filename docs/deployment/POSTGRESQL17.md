@@ -1,6 +1,6 @@
 # PostgreSQL 17 support — primary Mnerys database
 
-**Status:** PostgreSQL 17 is a supported *optional backend for clean primary-database schemas*, validated against a disposable PostgreSQL 17 server. **SQLite remains the default** and is not deprecated.
+**Status:** PostgreSQL 17 is a supported *optional backend for the primary SQLAlchemy database*, validated against disposable PostgreSQL 17 instances. The maintainer's **private native preview now runs on PostgreSQL 17**, following an offline migration with full row-integrity comparison, health/readiness verification, and a verified restore rehearsal. **SQLite remains the product default** and is not deprecated.
 
 ## Scope and limitations
 
@@ -59,7 +59,7 @@ python3 -m scripts.migrate_sqlite_to_postgres \
 
 The source and destination may contain private user conversations, settings and tokens. **Do not expose migration dumps, query results, connection URLs or logs in any public artifact.**
 
-**Before a real cutover:** verify a PostgreSQL 17 custom-format backup using the server's own PG17 tools, test restoration in an isolated database, freeze live writes and scheduled jobs, then verify application-level workflows and ownership after copying. The native preview runner supports PostgreSQL backups only when an executable private backup helper is explicitly configured and verified. It does not perform SQLite-to-PostgreSQL cutover automatically; the cutover requires its own guarded maintenance operation.
+**For any future cutover:** verify a PostgreSQL 17 custom-format backup using the server's own PG17 tools, test restoration in an isolated database, freeze live writes and scheduled jobs, then verify application-level workflows and ownership after copying. The native preview runner supports PostgreSQL backups only when an executable private backup helper is explicitly configured and verified. It does not perform SQLite-to-PostgreSQL cutover automatically; each cutover requires its own guarded maintenance operation. The maintainer preview's successful cutover **does not** imply that all authenticated chat/agent workflows or auxiliary data stores have been migrated and end-to-end certified.
 
 ## Test coverage
 
@@ -71,7 +71,7 @@ Run the unit portion locally (PostgreSQL integration is skipped if no disposable
 python3 -m pytest -q tests/test_postgresql_support.py tests/test_sqlite_postgres_migration.py
 ```
 
-The original PostgreSQL 17 integration tests used a temporary database. Live migration or deployment status must be verified separately and must never be inferred solely from these integration tests.
+The original PostgreSQL 17 integration tests used a temporary database. The maintainer preview's live cutover was validated separately: a consistent SQLite backup was preserved, mapped rows matched the PostgreSQL database, a PostgreSQL 17 archive was created and successfully restored to an isolated test database, and the live application passed health, login, authentication and trusted readiness checks. This does not replace full authenticated chat/agent end-to-end testing.
 
 ## Official technical references
 
