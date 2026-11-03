@@ -9,6 +9,12 @@ from typing import Any, AsyncGenerator, Iterable, Optional
 
 from src.agent_runtime.authority import RequestAuthority
 from src.gateway_admission import AdmittedSession, require_admitted_session
+from src.gateway_foreground_routes import (
+    AdmittedForegroundPolicy,
+    build_admitted_foreground_routes,
+    resolve_admitted_foreground_policy,
+)
+from src.gateway_foreground_context import admitted_candidate_request_factory
 from src.gateway_approval_decisions import ToolApprovalDecision, consume_admitted_tool_approval
 from src.gateway_turn_authority import authority_for_admitted_turn
 from src.tool_policy import ToolPolicy
@@ -19,6 +25,48 @@ from src.turn_service import TurnService, TurnStream, turn_service
 class GatewayTurns:
     def __init__(self, turns: TurnService):
         self._turns = turns
+
+    def resolve_foreground_policy(
+        self,
+        admission: AdmittedSession,
+        *,
+        allowed_models: Iterable[str] | None,
+    ) -> AdmittedForegroundPolicy:
+        """Use only the admitted owner when reading fallback preferences."""
+        return resolve_admitted_foreground_policy(
+            admission, allowed_models=allowed_models,
+        )
+
+    def build_foreground_routes(
+        self,
+        admission: AdmittedSession,
+        policy: AdmittedForegroundPolicy,
+        *,
+        endpoint_url: str,
+        model: str,
+        headers: dict[str, Any] | None,
+        selected_endpoint_id: str | None = None,
+    ) -> tuple[list, list]:
+        """Prepare owner-scoped fallback candidates and safe route metadata."""
+        return build_admitted_foreground_routes(
+            admission, policy, endpoint_url=endpoint_url, model=model,
+            headers=headers, selected_endpoint_id=selected_endpoint_id,
+        )
+
+    def build_candidate_context_factory(
+        self,
+        admission: AdmittedSession,
+        policy: AdmittedForegroundPolicy,
+        messages: list,
+        fallback_context_length: int = 0,
+        *,
+        session: Any,
+    ):
+        """Prepare route-neutral context per candidate without writing it."""
+        return admitted_candidate_request_factory(
+            admission, policy, messages, fallback_context_length,
+            session=session,
+        )
 
     def build_authority(
         self,

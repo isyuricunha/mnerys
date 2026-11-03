@@ -11,6 +11,7 @@ import core.database as database
 import src.agent_loop as agent_loop
 import src.endpoint_resolver as endpoint_resolver
 import src.foreground_model_routing as foreground_model_routing
+import src.gateway_foreground_context as gateway_foreground_context
 import src.llm_core as llm_core
 import routes.chat_routes as chat_routes
 import routes.chat_helpers as chat_helpers
@@ -88,6 +89,12 @@ class _EmptyQuery:
     def order_by(self, *args, **kwargs):
         return self
 
+    def limit(self, *args, **kwargs):
+        return self
+
+    def all(self):
+        return []
+
     def first(self):
         return None
 
@@ -162,6 +169,7 @@ def _chat_stream_endpoint(
         captured.setdefault("added_messages", []).append(message)
 
     session = SimpleNamespace(
+        id="session-1",
         endpoint_url=endpoint_url,
         model=session_model,
         headers={"Authorization": "Bearer selected"},
@@ -616,9 +624,9 @@ async def test_streaming_chat_shapes_each_candidate_from_route_neutral_history(
             False,
         )
 
-    monkeypatch.setattr(chat_routes, "maybe_compact", fake_compact)
+    monkeypatch.setattr(gateway_foreground_context, "maybe_compact", fake_compact)
     monkeypatch.setattr(
-        chat_routes,
+        gateway_foreground_context,
         "trim_for_context",
         lambda messages, budget: list(messages) if budget >= 1000 else list(messages[-1:]),
     )
@@ -685,7 +693,7 @@ async def test_streaming_chat_persists_only_answering_route_compaction(monkeypat
         yield 'data: {"delta": "backup"}\n\n'
         yield "data: [DONE]\n\n"
 
-    monkeypatch.setattr(chat_routes, "maybe_compact", fake_compact)
+    monkeypatch.setattr(gateway_foreground_context, "maybe_compact", fake_compact)
     monkeypatch.setattr(chat_routes, "apply_compaction_state", fake_apply)
     monkeypatch.setattr(chat_routes, "stream_llm_with_fallback", fake_stream)
 
@@ -1173,6 +1181,7 @@ def _chat_endpoint(
 ):
     saved = []
     session = SimpleNamespace(
+        id="session-1",
         endpoint_url=endpoint_url,
         model="selected-model",
         headers={"Authorization": "Bearer selected"},
@@ -1383,9 +1392,9 @@ async def test_nonstream_chat_shapes_each_candidate_from_route_neutral_history(
             False,
         )
 
-    monkeypatch.setattr(chat_routes, "maybe_compact", fake_compact)
+    monkeypatch.setattr(gateway_foreground_context, "maybe_compact", fake_compact)
     monkeypatch.setattr(
-        chat_routes,
+        gateway_foreground_context,
         "trim_for_context",
         lambda messages, budget: list(messages) if budget >= 1000 else list(messages[-1:]),
     )
@@ -1800,7 +1809,7 @@ async def test_chat_stream_threads_form_endpoint_id_to_descriptor_builder(monkey
         }]
 
     monkeypatch.setattr(
-        chat_routes,
+        foreground_model_routing,
         "build_foreground_route_descriptors",
         fake_descriptors,
     )
@@ -1867,7 +1876,7 @@ async def test_nonstream_chat_threads_request_endpoint_id_to_descriptor_builder(
         lambda owner: {},
     )
     monkeypatch.setattr(
-        chat_routes,
+        foreground_model_routing,
         "build_foreground_route_descriptors",
         fake_descriptors,
     )

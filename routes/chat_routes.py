@@ -36,18 +36,9 @@ from src.gateway_turns import gateway_turns
 from src.gateway_admission import AdmissionDenied
 from src.gateway_execution_policy import execution_limits_for_admission
 from src.model_context import estimate_tokens
-from src.context_compactor import (
-    apply_compaction_state,
-    maybe_compact,
-    trim_for_context,
-)
+from src.context_compactor import apply_compaction_state
 from src.chat_helpers import coerce_message_and_session
 from src.endpoint_resolver import normalize_base as _normalize_base, build_chat_url
-from src.foreground_model_routing import (
-    build_foreground_model_candidates,
-    build_foreground_route_descriptors,
-    resolve_foreground_model_policy,
-)
 from src.session_search import search_session_messages
 from src.prompt_security import untrusted_context_message
 from core.exceptions import SessionNotFoundError
@@ -1367,53 +1358,6 @@ async def _tool_approval_resolution_stream(decision: str) -> AsyncGenerator[str,
     yield "data: [DONE]\n\n"
 
 
-def _chat_candidate_request_factory(
-    messages,
-    fallback_context_length: int = 0,
-    *,
-    session=None,
-    owner: Optional[str] = None,
-):
-    """Shape one route-neutral Chat prompt for each candidate window."""
-
-    state = {
-        "requests": {},
-        "context_lengths": {},
-        "trim_stats": {},
-        "compactions": {},
-        "was_compacted": {},
-    }
-
-    async def factory(index, candidate_url, candidate_model, candidate_headers):
-        compaction_state = {}
-        candidate_messages, context_length, was_compacted = await maybe_compact(
-            session,
-            candidate_url,
-            candidate_model,
-            list(messages),
-            candidate_headers,
-            owner=owner,
-            persist=False,
-            compaction_state=compaction_state,
-        )
-        if not context_length:
-            context_length = fallback_context_length
-        request_messages = trim_for_context(candidate_messages, context_length)
-        state["requests"][index] = request_messages
-        state["context_lengths"][index] = context_length
-        state["compactions"][index] = compaction_state
-        state["was_compacted"][index] = was_compacted
-        state["trim_stats"][index] = {
-            "messages_before": len(messages),
-            "messages_after": len(request_messages),
-            "tokens_before": estimate_tokens(messages),
-            "tokens_after": estimate_tokens(request_messages),
-        }
-        return {"messages": request_messages}
-
-    return factory, state
-
-
 def _candidate_index(candidates, actual_candidate) -> int:
     for index, candidate in enumerate(candidates):
         if candidate == actual_candidate:
@@ -2260,7 +2204,7 @@ def setup_chat_routes(
 
         # Verify the caller owns this session before loading it.
         # Without this, any authenticated user can post into another user's chat.
-        _verify_session_owner(request, session)
+        _admitted_session = _verify_session_owner(request, session)
 
         try:
             sess = session_manager.get_session(session)
@@ -2316,8 +2260,8 @@ def setup_chat_routes(
         if memory_response:
             return {"response": memory_response}
 
-        foreground_policy = resolve_foreground_model_policy(
-            owner=owner,
+        foreground_policy = gateway_turns.resolve_foreground_policy(
+            _admitted_session,
             allowed_models=_allowed_models_for_request(request),
         )
 
@@ -2359,19 +2303,11 @@ def setup_chat_routes(
             except Exception as e:
                 logger.error(f"Research failed: {e}")
 
-        foreground_candidates = build_foreground_model_candidates(
-            sess.endpoint_url,
-            sess.model,
-            sess.headers,
-            owner=owner,
-            policy=foreground_policy,
-        )
-        route_descriptors = build_foreground_route_descriptors(
-            sess.endpoint_url,
-            sess.model,
-            sess.headers,
-            owner=owner,
-            policy=foreground_policy,
+        foreground_candidates, route_descriptors = gateway_turns.build_foreground_routes(
+            _admitted_session, foreground_policy,
+            endpoint_url=sess.endpoint_url,
+            model=sess.model,
+            headers=sess.headers,
             selected_endpoint_id=chat_request.selected_endpoint_id or getattr(sess, "endpoint_id", None),
         )
         candidate_request_factory = None
@@ -2384,11 +2320,10 @@ def setup_chat_routes(
         request_messages = ctx.messages
         if foreground_policy.enabled:
             request_messages = getattr(ctx, "route_messages", ctx.messages)
-            candidate_request_factory, candidate_request_state = _chat_candidate_request_factory(
-                request_messages,
-                selected_context_length,
+            candidate_request_factory, candidate_request_state = gateway_turns.build_candidate_context_factory(
+                _admitted_session, foreground_policy,
+                request_messages, selected_context_length,
                 session=sess,
-                owner=owner,
             )
         requested_model = sess.model
         reply, actual_candidate, actual_model = await llm_call_async_with_route_fallback(
@@ -3013,8 +2948,8 @@ def setup_chat_routes(
             last_user_message=message,
         )
         allow_tool_preprocessing = not pre_context_tool_policy.block_all_tool_calls
-        foreground_policy = resolve_foreground_model_policy(
-            owner=owner,
+        foreground_policy = gateway_turns.resolve_foreground_policy(
+            _admitted_session,
             allowed_models=_allowed_models_for_request(request),
         )
 
@@ -3986,19 +3921,11 @@ def setup_chat_routes(
             # Foreground Chat and Agent requests share one explicit owner-aware
             # policy. Strict mode is the default; legacy values are unrelated.
             _foreground_policy = foreground_policy
-            _foreground_candidates = build_foreground_model_candidates(
-                sess.endpoint_url,
-                sess.model,
-                sess.headers,
-                owner=_user,
-                policy=_foreground_policy,
-            )
-            _foreground_route_descriptors = build_foreground_route_descriptors(
-                sess.endpoint_url,
-                sess.model,
-                sess.headers,
-                owner=_user,
-                policy=_foreground_policy,
+            _foreground_candidates, _foreground_route_descriptors = gateway_turns.build_foreground_routes(
+                _admitted_session, _foreground_policy,
+                endpoint_url=sess.endpoint_url,
+                model=sess.model,
+                headers=sess.headers,
                 selected_endpoint_id=selected_endpoint_id or getattr(sess, "endpoint_id", None),
             )
             _chat_request_factory = None
@@ -4009,11 +3936,10 @@ def setup_chat_routes(
                 "trim_stats": {},
             }
             if _foreground_policy.enabled:
-                _chat_request_factory, _chat_request_state = _chat_candidate_request_factory(
-                    messages,
-                    _selected_context_length,
+                _chat_request_factory, _chat_request_state = gateway_turns.build_candidate_context_factory(
+                    _admitted_session, _foreground_policy,
+                    messages, _selected_context_length,
                     session=sess,
-                    owner=_user,
                 )
 
             # Send model name early so the frontend can show it during streaming
