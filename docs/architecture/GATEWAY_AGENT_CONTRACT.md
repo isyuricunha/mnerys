@@ -83,7 +83,7 @@ Malformed privilege configuration fails closed.
 
 **What has NOT moved yet:** model/prompt context preparation, global settings,
 per-turn web intent, active document and compare/plan mode restrictions,
-`request_authority_for_http`, tool-contract reconciliation, persisted messages,
+exact-approval continuation authority, the remaining tool-contract reconciliation, persisted messages,
 approval storage, or the tool dispatcher. Their existing checks remain active
 on every turn, and the authenticated client boundary is still the inherited
 Web/API routes. This work does not create a new CLI/TUI authorization entry

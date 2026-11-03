@@ -95,7 +95,7 @@ from src.model_profiles import (
     tool_schema_profile,
 )
 from src.tool_execution import AgentExecutionBridge
-from src.agent_runtime.authority import is_internal_tool_request, request_authority_for_http
+from src.agent_runtime.authority import is_internal_tool_request
 from src.agent_runtime.runtime_selection import uses_compact_preview_runtime
 from src.turn_contract import (
     FAMILY_TOOLS, preserve_bound_editor_selected_tools,
@@ -3546,9 +3546,11 @@ def setup_chat_routes(
         }
         # Capture permission state before schema selection/reconciliation.
         # Only deterministic request intent supplies grants, never inventory.
-        _request_authority = request_authority_for_http(
-            request, message, owner=_user, session_id=session, workspace=workspace,
-            history=_turn_history, policy=tool_policy,
+        _request_authority = gateway_turns.build_authority(
+            _admitted_session, message,
+            workspace=workspace,
+            history=_turn_history,
+            policy=tool_policy,
             client_runtime_context=client_runtime_context,
             active_document=bool(active_doc),
             image_attachment=any(str(a.get('mime') or '').startswith('image/')
@@ -3556,6 +3558,7 @@ def setup_chat_routes(
             capabilities=({'search_browser'} if (
                 _explicit_browser_intent or _external_discovery_intent
             ) else ()),
+            internal_tool_request=is_internal_tool_request(request),
         )
         if exact_tool_approval is not None:
             from src.agent_runtime.authority import RequestAuthority

@@ -70,7 +70,7 @@ See [native preview deployment](deployment/NATIVE_PREVIEW.md) and [PostgreSQL 17
 
 ### M2 — Mnerys Agent Core and Gateway
 
-**Planned; implementation has not started as a standalone Gateway.** The [ordered M2 execution and acceptance plan](architecture/M2_GATEWAY_IMPLEMENTATION_PLAN.md) follows the completed [M1 design exit](architecture/M1_EXIT_REVIEW.md).
+**In progress — M2.1 internal authority extraction only; an independent authenticated Gateway remains planned.** The [ordered M2 execution and acceptance plan](architecture/M2_GATEWAY_IMPLEMENTATION_PLAN.md) follows the completed [M1 design exit](architecture/M1_EXIT_REVIEW.md). The existing Web stream route now delegates user-intent authority preparation to an admission-bound internal service, but exact approval continuations, model/context orchestration, durable turn events and the independent transport are not yet centralized.
 
 - Establish a reusable **Python Agent Core** for model invocation, agent lifecycle, tool execution, memory, MCP, skills and workflow coordination.
 - Make the **Gateway** the central authority for remote clients: authentication, session ownership, agent/turn management, streaming events, tool permissions and auditable approvals.

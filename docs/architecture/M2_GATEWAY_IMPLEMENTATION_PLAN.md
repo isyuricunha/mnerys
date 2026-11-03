@@ -1,6 +1,6 @@
 # M2 execution plan — authoritative Agent Core and Gateway
 
-**Status: planned, not implemented.** This is the technical handoff from the [M1 design exit review](M1_EXIT_REVIEW.md). The target is a **single server-owned Gateway/Agent Core workflow** shared safely by Web and future clients. The full [product roadmap](../ROADMAP.md) also defines CLI packaging (M3), TUI (M4), cross-client UX parity (M5), and installation/release reliability (M6); this plan must not mark those deliverables as shipped.
+**Status: M2.1 in progress, partial internal authority boundary implemented; the standalone authenticated Gateway and other M2 deliverables remain planned.** This is the technical handoff from the [M1 design exit review](M1_EXIT_REVIEW.md). The target is a **single server-owned Gateway/Agent Core workflow** shared safely by Web and future clients. The full [product roadmap](../ROADMAP.md) also defines CLI packaging (M3), TUI (M4), cross-client UX parity (M5), and installation/release reliability (M6); this plan must not mark those deliverables as shipped.
 
 Read the [M1 source audit](AGENT_CORE_GATEWAY_M1_AUDIT.md), [domain/API contract](GATEWAY_AGENT_CONTRACT.md), [session writer inventory](SESSION_WRITER_INVENTORY.md), [revision/migration plan](SESSION_REVISION_MIGRATION.md) and [regression baseline](M1_CONTRACT_TEST_BASELINE.md) before implementation.
 
@@ -26,6 +26,8 @@ Read the [M1 source audit](AGENT_CORE_GATEWAY_M1_AUDIT.md), [domain/API contract
 - Keep the existing `src/tool_execution.py` dispatcher and sealed `src/tool_approvals.py` behavior; deny operations lacking bound authority. Preserve optional MCP, memory, model and skills integrations.
 - Define concrete Python service protocols and typed errors for owner missing, forbidden, conflict, stale turn, expired cursor and unsupported capability. Keep SSE serialization in the transport layer.
 - Add Web owner/bearer scope, direct/fake tool invocation, nested task inheritance and denial-path regressions.
+
+**Incremental implementation:** the Web stream route now calls [`GatewayTurns.build_authority`](../../src/gateway_turns.py), which delegates to the [admitted authority builder](../../src/gateway_turn_authority.py) using the server-issued admission proof and server-derived internal-tool classification. The service derives owner/session from the admission instead of accepting them as independent route arguments, preserves the existing intent and `ToolPolicy` builder, rejects forged/missing admission, and adds delegated-credential deny restrictions regardless of owner privileges. [Targeted tests](../../tests/test_mnerys_gateway_turn_authority.py) cover the behavior. Existing exact approval continuation authority, account privilege/context assembly, model selection, storage and tool execution remain in the inherited flow; this is **not** completion of M2.1.
 
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 

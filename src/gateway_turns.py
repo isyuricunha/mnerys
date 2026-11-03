@@ -1,19 +1,50 @@
-"""Internal Gateway-facing run controls for an admitted server session.
+"""Internal Gateway-facing authority and run controls for an admitted session.
 
 This facade is not a new HTTP API or a credential verifier. Every operation
 requires an AdmittedSession produced by the Gateway session policy. It keeps
 Web adapters from calling the unrestricted legacy run manager directly.
 """
 
-from typing import AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Iterable, Optional
 
+from src.agent_runtime.authority import RequestAuthority
 from src.gateway_admission import AdmittedSession, require_admitted_session
+from src.gateway_turn_authority import authority_for_admitted_turn
+from src.tool_policy import ToolPolicy
 from src.turn_service import TurnService, TurnStream, turn_service
 
 
 class GatewayTurns:
     def __init__(self, turns: TurnService):
         self._turns = turns
+
+    def build_authority(
+        self,
+        admission: AdmittedSession,
+        request_text: str,
+        *,
+        workspace: str | None,
+        history: Any,
+        policy: ToolPolicy,
+        client_runtime_context: Any = None,
+        active_document: bool = False,
+        image_attachment: bool = False,
+        capabilities: Iterable[str] = (),
+        internal_tool_request: bool,
+    ) -> RequestAuthority:
+        """Build server-owned authority before this admitted session executes."""
+        return authority_for_admitted_turn(
+            admission,
+            request_text,
+            workspace=workspace,
+            history=history,
+            policy=policy,
+            client_runtime_context=client_runtime_context,
+            active_document=active_document,
+            image_attachment=image_attachment,
+            capabilities=capabilities,
+            internal_tool_request=internal_tool_request,
+        )
 
     def start_detached(
         self, admission: AdmittedSession, stream: AsyncGenerator[str, None]
