@@ -93,7 +93,7 @@ from src.agent_runtime.authority import is_internal_tool_request
 from src.gateway_turn_contract_selection import turn_contract_enabled as _turn_contract_enabled
 from src.turn_contract import (
     FAMILY_TOOLS, preserve_bound_editor_selected_tools,
-    requested_capabilities, resolve_turn_contract,
+    requested_capabilities,
     requests_independent_web_source, requires_external_web_verification,
     selected_tools_for_request,
 )
@@ -3495,16 +3495,23 @@ def setup_chat_routes(
             if _corrected_browser_target:
                 _selected_tools = {'private_browser', 'web_fetch', 'web_search'}
                 _required_tools = {'private_browser'}
-            _turn_contract = resolve_turn_contract(
-                capabilities=_turn_capabilities, schemas=_contract_schemas,
-                policy=_contract_policy, required_tools=_required_tools,
+            _resolved_routed_contract = gateway_turns.resolve_routed_contract(
+                _admitted_session, sess,
+                context_owner=ctx.user,
+                request_authority=_request_authority,
+                capabilities=_turn_capabilities,
+                schemas=_contract_schemas,
+                policy=_contract_policy,
+                required_tools=_required_tools,
                 required_capabilities=_active_turn_capabilities,
                 selected_tools=_selected_tools,
                 always_available_tools=(FAMILY_TOOLS["documents"] if active_doc else ()),
                 warm_tools=_warm_tools,
-                message=message, history=getattr(sess, "history", []) or [],
+                message=message,
+                history=getattr(sess, "history", []) or [],
             )
-            _request_authority = _request_authority.restrict(_contract_policy)
+            _turn_contract = _resolved_routed_contract.contract
+            _request_authority = _resolved_routed_contract.authority
             # Resolution already applies user, owner, and global policy. An
             # admitted tool must not later be rejected by the stale
             # pre-contract disabled snapshot during execution.

@@ -209,6 +209,34 @@ Local tests passed **177 focused**, **185 routing/streaming** and
 **159 authority/approval** checks (suite overlap possible); full hosted
 CI and preview deployment remain unverified for this local commit.
 
+**Fourteenth incremental slice — admitted immutable routed-contract handoff:**
+the Web adapter now calls [GatewayTurns.resolve_routed_contract](../../src/gateway_turns.py)
+instead of invoking the immutable resolver directly. The
+[transport-neutral handoff](../../src/gateway_routed_contract.py) checks the
+issued admission, loaded session, assembled context owner and existing
+[RequestAuthority](../../src/agent_runtime/authority.py) owner/session binding
+**before** invoking the same
+[resolve_turn_contract](../../src/turn_contract.py) function. It returns the
+unchanged immutable `TurnContract` and the original authority restricted by
+the resolved `ToolPolicy`. Tool schemas, prior successful tools and selected
+capabilities remain *selection inputs only*; this service cannot create
+operation grants or change the existing dispatcher.
+
+The legacy route still prepares the trusted schema inventory and owner-scoped
+restrictions, selects exact tools, applies compact preview/experiment scope,
+and reconciles final disabled names for the runtime. Those stages are **not**
+yet independent Gateway services. Model invocation, tool execution and
+persistence remain on the inherited implementation; no new resolver, public
+API, database migration or preview deployment was introduced.
+[Negative and parity tests](../../tests/test_mnerys_gateway_routed_contract.py)
+cover browser, bearer and single-user admissions; forged, tampered and
+cross-owner sessions and authorities; guide-only and disabled tools; exact
+selected/required/warm arguments; and the single Web handoff. Local
+regressions passed **200 focused**, **185 routing/streaming**,
+**159 authority/approval** and **1,129 core contract compatibility**
+cases (groups may overlap). Hosted CI and preview verification remain
+pending for this local change.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

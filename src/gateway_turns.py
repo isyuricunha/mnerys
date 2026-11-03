@@ -26,6 +26,10 @@ from src.tool_approvals import ExactToolApproval, ToolApprovalStore
 from src.turn_service import TurnService, TurnStream, turn_service
 from src.gateway_stream_delivery import TurnDelivery, open_admitted_stream
 from src.gateway_post_response import dispatch_admitted_post_response
+from src.gateway_routed_contract import (
+    AdmittedRoutedContract,
+    resolve_admitted_routed_contract,
+)
 from src.gateway_turn_contract_selection import (
     AdmittedContractScope,
     select_admitted_compact_runtime,
@@ -178,6 +182,41 @@ class GatewayTurns:
             admission, self._turns, stream,
             compare_mode=compare_mode,
             client_runtime_context=client_runtime_context,
+        )
+
+    def resolve_routed_contract(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        request_authority: RequestAuthority,
+        capabilities: Iterable[str],
+        schemas: Iterable[dict],
+        policy: ToolPolicy,
+        required_tools: Iterable[str] = (),
+        required_capabilities: Iterable[str] | None = None,
+        selected_tools: Iterable[str] | None = None,
+        always_available_tools: Iterable[str] = (),
+        warm_tools: Iterable[str] = (),
+        message: str | None = None,
+        history: Iterable = (),
+    ) -> AdmittedRoutedContract:
+        """Resolve one routed immutable contract for the original admitted turn."""
+        return resolve_admitted_routed_contract(
+            admission, session,
+            context_owner=context_owner,
+            request_authority=request_authority,
+            capabilities=capabilities,
+            schemas=schemas,
+            policy=policy,
+            required_tools=required_tools,
+            required_capabilities=required_capabilities,
+            selected_tools=selected_tools,
+            always_available_tools=always_available_tools,
+            warm_tools=warm_tools,
+            message=message,
+            history=history,
         )
 
     def select_compact_runtime(

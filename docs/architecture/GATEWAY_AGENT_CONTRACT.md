@@ -211,6 +211,24 @@ duplicate client-specific engines. See [M2.1 scope and verification](M2_GATEWAY_
 and the [negative tests](../../tests/test_mnerys_gateway_turn_contract_selection.py).
 The authenticated public Gateway and durable turn/event authority are planned.
 
+## M2.1 incremental implementation: routed contract handoff
+
+**Implemented internally; still partial M2.1.** The
+[Gateway facade](../../src/gateway_turns.py) now checks the admitted owner,
+session and original request authority before calling the existing immutable
+[tool-contract resolver](../../src/turn_contract.py) through
+[one application service](../../src/gateway_routed_contract.py). The
+returned authority is restricted by the same tool policy. A schema offered
+to the model is not an execution grant, and no alternate resolver or
+tool dispatcher was introduced.
+
+The inherited Web adapter still prepares tool schemas and selected intent,
+applies compact preview and experiment routing, reconciles the final
+disabled-tool list and invokes the model. See the
+[M2.1 incremental verification](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
+[admission/denial tests](../../tests/test_mnerys_gateway_routed_contract.py).
+Durable records and independently authenticated Gateway clients remain planned.
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.
