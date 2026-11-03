@@ -1,5 +1,7 @@
 # Roadmap / Help Wanted
 
+> **Historical Odysseus document.** This file is retained from the original imported codebase for provenance and does not define Mnerys priorities. For current plans, see the **[Mnerys roadmap](docs/ROADMAP.md)**.
+
 Odysseus is on a voyage, but not home yet. It works great for me (lol), but this ship is moving fast and feedback/help would be appreciated! (I don't know what I'm doing, help).
 
 If you see weird CSS, strange layout behavior, or a suspiciously murky corner of

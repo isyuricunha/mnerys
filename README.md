@@ -18,6 +18,7 @@
   <a href="#what-is-mnerys">Overview</a> ·
   <a href="#capabilities">Capabilities</a> ·
   <a href="#quick-start">Quick Start</a> ·
+  <a href="docs/ROADMAP.md">Roadmap</a> ·
   <a href="#project-status">Project Status</a> ·
   <a href="#license-and-credits">License</a>
 </p>
@@ -108,6 +109,8 @@ The immediate priorities are:
 3. Review the agent runtime, memory, integrations, configuration, and permissions.
 4. Evolve the codebase into an independent, maintainable, modular platform.
 
+The [official Mnerys roadmap](docs/ROADMAP.md) defines the planned shared Python Agent Core, authoritative Gateway, globally installable `mnerys` CLI, TUI and Web integration. These are **planned milestones**, not shipped features.
+
 There is no requirement to retain compatibility with future Odysseus releases, and there is no automatic upstream synchronization. The current code is a starting point, not a constraint on Mnerys's direction.
 
 ## Interface preview
@@ -140,7 +143,7 @@ The image in the README header is a brand illustration, not an application scree
 
 Mnerys is in early development and the contributor workflow is being defined. You can follow the project or open an issue in the [GitHub repository](https://github.com/isyuricunha/mnerys) when access is available.
 
-Some imported documentation, including `CONTRIBUTING.md` and `ROADMAP.md`, still describes the former project's workflow and should not be taken as Mnerys policy until updated.
+Some imported documentation, including `CONTRIBUTING.md` and the root `ROADMAP.md`, still describes the former project's workflow and is retained for provenance. **[docs/ROADMAP.md](docs/ROADMAP.md) is the current Mnerys roadmap.**
 
 ## License and Credits
 
