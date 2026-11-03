@@ -279,6 +279,39 @@ Local suites passed **242 focused**, **185 routing/streaming**,
 durable event/job store, database change or preview deployment. Hosted CI
 remains pending for this local change.
 
+**Sixteenth incremental slice — admitted native/MCP tool inventory:**
+the [Gateway facade](../../src/gateway_turns.py) now delegates native
+and MCP schema inventory assembly to an
+[owner-admitted service](../../src/gateway_tool_inventory.py). Before any
+schema or MCP manager lookup, the service verifies the issued admission,
+loaded session and context owner, as well as server-resolved input types.
+It reuses the inherited native schemas, MCP manager/disabled map,
+owner-blocked list, delegated-credential restrictions, SFT Web filesystem
+guard and [tool policy builder](../../src/tool_policy.py). The environment
+`host_shell` bridge remains absent from the Web-facing native inventory.
+An explicit no-tools request still disables all available schemas, and an
+already-denied policy may never be widened by inventory reconstruction.
+
+The [Web compatibility route](../../routes/chat_routes.py) now receives
+the returned schema tuple, owner-blocked tools, disabled snapshot and
+effective policy from the Gateway. Its old no-tools classifier remains
+importable as a compatibility alias. **Request-specific selected-tool
+classification, contextual follow-ups, fixture family restoration and
+intent-derived capability routing are still Web-owned**, as are the
+inherited agent loop and hardened dispatcher. This service does not
+mint execution grants, reimplement MCP, introduce a second tool engine,
+create a public Gateway API, or change DB schema or preview state.
+
+[New isolated inventory tests](../../tests/test_mnerys_gateway_tool_inventory.py)
+compare the inherited ordering under native/MCP, SFT/native workspace,
+bearer, owner-blocked, Plan, guide-only, and globally disabled cases.
+They deny fabricated admission, foreign owner/session and malformed
+trusted flags before inventory access. Local suites passed **282 focused**,
+**185 routing/streaming**, **159 authority/approval**, **160 peripheral
+product/experiment**, **1,129 contract compatibility**, and **148 external
+schema/API-token/file-edit** tests, with some overlap. Hosted CI and live
+preview behavior have not yet been verified for this local commit.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

@@ -248,6 +248,26 @@ engine, process scheduler or persistent event store. See the
 [M2.1 verification](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
 [negative and parity tests](../../tests/test_mnerys_gateway_contract_scoping.py).
 
+## M2.1 incremental implementation: owner-admitted tool inventory
+
+**Implemented internally; M2.1 remains partial.** The
+[Gateway facade](../../src/gateway_turns.py) now prepares the existing
+native/MCP schema inventory through the
+[admitted service](../../src/gateway_tool_inventory.py), which checks
+the issued session and owner before reading any tools. It retains the
+inherited MCP disabled configuration, owner/delegated-denied tools,
+SFT Web filesystem protection, Plan and guide-only behavior, and excludes
+the environment-only `host_shell` bridge. A model schema never grants tool
+execution authority; the original server-bound request authority and
+dispatcher remain necessary for every operation.
+
+The Web adapter still selects request-specific tool intent, contextual
+follow-up tools and fixture capability adjustments. This extraction does
+not introduce a new MCP manager, remote transport, persistent task queue,
+or database migration. The [M2.1 verification](M2_GATEWAY_IMPLEMENTATION_PLAN.md)
+and [negative/parity tests](../../tests/test_mnerys_gateway_tool_inventory.py)
+document its limits and compatibility.
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

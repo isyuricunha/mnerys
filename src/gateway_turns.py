@@ -30,6 +30,10 @@ from src.gateway_routed_contract import (
     AdmittedRoutedContract,
     resolve_admitted_routed_contract,
 )
+from src.gateway_tool_inventory import (
+    AdmittedToolInventory,
+    prepare_admitted_tool_inventory,
+)
 from src.gateway_contract_scoping import (
     AdmittedScopedContract,
     scope_admitted_routed_contract,
@@ -221,6 +225,29 @@ class GatewayTurns:
             warm_tools=warm_tools,
             message=message,
             history=history,
+        )
+
+    def prepare_tool_inventory(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        base_policy: ToolPolicy,
+        base_disabled_tools: set[str] | frozenset[str],
+        message: str,
+        plan_mode: bool,
+        native_workspace_contract: bool,
+    ) -> AdmittedToolInventory:
+        """Load the inherited native/MCP schemas under this owner's policy."""
+        return prepare_admitted_tool_inventory(
+            admission, session,
+            context_owner=context_owner,
+            base_policy=base_policy,
+            base_disabled_tools=base_disabled_tools,
+            message=message,
+            plan_mode=plan_mode,
+            native_workspace_contract=native_workspace_contract,
         )
 
     def scope_routed_contract(

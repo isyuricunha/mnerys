@@ -91,6 +91,7 @@ from src.model_profiles import (
 from src.tool_execution import AgentExecutionBridge
 from src.agent_runtime.authority import is_internal_tool_request
 from src.gateway_turn_contract_selection import turn_contract_enabled as _turn_contract_enabled
+from src.gateway_tool_inventory import explicitly_denies_tool_use as _explicitly_denies_tool_use
 from src.turn_contract import (
     FAMILY_TOOLS, preserve_bound_editor_selected_tools,
     requested_capabilities,
@@ -236,14 +237,6 @@ def _explicitly_denies_web_lookup(text: str) -> bool:
             str(text or "").lower(),
         )
     )
-
-
-def _explicitly_denies_tool_use(text: str) -> bool:
-    return bool(re.search(
-        r"\b(?:no\s+tools?|do\s+not\s+use\s+(?:any\s+)?tools?|"
-        r"don'?t\s+use\s+(?:any\s+)?tools?)\b",
-        str(text or ""), re.I,
-    ))
 
 
 _EXPLICIT_URL_TARGET = re.compile(
@@ -3379,40 +3372,21 @@ def setup_chat_routes(
         # Keep the permission policy above, but do not apply routing omissions
         # as denials to this separate execution path.
         if _use_turn_contract and chat_mode == "agent" and not image_generation_session:
-            from src.tool_schemas import FUNCTION_TOOL_SCHEMAS
-            from src.tool_utils import get_mcp_manager
-            from src.tool_security import blocked_tools_for_owner
-            from src.agent_loop import (
-                _load_mcp_disabled_map, _workspace_tools_disabled_for_owner,
-                _SFT_DISABLED_WORKSPACE_TOOLS,
+            # Schema and owner/MCP restrictions now have one admitted
+            # Gateway entry point. Intent-based selection remains below.
+            _tool_inventory = gateway_turns.prepare_tool_inventory(
+                _admitted_session, sess,
+                context_owner=ctx.user,
+                base_policy=tool_policy,
+                base_disabled_tools=disabled_tools,
+                message=message,
+                plan_mode=plan_mode,
+                native_workspace_contract=_native_workspace_contract,
             )
-            # host_shell belongs to an environment-owned execution bridge;
-            # the product WebUI has no such executable runtime.
-            _contract_schemas = [s for s in FUNCTION_TOOL_SCHEMAS
-                                 if s["function"]["name"] != "host_shell"]
-            _contract_mgr = get_mcp_manager()
-            _owner_blocked = blocked_tools_for_owner(_user)
-            if _delegated_credential:
-                _owner_blocked.update(delegated_credential_blocked_tools())
-            if (
-                _workspace_tools_disabled_for_owner(_user)
-                and not _native_workspace_contract
-            ):
-                # The SFT fixture guard protects the WebUI user's backend
-                # filesystem. A server-validated odysseus-native request owns
-                # a separate confined workspace, matching the exemption in
-                # _strip_workspace_tools_for_sft inside the agent runtime.
-                disabled_tools.update(_SFT_DISABLED_WORKSPACE_TOOLS)
-            if _contract_mgr and not plan_mode and not tool_policy.disable_mcp and not _owner_blocked:
-                _contract_schemas.extend(_contract_mgr.get_all_openai_schemas(_load_mcp_disabled_map()))
-            if _explicitly_denies_tool_use(message):
-                disabled_tools.update(
-                    schema["function"]["name"] for schema in _contract_schemas
-                )
-            _contract_policy = build_effective_tool_policy(
-                disabled_tools=disabled_tools | set(_owner_blocked),
-                last_user_message=message,
-            )
+            _contract_schemas = _tool_inventory.schemas
+            _owner_blocked = _tool_inventory.owner_blocked
+            disabled_tools = set(_tool_inventory.disabled_tools)
+            _contract_policy = _tool_inventory.policy
             _warm_tools = _successful_session_tool_names(sess)
             _selected_tools = selected_tools_for_request(message)
             if _selected_tools is None and _contextual_browser_turn_followup:
