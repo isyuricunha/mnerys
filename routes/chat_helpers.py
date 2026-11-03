@@ -8,7 +8,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from core.models import ChatMessage
 from core.database import SessionLocal
@@ -18,6 +18,8 @@ from src.endpoint_resolver import normalize_base
 from src.context_compactor import maybe_compact, trim_for_context
 from src.model_context import estimate_tokens, get_context_length
 from src.auth_helpers import effective_user
+from src.gateway_admission import AdmittedSession, AdmissionDenied
+from src.gateway_context_admission import owner_for_admitted_context
 from src.prompt_security import untrusted_context_message
 from src.attachment_refs import attachment_ref
 from routes.prefs_routes import _load_for_user as load_prefs_for_user
@@ -1033,6 +1035,78 @@ async def build_chat_context(
     interaction_mode: str | None = None,
     auto_escalated: bool = False,
     context_resolution=None,
+    admission: AdmittedSession | None = None,
+) -> ChatContext:
+    """HTTP adapter that retains the existing public call signature.
+
+    With admission supplied, the Gateway proof controls the owner and session.
+    The event callback alone retains the HTTP request for compatibility.
+    """
+    if admission is not None:
+        user = owner_for_admitted_context(admission, sess, session_id)
+        if effective_user(request) != user:
+            raise AdmissionDenied(403, "Request principal does not match admitted session")
+    else:
+        user = effective_user(request)
+
+    def emit_message_event() -> None:
+        fire_message_event(request, webhook_manager, session_id, sess, message, compare_mode)
+
+    return await build_chat_context_core(
+        sess, user, chat_handler, chat_processor,
+        message=message, session_id=session_id,
+        selected_notes_context=selected_notes_context,
+        preset_id=preset_id,
+        att_ids=att_ids,
+        use_web=use_web,
+        use_rag=use_rag,
+        use_research=use_research,
+        time_filter=time_filter,
+        incognito=incognito,
+        no_memory=no_memory,
+        search_context=search_context,
+        compare_mode=compare_mode,
+        use_enhanced_message=use_enhanced_message,
+        agent_mode=agent_mode,
+        allow_tool_preprocessing=allow_tool_preprocessing,
+        defer_context_shaping=defer_context_shaping,
+        continuation_context_message=continuation_context_message,
+        persist_user_message=persist_user_message,
+        interaction_mode=interaction_mode,
+        auto_escalated=auto_escalated,
+        context_resolution=context_resolution,
+        on_user_message_persisted=emit_message_event,
+    )
+
+
+async def build_chat_context_core(
+    sess,
+    user: str | None,
+    chat_handler,
+    chat_processor,
+    message: str,
+    session_id: str,
+    selected_notes_context: str | None = None,
+    preset_id=None,
+    att_ids: list = None,
+    use_web=None,
+    use_rag=None,
+    use_research=None,
+    time_filter=None,
+    incognito: bool = False,
+    no_memory: bool = False,
+    search_context: str = None,
+    compare_mode: bool = False,
+    use_enhanced_message: bool = False,
+    agent_mode: bool = False,
+    allow_tool_preprocessing: bool = True,
+    defer_context_shaping: bool = False,
+    continuation_context_message: str | None = None,
+    persist_user_message: bool = True,
+    interaction_mode: str | None = None,
+    auto_escalated: bool = False,
+    context_resolution=None,
+    on_user_message_persisted: Callable[[], None] | None = None,
 ) -> ChatContext:
     """Build the full context (preface + messages) for an LLM call.
 
@@ -1078,13 +1152,12 @@ async def build_chat_context(
             auto_escalated=auto_escalated,
         )
 
-    # Fire events
-    if persist_user_message and not incognito:
-        fire_message_event(request, webhook_manager, session_id, sess, message, compare_mode)
+    # Emit events through a transport callback only after message persistence.
+    if persist_user_message and not incognito and on_user_message_persisted is not None:
+        on_user_message_persisted()
 
-    # Resolve owner-scoped prefs/context. Browser requests keep the cookie user;
-    # bearer-token chat requests use the token owner instead of the "api" sentinel.
-    user = effective_user(request)
+    # Owner comes from the adapter's trusted, admitted principal.
+    # Core never reads HTTP credentials or client-selected owner fields.
     uprefs = load_prefs_for_user(user)
     uploaded_files = build_uploaded_file_manifest(
         att_ids or [],

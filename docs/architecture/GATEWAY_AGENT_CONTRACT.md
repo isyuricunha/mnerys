@@ -81,7 +81,7 @@ restrictions before request intent processing and account restrictions *after*
 search/tool toggles, preventing those toggles from reopening an account denial.
 Malformed privilege configuration fails closed.
 
-**What has NOT moved yet:** full model invocation and the Web-dependent preset/attachment/memory/RAG context builder (though owner-scoped fallback, per-candidate shaping and the final prompt handoff now use admitted Gateway services), global settings,
+**What has NOT moved yet:** full model invocation and the inherited preset/attachment/memory/RAG and persistence integrations. The shared context algorithm now takes an explicit, server-validated owner instead of the HTTP request, but is still hosted in the legacy helper module and depends on its services (while fallback, per-candidate shaping and final prompt handoff use admitted Gateway services). Other remaining work includes global settings,
 per-turn web intent, active document and compare/plan mode restrictions,
 exact-approval issuance, HTTP authentication and persisted-card reconciliation (still in Web/inherited components), the remaining tool-contract reconciliation, persisted messages,
 approval storage, or the tool dispatcher. Their existing checks remain active
