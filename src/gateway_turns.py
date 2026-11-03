@@ -9,9 +9,10 @@ from typing import Any, AsyncGenerator, Iterable, Optional
 
 from src.agent_runtime.authority import RequestAuthority
 from src.gateway_admission import AdmittedSession, require_admitted_session
+from src.gateway_approval_decisions import ToolApprovalDecision, consume_admitted_tool_approval
 from src.gateway_turn_authority import authority_for_admitted_turn
 from src.tool_policy import ToolPolicy
-from src.tool_approvals import ExactToolApproval
+from src.tool_approvals import ExactToolApproval, ToolApprovalStore
 from src.turn_service import TurnService, TurnStream, turn_service
 
 
@@ -47,6 +48,26 @@ class GatewayTurns:
             capabilities=capabilities,
             internal_tool_request=internal_tool_request,
             exact_approval=exact_approval,
+        )
+
+    def decide_tool_approval(
+        self,
+        admission: AdmittedSession,
+        approval_id: Any,
+        decision: Any,
+        *,
+        plan_mode: bool,
+        internal_tool_request: bool,
+        store: ToolApprovalStore,
+    ) -> ToolApprovalDecision:
+        """Validate and consume one existing approval under trusted admission."""
+        return consume_admitted_tool_approval(
+            admission,
+            approval_id,
+            decision,
+            plan_mode=plan_mode,
+            internal_tool_request=internal_tool_request,
+            store=store,
         )
 
     def start_detached(

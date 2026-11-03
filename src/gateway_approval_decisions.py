@@ -1,0 +1,78 @@
+"""M2.1 internal decision boundary for admitted, interactive tool approvals.
+
+The transport authenticates the human request before this call. The Gateway
+rechecks the admitted owner/session and delegates destructive, one-use
+consumption to the existing sealed in-memory ToolApprovalStore. This is not
+durable approval persistence or a remote approval API.
+"""
+
+from dataclasses import dataclass
+from typing import Any
+
+from src.gateway_admission import AdmittedSession, AdmissionDenied, require_admitted_session
+from src.tool_approvals import ExactToolApproval, PendingToolApproval, ToolApprovalStore
+
+
+@dataclass(frozen=True)
+class ToolApprovalDecision:
+    """Server-only continuation state, never a response payload or grant."""
+
+    decision: str
+    pending: PendingToolApproval
+    exact: ExactToolApproval | None
+
+    @property
+    def tainted(self) -> bool:
+        return bool(self.pending.external_untrusted_context_seen)
+
+
+def consume_admitted_tool_approval(
+    admission: AdmittedSession,
+    approval_id: Any,
+    decision: Any,
+    *,
+    plan_mode: bool,
+    internal_tool_request: bool,
+    store: ToolApprovalStore,
+) -> ToolApprovalDecision:
+    """Validate and consume an existing sealed action for one admitted session.
+
+    A failed check must not consume another owner's pending approval. The store
+    owns the atomic destructive consumption; the Gateway never reconstructs a
+    sealed action or treats an approval as new model/tool authorization.
+    """
+    session_id = require_admitted_session(admission)
+    if type(plan_mode) is not bool or type(internal_tool_request) is not bool:
+        raise AdmissionDenied(403, "Invalid server tool approval context")
+    if admission.principal.delegated or internal_tool_request:
+        raise AdmissionDenied(403, "Tool approvals require an interactive user request")
+
+    owner = admission.principal.owner_id
+    pending = store.peek(approval_id)
+    if (
+        pending is None
+        or not isinstance(pending, PendingToolApproval)
+        or pending.owner != str(owner or "").strip().casefold()
+        or pending.session_id != session_id
+    ):
+        raise AdmissionDenied(
+            409, "This tool approval is invalid, expired, or belongs to another thread."
+        )
+
+    normalized_decision = str(decision or "").strip().lower()
+    if normalized_decision not in {"approve", "approve_task", "deny"}:
+        raise AdmissionDenied(400, "Invalid tool approval decision.")
+    if plan_mode:
+        raise AdmissionDenied(
+            409, "Tool approvals cannot be consumed while plan mode is active."
+        )
+
+    exact = store.consume(
+        approval_id,
+        decision=normalized_decision,
+        owner=owner,
+        session_id=session_id,
+    )
+    if normalized_decision in {"approve", "approve_task"} and exact is None:
+        raise AdmissionDenied(409, "This tool approval could not be consumed.")
+    return ToolApprovalDecision(normalized_decision, pending, exact)

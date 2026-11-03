@@ -33,6 +33,7 @@ from src.agent_loop import _normalize_ody_qwen_text_artifacts
 from src import agent_runs
 from src.turn_service import turn_service
 from src.gateway_turns import gateway_turns
+from src.gateway_admission import AdmissionDenied
 from src.gateway_execution_policy import execution_limits_for_admission
 from src.model_context import estimate_tokens
 from src.context_compactor import (
@@ -2809,46 +2810,24 @@ def setup_chat_routes(
                 _reject_delegated_tool_approval(request)
                 from src.agent_runtime.authority import require_user_approval_request
                 require_user_approval_request(request)
-                pending_tool_approval = tool_approval_store.peek(tool_approval_id)
-                normalized_owner = str(owner or "").strip().casefold()
-                if (
-                    pending_tool_approval is None
-                    or pending_tool_approval.owner != normalized_owner
-                    or pending_tool_approval.session_id != str(session)
-                ):
-                    raise HTTPException(
-                        409,
-                        "This tool approval is invalid, expired, or belongs to another thread.",
+                try:
+                    approval_resolution = gateway_turns.decide_tool_approval(
+                        _admitted_session,
+                        tool_approval_id,
+                        tool_approval_decision,
+                        plan_mode=plan_mode,
+                        internal_tool_request=is_internal_tool_request(request),
+                        store=tool_approval_store,
                     )
-                pending_taint = bool(
-                    pending_tool_approval.external_untrusted_context_seen
-                )
+                except AdmissionDenied as exc:
+                    raise HTTPException(exc.status_code, exc.detail) from exc
+                pending_tool_approval = approval_resolution.pending
+                exact_tool_approval = approval_resolution.exact
+                decision = approval_resolution.decision
                 external_untrusted_context_seen = (
-                    external_untrusted_context_seen or pending_taint
-                )
-                decision = str(tool_approval_decision or "").strip().lower()
-                if decision not in {"approve", "approve_task", "deny"}:
-                    raise HTTPException(400, "Invalid tool approval decision.")
-                if plan_mode:
-                    raise HTTPException(
-                        409,
-                        "Tool approvals cannot be consumed while plan mode is active.",
-                    )
-                exact_tool_approval = tool_approval_store.consume(
-                    tool_approval_id,
-                    decision=decision,
-                    owner=owner,
-                    session_id=session,
+                    external_untrusted_context_seen or approval_resolution.tainted
                 )
                 tool_approval_continuation = True
-                if (
-                    decision in {"approve", "approve_task"}
-                    and exact_tool_approval is None
-                ):
-                    raise HTTPException(
-                        409,
-                        "This tool approval could not be consumed.",
-                    )
                 if not _mark_tool_approval_resolved(
                     sess,
                     tool_approval_id,
