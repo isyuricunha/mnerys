@@ -49,6 +49,17 @@ The [cache reconciliation helper](../../src/session_cache_reconciliation.py) is 
 
 The backend design relies on [PostgreSQL 17 Read Committed concurrency semantics](https://www.postgresql.org/docs/17/transaction-iso.html) and [SQLAlchemy 2.0 transaction/rollback behavior](https://docs.sqlalchemy.org/en/20/orm/session_basics.html). PostgreSQL's row predicate recheck is not a substitute for fencing **every** writer; the production migration remains separately gated.
 
+## Incremental live compatibility fixes: append acknowledgement and agent tools
+
+**Implemented on existing code paths; no revision schema activated.**
+The inherited [`SessionManager._persist_message`](../../core/session_manager.py) now returns an explicit success/failure boolean to the existing in-memory append paths. [`Session.add_message`](../../core/models.py) and [`SessionManager.add_message`](../../core/session_manager.py) discard **only their own uncommitted appended message** on a failed or missing-parent insert, without replacing the history list or deleting later messages by value. Unmanaged/ephemeral sessions continue to append normally. The existing failure logging and request API remain unchanged. A subsequent successful write can continue using the recovered cache. The writer still uses the legacy unversioned DB transaction and is **not** the incarnation-fenced adapter.
+
+The [`manage_session` agent tool](../../src/agent_tools/session_tools.py) now commits a rename only once through its existing owner-scoped query, rather than committing and calling the unscoped `SessionManager.update_session_name` a second time. Rename, archive, unarchive and important-flag actions update only a **matching-owner cached session after DB commit**; a failed DB write or a foreign-owner cache entry is left untouched. The tool's existing current-session, important-session and owner restrictions are unchanged. No permission is granted by the cache helper.
+
+[Disposable SQLite append/rollback tests](../../tests/test_mnerys_session_append_cache_rollback.py) verify failed inserts, missing/deleted parents, cache list identity, multiple equal-content messages, successful writes and unmanaged sessions. [Agent session metadata tests](../../tests/test_mnerys_agent_session_rename.py) cover single SQL rename, owner isolation, post-commit cache synchronization and rollback behavior.
+
+**Still missing:** global all-writer revision enforcement, DB counters under concurrent transactions, durable turn acknowledgements, CAS-aware tool transactions, full job restart fencing and tested production schema migrations. These focused compatibility fixes are not a claim that any of those guarantees already exist.
+
 ## Safe prototype now available
 
 The new `SqlFencedSessionWriter` provides a **test-only** implementation of the future mutation boundary:

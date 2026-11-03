@@ -25,7 +25,7 @@ def test_persist_message_drops_write_when_parent_session_is_gone(monkeypatch):
     manager = _manager_with({"deleted": SimpleNamespace(history=[])})
     message = ChatMessage("assistant", "late token")
 
-    manager._persist_message("deleted", message)
+    assert manager._persist_message("deleted", message) is False
 
     assert "deleted" not in manager.sessions
     db.add.assert_not_called()
@@ -41,7 +41,7 @@ def test_persist_message_still_writes_when_parent_session_exists(monkeypatch):
     message = ChatMessage("user", "hello")
     manager = _manager_with({"sid": SimpleNamespace(history=[message])})
 
-    manager._persist_message("sid", message)
+    assert manager._persist_message("sid", message) is True
 
     db.add.assert_called_once()
     db.commit.assert_called_once()

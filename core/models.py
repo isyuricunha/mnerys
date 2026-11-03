@@ -157,9 +157,24 @@ class Session:
         self.history.append(message)
         self.message_count = len(self.history)
 
-        # Delegate to session manager for persistence
+        # A failed database append must not remain in the model-visible
+        # in-memory transcript. Sessions without a manager remain ephemeral.
         if _SESSION_MANAGER_INSTANCE:
-            _SESSION_MANAGER_INSTANCE._persist_message(self.id, message)
+            if _SESSION_MANAGER_INSTANCE._persist_message(self.id, message) is False:
+                self._discard_failed_message(message)
+
+    def _discard_failed_message(self, message: ChatMessage) -> None:
+        """Remove only this uncommitted append, preserving later messages.
+
+        Look up by identity rather than value to avoid removing a different
+        message with the same content, and mutate the existing history list
+        so anyone holding a reference sees the rollback.
+        """
+        for index in range(len(self.history) - 1, -1, -1):
+            if self.history[index] is message:
+                del self.history[index]
+                break
+        self.message_count = len(self.history)
 
     def get_context_messages(self) -> List[Dict[str, Any]]:
         """Get messages in format for LLM API.

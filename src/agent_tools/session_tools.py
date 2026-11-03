@@ -343,6 +343,13 @@ async def manage_session(content: str, session_id: Optional[str] = None, owner: 
             query = query.filter(DbSession.owner == owner)
         return query
 
+    def _refresh_cached_after_commit(db_session, **fields):
+        """Publish committed metadata only to this database owner's cache."""
+        cached = getattr(_session_manager, "sessions", {}).get(target_sid)
+        if cached is not None and getattr(cached, "owner", None) == db_session.owner:
+            for key, value in fields.items():
+                setattr(cached, key, value)
+
     if action in ("switch", "open", "select", "view"):
         db = SessionLocal()
         try:
@@ -370,7 +377,8 @@ async def manage_session(content: str, session_id: Optional[str] = None, owner: 
                 return {"error": f"Session '{target_sid}' not found. Use list_sessions and pass the exact id it returned."}
             db_sess.name = new_name
             db.commit()
-            _session_manager.update_session_name(target_sid, new_name)
+            # One owner-scoped write; refresh cache only after commit.
+            _refresh_cached_after_commit(db_sess, name=new_name)
             return {"action": "rename", "session_id": target_sid, "name": new_name,
                     "results": f"Session renamed to '{new_name}'"}
 
@@ -380,6 +388,7 @@ async def manage_session(content: str, session_id: Optional[str] = None, owner: 
                 return {"error": f"Session '{target_sid}' not found. Use list_sessions and pass the exact id it returned."}
             db_sess.archived = True
             db.commit()
+            _refresh_cached_after_commit(db_sess, archived=True)
             return {"action": "archive", "session_id": target_sid,
                     "results": f"Session '{db_sess.name}' archived"}
 
@@ -389,6 +398,7 @@ async def manage_session(content: str, session_id: Optional[str] = None, owner: 
                 return {"error": f"Session '{target_sid}' not found. Use list_sessions and pass the exact id it returned."}
             db_sess.archived = False
             db.commit()
+            _refresh_cached_after_commit(db_sess, archived=False)
             return {"action": "unarchive", "session_id": target_sid,
                     "results": f"Session '{db_sess.name}' unarchived"}
 
@@ -421,6 +431,7 @@ async def manage_session(content: str, session_id: Optional[str] = None, owner: 
                 return {"error": f"Session '{db_sess.name}' is starred by the user. Only the user can unstar sessions manually."}
             db_sess.is_important = is_important
             db.commit()
+            _refresh_cached_after_commit(db_sess, is_important=is_important)
             status = "marked as important" if is_important else "unmarked as important"
             return {"action": action, "session_id": target_sid,
                     "results": f"Session '{db_sess.name}' {status}"}

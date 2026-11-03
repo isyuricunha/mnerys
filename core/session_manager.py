@@ -255,10 +255,16 @@ class SessionManager:
         session._history = session.history
         session.message_count = len(session.history)
 
-        self._persist_message(session_id, message)
+        if self._persist_message(session_id, message) is False:
+            session._discard_failed_message(message)
 
-    def _persist_message(self, session_id: str, message: ChatMessage):
-        """Persist a single message to the database."""
+    def _persist_message(self, session_id: str, message: ChatMessage) -> bool:
+        """Persist one message; report commit success to the caller's cache.
+
+        False denotes a failed or refused write, not a committed message.
+        The return value is intentionally a boolean for the inherited
+        Session.add_message compatibility adapter, not a revision receipt.
+        """
         db = SessionLocal()
         try:
             db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
@@ -268,7 +274,7 @@ class SessionManager:
                 # any stale cached session so later writes fail closed too.
                 self.sessions.pop(session_id, None)
                 logger.warning("Dropping message for deleted session %s", session_id)
-                return
+                return False
 
             missing_upload_id = reserve_message_upload_references(
                 getattr(self, "upload_handler", None),
@@ -319,10 +325,12 @@ class SessionManager:
             message.metadata['_db_id'] = msg_id
 
             logger.debug(f"Persisted message to session {session_id}")
+            return True
 
         except Exception as e:
             logger.error(f"Error persisting message: {e}")
             db.rollback()
+            return False
         finally:
             db.close()
 
@@ -481,12 +489,11 @@ class SessionManager:
 
         ``message_count`` is reconciled against the real ``chat_messages`` rows
         rather than copied from the denormalized ``sessions.message_count``
-        column. That column drifts in normal operation — ``_persist_message``
-        swallows a failed insert but ``add_message`` has already appended in
-        memory, so the next successful persist writes rows+1, and a persist for
-        an uncached session writes 0. Hydration keys off this number: a
-        drifted-high column would reload the whole transcript on every warm
-        read, and a drifted-low one would leave the model a truncated one.
+        column. That column can still drift after legacy or direct writers,
+        especially when persisting an uncached session. Failed writes through
+        the inherited append paths now roll back their in-memory message, but
+        historical and independent writers do not share a versioned counter.
+        Hydration must therefore use the actual persisted message total.
         """
         session = self.sessions.get(session_id)
         if session is None:
