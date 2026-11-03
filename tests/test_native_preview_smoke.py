@@ -59,8 +59,9 @@ def test_native_preview_docs_do_not_expose_internal_network_addresses():
     assert "<TAILSCALE_HOST>" in doc and "<PREVIEW_PORT>" in doc
     assert "systemd" in doc
     assert "deploy with validation and rollback" in doc.lower()
-    assert "automatic rollback" in doc.lower()
-    assert "not yet automated" in doc.lower()
+    assert "automatically restore" in doc.lower()
+    assert "scripts/deploy_native_preview.py" in doc
+    assert "each rollout must be intentionally invoked" in doc.lower()
     assert "zero downtime" not in doc.lower()
     assert "blue-green" not in doc.lower()
     assert not re.search(r"\b100\.(?:\d{1,3}\.){2}\d{1,3}\b", doc)

@@ -6,8 +6,10 @@ This page documents the verified native preview arrangement, not a Docker-based 
 
 The private Mnerys preview is running directly from a versioned Git source snapshot with its own Python 3.12 virtual environment and Uvicorn process. Two **user-level systemd services** are enabled for restart and automatic startup:
 
-- `mnerys-preview-app.service` — application, listening only on loopback.
-- `mnerys-preview-edge.service` — Caddy gateway, bound **only to the host's Tailscale address**.
+- Application unit — application, listening only on loopback.
+- Gateway unit — Caddy proxy, bound **only to the host's Tailscale address**.
+
+The actual unit names are stored privately on the host in the runtime configuration, not in public project files.
 
 The edge gateway has **one fixed, randomly selected high TCP port**, configured privately. The public repository deliberately contains **no actual address, hostname, internal port, token or server path**. Consult your private host configuration to retrieve access details. The browser must be connected to the authorized tailnet.
 
@@ -39,8 +41,10 @@ The script checks health, branding on the login screen, and auth enforcement. It
 User-service health is available using:
 
 ```bash
-systemctl --user is-active mnerys-preview-app.service
-systemctl --user is-active mnerys-preview-edge.service
+APP_UNIT="$(cat "$HOME/.config/mnerys-preview/app-unit")"
+EDGE_UNIT="$(cat "$HOME/.config/mnerys-preview/edge-unit")"
+systemctl --user is-active "$APP_UNIT"
+systemctl --user is-active "$EDGE_UNIT"
 ```
 
 The preview login page was actually rendered in a headless Chromium browser at **desktop and mobile viewports** without displaying personal conversation data. Full authenticated chat/agent workflows and Tailscale connectivity from the owner's separate client device have **not** yet been end-to-end tested.
@@ -49,22 +53,34 @@ The preview login page was actually rendered in a headless Chromium browser at *
 
 **Decision:** Use a native **deploy with validation and rollback**. A brief, controlled interruption when restarting the application is acceptable; prioritize data integrity, repeatability and reliable recovery. The private Tailscale gateway and its fixed port remain configured independently of application releases.
 
-**Target update workflow (not yet automated):**
+**Implemented native deployment workflow:**
 
-1. Prepare an immutable candidate release and its own Python virtual environment, without changing the live version.
-2. Run tests and validate the candidate with isolated test data; check compatibility, liveness, readiness and login before promotion.
-3. Keep the last known healthy release and a verified backup of persistent state. Plan reversible migrations before proceeding.
-4. Switch the native `systemd` application service to the validated release with a **short, controlled restart**.
-5. Recheck health, authenticated readiness and login. If any critical check fails, **roll back to the last healthy release**, restart and verify again. Restore data only under an explicitly safe, compatible recovery plan.
-6. Update `/docs`, review/sanitize diffs and screenshots, and publish approved changes to all three remotes.
+1. Prepare a candidate release from a **clean `main` checkout** using a fixed Git revision and a separate Python 3.12 virtual environment. The running version stays active during preparation.
+2. Validate the candidate with selected regression tests and JavaScript syntax checks. This avoids starting duplicate agents, schedulers or background workers against live state.
+3. Check for database-sensitive source changes and **refuse migration-risk revisions** without a separately reviewed migration and recovery plan.
+4. Take a **private, restricted snapshot** of persistent files and SQLite databases (via the SQLite online backup API) before promotion. Keep previous releases.
+5. Update the native `systemd` service and private source revision, then perform a **short, controlled restart**.
+6. Verify the live revision, health, login, protected readiness route, and actual database/data-directory readiness via a trusted local check.
+7. If the candidate fails and database schemas are unchanged, automatically restore the previous application code and service configuration, restart, and validate recovery. **Never automatically overwrite the live data** from a snapshot. If the schema unexpectedly changes, stop the app for manual recovery instead of running incompatible old code.
+8. Keep the Tailscale gateway, its **private fixed high port**, and independent dependencies unchanged.
 
-The imported runtime uses SQLite and runs scheduled/background work. **Do not start two live application workers against the same persistent state**, because duplicate jobs and conflicting writes may result. If a migration or data operation poses additional risk, explain it and request approval before proceeding.
+Run on the preview server from the Mnerys checkout:
 
-**Current implementation:** the native preview already runs under `systemd` with a private gateway and working health checks. The staged promotion, automatic post-deploy validation and automatic rollback pipeline **still need to be implemented**. Until then, deployment and rollback are manual procedures; the steps above are the agreed target, not a claim of existing automation.
+```bash
+# Stage/install/test the candidate without restarting the live app
+python3 scripts/deploy_native_preview.py --check
+
+# Repeat validation, snapshot data, restart and verify; rollback on failed checks
+python3 scripts/deploy_native_preview.py --deploy
+```
+
+The runner reads service names from protected private host files and uses a local filesystem lock to prevent concurrent promotions. Failed tests or preparation never interrupt the running service. Versions already deployed are reported as unchanged. Private runtime credentials, addresses, ports, snapshots and host paths never belong in the repository.
+
+**Limitations and scope:** No concurrent live-version deployment is attempted; a short interruption is expected. `GET /api/ready` stays authenticated: the script checks its access guard externally and uses a **separate trusted local readiness check** for database and storage. Running two application processes against shared SQLite/background jobs is unsafe. Candidate tests validate code; they do **not** exercise a full second running instance. The rollback procedure automatically reverses **application code and service configuration**, not user data or an irreversible schema migration; those require review and explicit authorization. No automatic periodic deployment is configured: each rollout must be intentionally invoked.
 
 ### Rollback and retired service
 
-For now, recover manually by selecting the last verified release and compatible configuration, preserving state, restarting the application and revalidating health and readiness. A short service interruption is expected; never replace or roll back persistent data without a verified recovery plan.
+For normal startup failures the runner attempts a verified rollback to the previously healthy code, keeping the original data and backup intact. If rollback itself fails or the database schema changes, preserve the backup, stop unsafe operations and investigate before any manual state restoration. Do not restore persistent data blindly; coordinate migrations and validate compatibility.
 
 The former Odysseus *web app* service remains installed but disabled for recovery purposes, and its original data remains in place. Its service can be reenabled only after validating dependencies, address conflicts and data consistency. This should be a deliberate recovery decision, not an automatic fallback that makes two active background workers share state.
 

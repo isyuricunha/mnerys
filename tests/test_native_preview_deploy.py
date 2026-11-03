@@ -1,0 +1,198 @@
+"""Unit and integration tests for the native deploy validation/rollback policy."""
+import importlib.util
+from pathlib import Path
+import sqlite3
+import subprocess
+from types import SimpleNamespace
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location(
+    "native_deployer", ROOT / "scripts/deploy_native_preview.py"
+)
+deployment = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(deployment)
+
+
+def test_unit_promotion_updates_release_and_venv(tmp_path):
+    old = tmp_path / "releases/111111111111"
+    new = tmp_path / "releases/222222222222"
+    old_python = tmp_path / "venv/bin/python"
+    new_python = tmp_path / "venvs/222222222222/bin/python"
+    for file in (old_python, new_python):
+        file.parent.mkdir(parents=True)
+        file.write_text("test")
+    unit = (
+        f"WorkingDirectory={old}\n"
+        f"Environment=PATH={old_python.parent}:/usr/bin\n"
+        f"ExecStart={old_python} -m uvicorn app:app --host localhost\n"
+    )
+    updated = deployment.update_unit(unit, old, new, new_python)
+    assert f"WorkingDirectory={new}" in updated
+    assert f"ExecStart={new_python} -m uvicorn" in updated
+    assert f"Environment=PATH={new_python.parent}:/usr/bin" in updated
+    assert "ExecStart=" + str(old_python) not in updated
+
+
+def test_update_commit_changes_only_last_setting():
+    original = "ODYSSEUS_SOURCE_COMMIT=old\nAUTH_ENABLED=true\nODYSSEUS_SOURCE_COMMIT=old2\n"
+    changed = deployment.update_source_commit(original, "a" * 40)
+    assert changed == (
+        "ODYSSEUS_SOURCE_COMMIT=old\nAUTH_ENABLED=true\n"
+        "ODYSSEUS_SOURCE_COMMIT=" + "a" * 40 + "\n"
+    )
+
+
+def test_public_gateway_only_accepts_tailnet_bindings(tmp_path):
+    # Generate fixture address rather than publishing an actual private address.
+    import ipaddress
+    address = str(ipaddress.ip_address(0x6440001F))
+    config = tmp_path / "preview.port"
+    config.write_text("53921\n")
+    (tmp_path / "Caddyfile").write_text(
+        f"http://{address}:53921 {{\n    bind {address}\n}}\n"
+    )
+    assert deployment.public_endpoint(tmp_path).endswith(":53921")
+    (tmp_path / "Caddyfile").write_text(
+        f"http://{address}:53921 {{\n}}\n"
+    )
+    with pytest.raises(deployment.DeployError, match="binding"):
+        deployment.public_endpoint(tmp_path)
+
+
+def test_consistent_backup_preserves_sqlite_rows_files_and_relative_symlinks(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    with sqlite3.connect(data / "app.db") as conn:
+        conn.execute("CREATE TABLE conversation (id INTEGER PRIMARY KEY, text TEXT)")
+        conn.execute("INSERT INTO conversation (text) VALUES ('example')")
+    (data / "auth.json").write_text('{"demo":true}')
+    blob = data / "blob"
+    blob.mkdir()
+    (blob / "target.bin").write_bytes(b"abc")
+    (blob / "link.bin").symlink_to("target.bin")
+    with sqlite3.connect(data / "app.db") as conn:
+        before = deployment.sql_schema(data)
+        snapshot = deployment.consistent_backup(data, tmp_path / "backups", "1" * 12)
+        assert (snapshot / "BACKUP_COMPLETE").is_file()
+        assert (snapshot / "data/auth.json").read_text() == '{"demo":true}'
+        assert (snapshot / "data/blob/link.bin").is_symlink()
+        assert (snapshot / "data/blob/link.bin").read_bytes() == b"abc"
+        with sqlite3.connect(snapshot / "data/app.db") as saved:
+            assert saved.execute("SELECT text FROM conversation").fetchone() == ("example",)
+        assert deployment.sql_schema(snapshot / "data") == before
+    assert not (snapshot / "data/app.db-wal").exists()
+
+
+def test_backup_refuses_escaping_symlinks(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "escaped").symlink_to(tmp_path.parent)
+    with pytest.raises(deployment.DeployError, match="symlink"):
+        deployment.consistent_backup(data, tmp_path / "backups", "2" * 12)
+
+
+def dummy_runtime(tmp_path, monkeypatch, *, schema_drift=False):
+    """Create a fully isolated deployment using mocks, never calling systemd."""
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    runtime = home / ".local/share/mnerys-preview"
+    old = runtime / "releases" / ("1" * 12)
+    new = runtime / "releases" / ("2" * 12)
+    for f in (old / "static/index.html", new / "static/index.html"):
+        f.parent.mkdir(parents=True)
+        f.write_text("Mnerys")
+    old_python = runtime / "venv/bin/python"
+    new_python = runtime / "venvs" / ("2" * 12) / "bin/python"
+    for f in (old_python, new_python):
+        f.parent.mkdir(parents=True)
+        f.write_text("dummy")
+    data = runtime / "data"
+    data.mkdir()
+    (data / "auth.json").write_text("{}")
+    (data / "app.db").write_text("test data mock")
+    service_name = "example-preview.service"
+    selection = home / ".config/mnerys-preview/app-unit"
+    selection.parent.mkdir(parents=True)
+    selection.write_text(service_name + "\n")
+    selection.chmod(0o600)
+    service_file = home / ".config/systemd/user" / service_name
+    service_file.parent.mkdir(parents=True)
+    original_unit = (
+        f"WorkingDirectory={old}\n"
+        f"Environment=PATH={old_python.parent}:/usr/bin\n"
+        f"ExecStart={old_python} -m uvicorn app:app\n"
+    )
+    service_file.write_text(original_unit)
+    envfile = home / ".config/mnerys-preview/runtime.env"
+    envfile.parent.mkdir(parents=True, exist_ok=True)
+    envfile.write_text("AUTH_ENABLED=true\nODYSSEUS_SOURCE_COMMIT=" + "1"*40 + "\n")
+    envfile.chmod(0o600)
+    monkeypatch.setattr(deployment, "public_endpoint", lambda private: "http://example.com:53921")
+    monkeypatch.setattr(deployment, "repo_revision", lambda repo: "2"*40)
+    monkeypatch.setattr(deployment, "migration_guard", lambda *args: None)
+    monkeypatch.setattr(deployment, "build_candidate", lambda *args: (new, new_python))
+    monkeypatch.setattr(deployment, "validate_candidate", lambda *args: None)
+    monkeypatch.setattr(deployment, "consistent_backup", lambda *args: tmp_path / "fake_backup")
+    calls = []
+    monkeypatch.setattr(deployment, "call", lambda args, **kwargs: calls.append(tuple(args)) or "")
+    schema_calls = []
+    def schema(_data):
+        schema_calls.append(1)
+        return {"app.db": "new"} if schema_drift and len(schema_calls)>1 else {"app.db": "old"}
+    monkeypatch.setattr(deployment, "sql_schema", schema)
+    return home, repo, service_file, envfile, original_unit, calls
+
+
+def test_validation_only_does_not_restart_or_change_private_config(tmp_path, monkeypatch):
+    home, repo, unit, env, oldunit, calls = dummy_runtime(tmp_path, monkeypatch)
+    result = deployment.deploy(repo, home, dry_run=True)
+    assert result["result"] == "validated"
+    assert unit.read_text() == oldunit
+    assert not calls
+
+
+def test_failed_candidate_restores_old_service_and_env(tmp_path, monkeypatch):
+    home, repo, unit, env, oldunit, calls = dummy_runtime(tmp_path, monkeypatch)
+    original_env = env.read_text()
+    revisions = []
+    def poll(_base, rev):
+        revisions.append(rev)
+        if rev.startswith("2"):
+            raise deployment.DeployError("simulated unhealthy candidate")
+    monkeypatch.setattr(deployment, "poll_live", poll)
+    monkeypatch.setattr(deployment, "trusted_readiness", lambda *args: None)
+    with pytest.raises(deployment.DeployError, match="previous healthy release restored"):
+        deployment.deploy(repo, home)
+    assert unit.read_text() == oldunit
+    assert env.read_text() == original_env
+    assert sum(cmd[2] == "restart" for cmd in calls if len(cmd)>2 and cmd[0]=="systemctl") == 2
+    assert revisions == ["2"*40, "1"*12]
+
+
+def test_schema_drift_stops_service_and_preserves_migrated_state(tmp_path, monkeypatch):
+    home, repo, unit, env, oldunit, calls = dummy_runtime(tmp_path, monkeypatch, schema_drift=True)
+    monkeypatch.setattr(
+        deployment, "poll_live",
+        lambda *args: (_ for _ in ()).throw(deployment.DeployError("simulated failure")),
+    )
+    monkeypatch.setattr(deployment, "trusted_readiness", lambda *args: None)
+    stopped = []
+    monkeypatch.setattr(
+        deployment.subprocess, "run",
+        lambda argv, **kwargs: stopped.append(tuple(argv)) or SimpleNamespace(returncode=0),
+    )
+    with pytest.raises(deployment.DeployError, match="manual recovery required"):
+        deployment.deploy(repo, home)
+    assert "2"*12 in unit.read_text()
+    assert any(cmd[2] == "stop" for cmd in stopped)
+
+
+def test_policy_docs_distinguish_implemented_from_planned():
+    docs = (ROOT / "docs/deployment/NATIVE_PREVIEW.md").read_text()
+    assert "deploy with validation and rollback" in docs.lower()
+    assert "scripts/deploy_native_preview.py" in docs
+    assert "SQLite" in docs
+    assert "<TAILSCALE_HOST>" in docs
