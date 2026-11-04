@@ -745,6 +745,43 @@ writers still use their inherited paths. The direct text-only composer
 still does not persist conversations. Hosted CI and live preview
 acceptance remain pending for this local commit.
 
+**Twenty-eighth incremental slice — typed, filtered direct-turn events:**
+the [Gateway facade](../../src/gateway_turns.py) now offers
+`open_composed_text_events(...)` for the already supported, non-persisting,
+tools-disabled direct text composer. It returns
+[TypedTurnDelivery with an in-process TurnOutcome](../../src/gateway_turn_events.py)
+and an async iterator of filtered [TurnEvent](../../src/gateway_turn_events.py)
+objects instead of requiring direct Python consumers to interpret raw SSE.
+The original Agent Loop and Web streaming path **still emit and consume their
+unchanged SSE frames**; a bounded transitional converter translates those
+frames only in the optional direct-client path.
+
+The converter recognizes visible text deltas, explicit final-response
+replacements, sanitized numeric usage, successful DONE completion and generic
+provider/Agent failures. It rejects oversized or malformed stream chunks,
+filters tool/approval/reasoning events and provider diagnostic text, handles
+CRLF, fragmented frames and duplicate DONE, and distinguishes incomplete
+EOF from success. A closed or cancelled async generator propagates
+cancellation and closes its inherited Agent Loop before security context
+unbinding. The result snapshot and monotonically increasing sequence are
+**process-local**, not durable turn records or replay cursors. There is no
+server-issued turn ID, remote event API or cross-process idempotence.
+
+[Transitional event contract](M2_1_TYPED_TURN_EVENTS.md) documents the exact
+mapping and security limitations.
+[Event protocol tests](../../tests/test_mnerys_gateway_turn_events.py)
+and [direct compositor integration tests](../../tests/test_mnerys_gateway_turn_composer.py)
+prove typed end-to-end execution without HTTP, admission denial before
+context I/O, sanitized failure metadata, terminal ordering and cancellation.
+Local suites passed **886 focused**, **191 routing/streaming**,
+**159 authority**, **160 peripheral**, **1,129 contract compatibility** and
+**148 extra schema/tool** tests (overlapping groups). No production Web
+serialization, persistence, stop/resume or approval behavior was changed.
+Hosted CI and live-model acceptance remain pending for this local commit.
+The [M2.1 exit gate](M2_1_EXIT_GATE.md) remains **PARTIAL** until the
+Agent Core itself emits native permission-filtered events and the complete
+Web/direct lifecycle is accepted.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

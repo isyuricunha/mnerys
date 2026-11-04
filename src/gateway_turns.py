@@ -43,6 +43,11 @@ from src.gateway_post_session_routing import (
     promote_admitted_document_edit_route,
 )
 from src.gateway_agent_execution import stream_admitted_agent_turn
+from src.gateway_turn_events import (
+    TurnOutcome,
+    TypedTurnDelivery,
+    translate_legacy_turn_events,
+)
 from src.gateway_assistant_persistence import (
     save_admitted_assistant_response,
     save_admitted_interrupted_assistant_response,
@@ -275,6 +280,38 @@ class GatewayTurns:
             do_research=do_research,
             tool_events=tool_events,
             incognito=incognito,
+        )
+
+    def open_composed_text_events(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        request: TextTurnRequest,
+        ports: ChatContextPorts,
+        chat_handler: Any,
+        chat_processor: Any,
+        settings: TrustedTextTurnSettings,
+    ) -> TypedTurnDelivery:
+        """Offer typed process-local events from the safe direct composer.
+
+        The returned iterator performs admitted validation on first consume;
+        this is neither a remote API nor a durable replayable event stream.
+        """
+        outcome = TurnOutcome()
+        stream = self.stream_composed_text_turn(
+            admission, session,
+            context_owner=context_owner,
+            request=request,
+            ports=ports,
+            chat_handler=chat_handler,
+            chat_processor=chat_processor,
+            settings=settings,
+        )
+        return TypedTurnDelivery(
+            events=translate_legacy_turn_events(stream, outcome),
+            outcome=outcome,
         )
 
     async def stream_composed_text_turn(

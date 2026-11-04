@@ -343,6 +343,116 @@ async def test_repeated_non_persisting_turns_do_not_accumulate_session_history(
     assert session.history == []
 
 
+
+
+@pytest.mark.asyncio
+async def test_composed_direct_turn_exposes_typed_events_and_final_result(monkeypatch):
+    from src.gateway_turn_events import TurnEvent, TurnOutcome
+
+    admission, session, ports, kwargs = fixture()
+    observed = []
+
+    async def provider(*_args, **options):
+        observed.append(options)
+        yield 'data: {"delta":"Typed "}\n\n'
+        yield 'data: {"delta":"answer"}\n\n'
+        yield 'data: {"type":"usage","data":{"input_tokens":9,"output_tokens":3,"model":"do-not-leak"}}\n\n'
+        yield 'data: [DONE]\n\n'
+
+    monkeypatch.setattr(turn_module, "stream_agent_loop", provider)
+    handle = GatewayTurns(TurnService()).open_composed_text_events(
+        admission, session, **kwargs,
+    )
+    assert isinstance(handle.outcome, TurnOutcome)
+    assert handle.outcome.state == "pending"
+    events = [item async for item in handle.events]
+    assert all(isinstance(item, TurnEvent) for item in events)
+    assert [item.type for item in events] == [
+        "message.delta", "message.delta", "usage",
+        "message.final", "turn.completed",
+    ]
+    assert events[-2].payload == {"text": "Typed answer"}
+    assert events[2].payload == {"input_tokens": 9, "output_tokens": 3}
+    assert "do-not-leak" not in repr(events)
+    assert handle.outcome.state == "completed"
+    assert handle.outcome.content == "Typed answer"
+    assert observed[0]["request_authority"].block_all
+    assert observed[0]["tool_policy"].disable_mcp
+    assert session.messages == []
+    assert "preface" in ports.operations
+
+
+@pytest.mark.asyncio
+async def test_direct_typed_events_propagate_admission_denial_before_context_io():
+    admission, session, ports, kwargs = fixture()
+    session.owner = "foreign"
+    handle = GatewayTurns(TurnService()).open_composed_text_events(
+        admission, session, **kwargs,
+    )
+    with pytest.raises(AdmissionDenied):
+        await gather(handle.events)
+    assert handle.outcome.state == "failed"
+    assert ports.operations == []
+    assert session.messages == []
+
+
+@pytest.mark.asyncio
+async def test_direct_typed_events_redact_provider_errors_without_marking_success(
+    monkeypatch,
+):
+    admission, session, ports, kwargs = fixture()
+
+    async def provider(*_args, **_kwargs):
+        yield 'data: {"delta":"Partial"}\n\n'
+        yield 'event: error\ndata: {"status":502,"error":"sensitive provider configuration"}\n\n'
+        yield 'data: [DONE]\n\n'
+
+    monkeypatch.setattr(turn_module, "stream_agent_loop", provider)
+    handle = GatewayTurns(TurnService()).open_composed_text_events(
+        admission, session, **kwargs,
+    )
+    events = await gather(handle.events)
+    assert [item.type for item in events] == ["message.delta", "turn.failed"]
+    assert events[-1].payload == {"code": "provider_error", "status": 502}
+    assert "sensitive provider configuration" not in repr(events)
+    assert handle.outcome.state == "failed"
+    assert not session.messages
+
+
+@pytest.mark.asyncio
+async def test_direct_typed_events_close_cancels_inherited_loop(monkeypatch):
+    admission, session, ports, kwargs = fixture()
+    cleanup = []
+
+    async def provider(*_args, **_kwargs):
+        try:
+            yield 'data: {"delta":"Partial"}\n\n'
+            yield "data: [DONE]\n\n"
+        finally:
+            cleanup.append(True)
+
+    monkeypatch.setattr(turn_module, "stream_agent_loop", provider)
+    handle = GatewayTurns(TurnService()).open_composed_text_events(
+        admission, session, **kwargs,
+    )
+    assert (await anext(handle.events)).type == "message.delta"
+    await handle.events.aclose()
+    assert handle.outcome.state == "cancelled"
+    assert cleanup == [True]
+    assert not session.messages
+
+
+def test_web_uses_inherited_sse_while_direct_composer_has_typed_event_surface():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    web = (root / "routes" / "chat_routes.py").read_text()
+    gateway = (root / "src" / "gateway_turns.py").read_text()
+    assert "gateway_turns.open_composed_text_events(" not in web
+    assert "def open_composed_text_events(" in gateway
+    assert "gateway_turns.stream_admitted_agent(" in web
+
+
+
 def test_composer_imports_no_web_or_http_and_declares_no_api():
     from src import gateway_turn_composer
 

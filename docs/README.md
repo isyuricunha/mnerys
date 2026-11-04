@@ -9,6 +9,7 @@ This index is the entry point for **current Mnerys documentation**. Documents in
 - [M1 design exit review](architecture/M1_EXIT_REVIEW.md) — verified audit/contract-design completion, not a shipped independent Gateway.
 - [M2 Gateway execution plan](architecture/M2_GATEWAY_IMPLEMENTATION_PLAN.md) — ordered implementation, authorization, migration and cross-transport acceptance gates.
 - [M2.1 executable-turn exit gate](architecture/M2_1_EXIT_GATE.md) — verified in-process Gateway execution and the remaining, finite completion criteria.
+- [M2.1 typed event compatibility boundary](architecture/M2_1_TYPED_TURN_EVENTS.md) — filtered process-local direct-turn events, terminal outcomes and explicit SSE/durability limits.
 - [Frontend architecture](frontend-architecture/handbook.md) — frontend design and implementation notes; verify historical assessments against current code.
 - [Runtime decomposition](runtime-decomposition/COMPARISON_PROTOCOL.md) — imported analysis and tests from the runtime refactoring effort; not a substitute for a new Mnerys architectural contract.
 

@@ -485,6 +485,28 @@ message writes, a new event log or a complete direct composer. See the
 [writer inventory](SESSION_WRITER_INVENTORY.md), and
 [real-stream cancellation tests](../../tests/test_foreground_model_routing.py).
 
+## M2.1 incremental implementation: filtered process-local typed events
+
+**Implemented only for the direct, text-only, tools-disabled composer.**
+The [Gateway facade](../../src/gateway_turns.py) can now expose
+[TypedTurnDelivery](../../src/gateway_turn_events.py) with a stream of
+filtered internal events and a mutable completion snapshot. The inherited
+Agent Loop still outputs SSE; a bounded compatibility translator converts
+only visible message deltas, explicit final text, integer usage and
+generic terminal states, filtering tool/approval/reasoning/provider raw
+payloads. Duplicate DONE cannot turn one success into two terminal events;
+provider failures cannot become successes after late DONE; incomplete EOF
+fails closed. Cancellation and close propagate to the existing model-loop
+generator, preserving its original bridge and contract context lifecycle.
+
+This **does not implement** the proposed server-issued `turn_id`, durable
+`seq`, restart-safe replay, authenticated event API or native Agent Core
+event publisher. Production Web Chat and Agent continue to use the original
+SSE transport and response writers unchanged. See the
+[transitional mapping and security boundaries](M2_1_TYPED_TURN_EVENTS.md),
+[typed event regression tests](../../tests/test_mnerys_gateway_turn_events.py)
+and [direct composer tests](../../tests/test_mnerys_gateway_turn_composer.py).
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

@@ -5,6 +5,7 @@ The [Mnerys roadmap](../ROADMAP.md) defines the **target** Python Agent Core, au
 - [M1 design exit review](M1_EXIT_REVIEW.md) — completed design deliverables, verified scope and explicit operational limits.
 - [M2 Gateway implementation plan](M2_GATEWAY_IMPLEMENTATION_PLAN.md) — prioritized Core/Gateway extraction, durable-state migration, real transport acceptance, rollback gates.
 - [M2.1 executable-turn exit gate](M2_1_EXIT_GATE.md) — first direct Gateway/Agent Loop proof and four explicit remaining acceptance gates.
+- [M2.1 typed direct-turn events](M2_1_TYPED_TURN_EVENTS.md) — transitional filtered Python event stream and completion snapshot without changing production Web SSE.
 - [M2.1 context service ports](M2_CONTEXT_SERVICE_PORTS.md) — implemented injectable dependencies, current legacy adapter, security boundaries and remaining coupling.
 - [M1 audit of the inherited runtime](AGENT_CORE_GATEWAY_M1_AUDIT.md) — verified source map, existing security seams and extraction order.
 - [Proposed Gateway / Agent Core contract](GATEWAY_AGENT_CONTRACT.md) — draft entities, responsibilities, events, approvals and compatibility gates.
