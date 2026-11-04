@@ -41,6 +41,10 @@ from src.gateway_turn_capabilities import classify_admitted_turn_capabilities
 from src.gateway_tool_intent import select_admitted_tool_intent
 from src.gateway_routed_contract import resolve_admitted_routed_contract
 from src.gateway_agent_execution import stream_admitted_agent_turn
+from src.gateway_attachment_context import (
+    validate_text_attachment_ids, resolve_admitted_text_attachments,
+)
+from src.prompt_security import untrusted_context_message
 from src.gateway_foreground_routes import (
     resolve_admitted_foreground_policy, build_admitted_foreground_routes,
 )
@@ -62,6 +66,8 @@ class TextTurnRequest:
     """Only untrusted user message text; no credentials, tool grants or paths."""
 
     message: str
+    # Untrusted ID selectors; resolved by the owner-scoped server upload port.
+    attachment_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -170,6 +176,7 @@ async def stream_composed_text_turn(
     if not isinstance(turns, TurnService):
         raise AdmissionDenied(403, "Invalid server agent runtime")
     continuation = isinstance(request, ToolApprovalTurnRequest)
+    attachment_ids = ()
     if continuation:
         if (
             type(request.approval_id) is not str or not request.approval_id
@@ -178,6 +185,8 @@ async def stream_composed_text_turn(
             raise AdmissionDenied(403, "Invalid direct approval control")
     elif not isinstance(request, TextTurnRequest) or not isinstance(request.message, str) or not request.message.strip():
         raise AdmissionDenied(403, "Invalid direct text turn")
+    else:
+        attachment_ids = validate_text_attachment_ids(request.attachment_ids)
     if not isinstance(settings, TrustedTextTurnSettings):
         raise AdmissionDenied(403, "Invalid trusted turn settings")
     if type(native_tool_events) is not bool:
@@ -212,6 +221,12 @@ async def stream_composed_text_turn(
     ):
         raise AdmissionDenied(403, "Invalid trusted fallback model allowance")
     tools_enabled = bool(settings.offered_tools)
+    if attachment_ids and (tools_enabled or persistence is not None or
+                           settings.workspace is not None or
+                           settings.active_document_id is not None):
+        # This first supported upload profile is reference-only. It must
+        # never mint file grants or silently persist a multimodal message.
+        raise AdmissionDenied(403, "Direct attachments require a read-only text turn")
     if persistence is not None:
         require_trusted_text_persistence(persistence)
         if (tools_enabled or continuation or settings.workspace is not None
@@ -416,6 +431,15 @@ async def stream_composed_text_turn(
         owner=owner, session_id=session_id,
     )
 
+    # Resolve owner-bound uploaded files before preprocessing any user content.
+    # The server upload manifest is checked again after async processing to
+    # reject missing, substituted or rewritten file snapshots.
+    upload_handler = getattr(chat_handler, "upload_handler", None)
+    attachments = resolve_admitted_text_attachments(
+        attachment_ids=attachment_ids, owner=owner,
+        upload_handler=upload_handler, ports=ports,
+    )
+
     # The real shared context algorithm is used unchanged with the injected
     # trusted ports. Do not append an orphaned user message while the response
     # finalization/persistence service is still owned by Web.
@@ -424,7 +448,10 @@ async def stream_composed_text_turn(
         session, owner, chat_handler, chat_processor,
         message=message,
         session_id=session_id,
+        att_ids=list(attachment_ids),
         ports=ports,
+        continuation_context_message=message if attachment_ids else None,
+        allow_attachment_preprocessing=bool(attachment_ids),
         use_web=False,
         use_rag="false",
         no_memory=True,
@@ -445,11 +472,38 @@ async def stream_composed_text_turn(
     # the originating context without appending the approval choice.
     if not isinstance(context.preprocessed.user_content, str):
         raise AdmissionDenied(403, "Direct composer supports text messages only")
+    attachment_text = None
+    if attachment_ids:
+        if (
+            resolve_admitted_text_attachments(
+                attachment_ids=attachment_ids, owner=owner,
+                upload_handler=upload_handler, ports=ports,
+            ) != attachments
+            or context.auto_opened_docs
+            or len(context.preprocessed.attachment_meta) != len(attachment_ids)
+            or tuple(item.get("id") for item in context.preprocessed.attachment_meta
+                     if isinstance(item, dict)) != attachment_ids
+            or len(context.uploaded_files) != len(attachment_ids)
+            or tuple(item.get("id") for item in context.uploaded_files
+                     if isinstance(item, dict)) != attachment_ids
+            or not context.preprocessed.user_content.startswith(message)
+        ):
+            raise AdmissionDenied(409, "Selected text attachment changed during preparation")
+        attachment_text = context.preprocessed.user_content[len(message):].strip()
+        if not attachment_text or len(attachment_text) > 65536:
+            raise AdmissionDenied(409, "Unsupported direct attachment content")
     model_messages = list(context.messages)
     # Restore only the sealed originating input for a non-persisted turn.
     # An already stored copy is not appended again. The control choice is
     # never user text and never enters authority construction.
-    if (persistence is None and not continuation) or (continuation and not any(
+    if attachment_text is not None:
+        # Content extracted from an upload is data, never the user's request.
+        # The existing preface sees only the original request, not the file.
+        model_messages.append(untrusted_context_message(
+            "current user-selected text attachments", attachment_text,
+        ))
+        model_messages.append({"role": "user", "content": message})
+    elif (persistence is None and not continuation) or (continuation and not any(
         isinstance(item, dict) and item.get("role") == "user"
         and item.get("content") == context.preprocessed.user_content
         for item in model_messages

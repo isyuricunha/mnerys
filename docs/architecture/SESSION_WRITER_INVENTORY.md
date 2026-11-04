@@ -247,3 +247,21 @@ provider. Opting in requires both a trusted nonempty model allowlist and
 the admitted owner's foreground fallback preference. Synthetic no-network
 acceptance lives in
 [direct fallback tests](../../tests/test_mnerys_gateway_direct_fallback.py).
+
+## M2.1 direct upload reader with no conversation writes
+
+The direct text-upload profile reuses the current owner's
+`UploadHandler.resolve_upload`, existing uploaded-file manifest
+and inherited ChatHandler text extractor. Selection and actual bytes are
+validated before and after asynchronous preprocessing; only small text
+files can enter the non-persisting direct request context. No alternate
+upload database, session message writer, PDF document creator or file
+mutation tool was added. The profile explicitly forbids conversation
+persistence and tool-enabled turns; the Agent Loop receives untrusted text
+context, never a new tool-visible upload path.
+
+The existing upload index may still update access/reservation bookkeeping
+through its original owner-scoped code; this does not create a new
+message-write or exactly-once guarantee. See
+[direct attachment acceptance](../../tests/test_mnerys_gateway_direct_attachments.py).
+General multimodal upload/storage parity remains open.

@@ -132,6 +132,7 @@ class ChatHandler:
         sess,
         auto_opened_docs: Optional[List[Dict[str, Any]]] = None,
         allow_tool_preprocessing: bool = True,
+        allow_attachment_preprocessing: bool = False,
     ) -> tuple:
         """
         Common preprocessing for both chat endpoints.
@@ -181,7 +182,9 @@ class ChatHandler:
         # bearer-like references; never trust them without an owner check.
         files_by_id: Dict[str, Dict] = {}
         owner = getattr(sess, "owner", None)
-        effective_att_ids = att_ids if allow_tool_preprocessing else []
+        effective_att_ids = (
+            att_ids if (allow_tool_preprocessing or allow_attachment_preprocessing) else []
+        )
         if effective_att_ids:
             for att_id in effective_att_ids:
                 fi = self.upload_handler.resolve_upload(att_id, owner=owner)
@@ -207,7 +210,7 @@ class ChatHandler:
         # so guide-only/no-tools turns must not reach it.
         vision_enabled = False
         main_is_vision = False
-        if effective_att_ids:
+        if effective_att_ids and allow_tool_preprocessing:
             from src.settings import get_setting
             vision_enabled = get_setting("vision_enabled", True)
             if vision_enabled:

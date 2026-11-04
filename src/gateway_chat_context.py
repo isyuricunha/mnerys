@@ -48,6 +48,7 @@ async def assemble_chat_context(
     on_user_message_persisted: Callable[[], None] | None = None,
     ports: ChatContextPorts | None = None,
     require_text_user_content: bool = False,
+    allow_attachment_preprocessing: bool = False,
 ) -> ChatContext:
     """Build the full context (preface + messages) for an LLM call.
 
@@ -74,6 +75,8 @@ async def assemble_chat_context(
         chat_handler, message, att_ids or [], sess,
         auto_opened_docs=auto_opened_docs,
         allow_tool_preprocessing=allow_tool_preprocessing,
+        **({"allow_attachment_preprocessing": True}
+           if allow_attachment_preprocessing else {}),
     )
 
     # The direct persisted text profile must not append a multimodal user

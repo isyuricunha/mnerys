@@ -391,3 +391,26 @@ verify a synthetic real-Loop fallback to an allowed model, blocked and
 noneligible routes, account scoping, partial-output pinning and cleanup.
 No real provider was used, and Web-versus-direct event parity remains
 unverified.
+
+## Direct text attachment context without new authority
+
+One restricted non-persisting direct text profile can now select owner-scoped
+uploaded text references, with at most four small files. Selection IDs are
+untrusted, so the trusted upload manifest/resolver confirms current owner,
+path confinement, name/MIME, stored SHA-256 and actual file bytes before
+the inherited ChatHandler extracts text. The snapshot is checked again
+after async context preparation.
+
+The model receives a guarded `untrusted_context_message` containing the
+extracted file text followed by the *original user's request*, keeping
+file instructions out of the user command and request authority. File text,
+upload paths and checksums are not emitted in typed events or granted to
+tools. Direct tool use, approval continuation and message persistence remain
+unsupported for this attachment profile. Default Web preprocessing is
+unchanged; direct attachment preprocessing does not fetch URLs or probe
+vision models.
+
+[Isolated direct attachment tests](../../tests/test_mnerys_gateway_direct_attachments.py)
+verify no conversation writes, cross-owner denial, altered files,
+prompt-guard escaping and compatibility with the existing Web context
+ports. Images, audio, rich documents and Web parity remain open.

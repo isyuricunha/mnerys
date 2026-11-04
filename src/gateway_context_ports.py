@@ -26,6 +26,7 @@ class ChatContextPorts(Protocol):
         *,
         auto_opened_docs: list,
         allow_tool_preprocessing: bool,
+        allow_attachment_preprocessing: bool = False,
     ) -> Any: ...
 
     def append_user_message(

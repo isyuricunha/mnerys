@@ -18,7 +18,7 @@ These checks prove an internal executable boundary, **not** a fully independent 
 
 ## Remaining M2.1 completion gates
 
-1. **One admitted turn composer — PARTIAL, acceptance OPEN.** A single-call, **text-input** direct composer is implemented and tested, remaining non-persisting by default with an opt-in trusted text persistence profile. Tools remain disabled by default; a server-selected native surface now traverses the original inventory, policy, authority, contract and execution services. The production Web stream now validates its five terminal saves and both stopped-partial saves through the admitted Gateway, and prevents duplicates within the same completed stream. The inherited writers remain unchanged. The direct composer now offers opt-in persistence for an admitted, tools-disabled text turn: the shared context writer saves the user message, and the existing admitted assistant saver writes the completed reply before the typed completion acknowledgement. Failure to write the reply returns a generic persistence failure. This is a sequential pair of legacy writes, not a fenced or atomic whole-turn transaction. An optional server-owned interrupted writer now retains only filtered visible partials after failure, cancellation or early close, using the existing admitted stopped-response writer. Completion frames are withheld until the assistant write succeeds; ambiguous failures are never blindly retried. Expand this existing application operation to the actual Web feature set — owner-bound tool inventory/contract, active document/email, uploads, full Web parity for model fallback, full UI-bound approval continuation and message/response persistence — without duplicating logic. Do not allow a remote caller to deserialize a RequestAuthority, policy, principal or bridge. Today, [the Web route](../../routes/chat_routes.py) still orchestrates production features before it calls Gateway execution.
+1. **One admitted turn composer — PARTIAL, acceptance OPEN.** A single-call, **text-input** direct composer is implemented and tested, remaining non-persisting by default with an opt-in trusted text persistence profile. Tools remain disabled by default; a server-selected native surface now traverses the original inventory, policy, authority, contract and execution services. The production Web stream now validates its five terminal saves and both stopped-partial saves through the admitted Gateway, and prevents duplicates within the same completed stream. The inherited writers remain unchanged. The direct composer now offers opt-in persistence for an admitted, tools-disabled text turn: the shared context writer saves the user message, and the existing admitted assistant saver writes the completed reply before the typed completion acknowledgement. Failure to write the reply returns a generic persistence failure. This is a sequential pair of legacy writes, not a fenced or atomic whole-turn transaction. An optional server-owned interrupted writer now retains only filtered visible partials after failure, cancellation or early close, using the existing admitted stopped-response writer. Completion frames are withheld until the assistant write succeeds; ambiguous failures are never blindly retried. Expand this existing application operation to the actual Web feature set — owner-bound tool inventory/contract, active document/email, rich uploads/multimodal input, full Web parity for model fallback, full UI-bound approval continuation and message/response persistence — without duplicating logic. Do not allow a remote caller to deserialize a RequestAuthority, policy, principal or bridge. Today, [the Web route](../../routes/chat_routes.py) still orchestrates production features before it calls Gateway execution.
 2. **Transport-neutral turn result and lifecycle — PARTIAL, acceptance OPEN.** The direct no-tools text composer returns [filtered, typed process-local events and an in-memory outcome](M2_1_TYPED_TURN_EVENTS.md). The Agent Core emits native completion, post-gate answer text, safe final metrics and sanitized failures in that restricted mode; provider ingress and tool/approval/other events still arrive as SSE. Production Web remains on its unchanged legacy SSE path. Native tool start/progress/output metadata and sealed approval observations are implemented behind a separate admitted runtime option. Extend the remaining Core event families and full client tool/approval rendering, preserve exact-run stop/finish/reconnect semantics, response persistence/partial saves and approval continuity, then move serialization exclusively to adapters. Durable replay and cross-process transactional fencing belong to later [M2 storage work](SESSION_REVISION_MIGRATION.md); do **not** claim them as part of this in-process gate.
 3. **Web compatibility and direct-client parity — OPEN.** Route the existing Web chat path through the single composer, then add no-HTTP full-turn tests and Web-versus-direct parity for browser/bearer admission, tools, Plan/Compare, incognito, attachment/document inputs, approval continuations, model fallback, interruption and error persistence. At least one controlled **real model** turn and full CI are required before accepting the cutover; synthetic model fixtures alone are insufficient.
 4. **Evidence and scope audit — OPEN.** Audit the final diff against the [session-writer inventory](SESSION_WRITER_INVENTORY.md) and [M1 contract regression baseline](M1_CONTRACT_TEST_BASELINE.md), validate that no new tool grants, user/session writes, remote entry points or secret-bearing examples slipped in, and update the roadmap. Deployment is a separate approved step with backup and rollback checks.
@@ -274,3 +274,42 @@ omits legacy `fallback`/provider-route metadata, which still needs a
 safe, typed form for client attribution before Web parity is claimed.
 The production Web route, real-provider acceptance, persisted answering
 route attribution, durable replay and complete M2.1 cutover remain open.
+
+### Owner-scoped direct text-upload context — November 4, 2026
+
+The [restricted direct text attachment profile](../../src/gateway_attachment_context.py)
+accepts up to four untrusted attachment IDs on a non-persisting,
+**tools-disabled, no-workspace** direct text turn. Invalid selectors are
+rejected before context I/O. The existing Web upload manifest port and
+`UploadHandler.resolve_upload` check the admitted owner, canonical upload
+root/path, metadata and actual SHA-256 bytes before processing. The
+attachment snapshot (path, inode, size, hash, ID and metadata) is verified
+again after asynchronous preprocessing. Missing, cross-owner, moved,
+changed, too large or unsupported files fail closed.
+
+Only bounded UTF-8 text files (`.txt`, `.md`, `.markdown`,
+`.csv`, `.json`, `.log`) and corresponding text MIME types are currently
+supported. Binary and invalid UTF-8 payloads are rejected. The inherited ChatHandler and document text extractor read
+their content. A separately admitted `allow_attachment_preprocessing`
+flag lets these files be parsed without re-enabling the existing URL,
+YouTube, vision/VL or other tool-driven preprocessing. The default Web
+and port signatures preserve the old behavior unless this flag is set.
+
+The user-selected file content is appended as an explicitly guarded
+`untrusted_context_message`, **not** merged into the direct user's
+instruction or the system preface. The original request text alone
+drives tool intent/authority. No uploaded paths are offered to the Agent
+Loop as a new tool grant. The selected text upload remains read-only;
+no user or assistant message is stored by this profile.
+
+[Direct attachment acceptance](../../tests/test_mnerys_gateway_direct_attachments.py)
+uses the original ChatHandler text processor with isolated temporary
+upload files, owner-aware manifest fixtures and a fake model. It exercises
+guard-marker injection, owner isolation, invalid IDs, size/format
+constraints, symlinks and changed source bytes, no tool/persistence
+escalation, default Web port compatibility and disabled URL/vision probes.
+
+This does **not** complete general uploads, images/vision, audio,
+PDF editor auto-creation, binary parsing, attachment-to-tool grants,
+incognito persistence, transactional path fencing or real-provider/Web
+parity. Those remain M2.1 acceptance work.
