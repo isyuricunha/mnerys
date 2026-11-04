@@ -668,6 +668,43 @@ live model/preview acceptance have not run for this local commit.
 The [M2.1 exit gate](M2_1_EXIT_GATE.md) marks the first composer
 **PARTIAL**, with feature parity/persistence and typed events still open.
 
+**Twenty-sixth incremental slice — owner-admitted terminal assistant saves:**
+the five assistant-response save branches of
+[the existing Web stream](../../routes/chat_routes.py) now call
+[GatewayTurns.save_assistant_response](../../src/gateway_turns.py), which
+validates the **issued admission, loaded session, context owner and claimed
+session ID** before delegating to a trusted
+[session-admitted persistence adapter](../../src/gateway_assistant_persistence.py).
+That adapter invokes exactly the **existing**
+[save_assistant_response](../../routes/chat_helpers.py) implementation,
+without introducing another DB writer, transaction, schema or message
+serializer. This preserves thinking/DSML cleanup, response metadata,
+incognito isolation, upload/history behavior, last-access updates,
+message IDs and existing save failure semantics.
+
+Both ordinary Chat and Agent-mode successful responses, early metrics
+finalization and terminal error results pass through this owner check.
+Existing per-branch terminal-save flags still prevent a duplicate save on
+late DONE/metrics events. **Partial replies stored on cancellation or
+disconnect still use their inherited direct session writer**, as does the
+synchronous Chat path. This slice does not provide atomic user+assistant
+turn commits, durable idempotence or incarnation/revision fencing.
+The [legacy writer inventory](SESSION_WRITER_INVENTORY.md) and
+[M2.1 exit gate](M2_1_EXIT_GATE.md) retain those migration requirements.
+The direct text-only composer remains intentionally **non-persisting** until
+a server-owned transaction/turn finalization contract can be validated.
+
+[Admitted save parity tests](../../tests/test_mnerys_gateway_assistant_persistence.py)
+check exact passthrough of model metadata, source lists, incognito and message
+ID, three credential forms, malformed arguments and forged/cross-owner
+sessions **before calling the legacy saver**. Source handoff tests assert
+that all five terminal save sites invoke the Gateway boundary; the original
+[chat helpers regressions](../../tests/test_chat_helpers.py) remain in
+the focused suite. Local tests passed **839 focused**, **185 routing**,
+**159 authority**, **160 peripheral**, **1,129 compatibility** and
+**148 extra tool/schema** cases (groups overlap). Hosted CI and preview
+acceptance remain unverified for this local commit.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

@@ -448,6 +448,25 @@ does not yet use the direct composer. Tool-enabled composition, approval
 continuity, attachment/document input, durable writes and typed turn
 events are pending. See the [M2.1 exit gate](M2_1_EXIT_GATE.md).
 
+## M2.1 incremental implementation: admitted terminal-response persistence
+
+**Implemented only as an owner check around the inherited Web writer.**
+[GatewayTurns](../../src/gateway_turns.py) now calls the
+[admitted assistant persistence service](../../src/gateway_assistant_persistence.py)
+for five terminal-response save sites, checking the issued session, loaded
+owner, caller context and claimed session ID before invoking the existing
+[legacy save helper](../../routes/chat_helpers.py). Both successful and
+terminal failure metadata, incognito handling and saved message IDs retain
+their previous path. This is **not** a new persistence engine, atomic
+user+assistant commit or production revision-fenced transaction.
+
+Cancelled/disconnected partial responses, synchronous Chat writes and
+the new direct in-process text composer still have their previous
+persistence behavior. [The writer inventory](SESSION_WRITER_INVENTORY.md)
+and [M2.1 exit gate](M2_1_EXIT_GATE.md) remain authoritative on
+these incomplete migration gates. See
+[admitted save tests](../../tests/test_mnerys_gateway_assistant_persistence.py).
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

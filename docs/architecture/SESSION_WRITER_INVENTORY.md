@@ -21,6 +21,32 @@ The following paths were checked against the current source; links point to modu
 
 The codebase also has other data stores (documents, mail, calendar, memory, tasks) with their own transactions. They must retain independent persistence and ACLs; merely sharing the SQLAlchemy engine does not make those records part of the session revision protocol.
 
+## M2.1 compatibility: admitted assistant terminal saves
+
+**Implemented only as an admission/ownership boundary around the same writer;
+no new database protocol or schema is activated.**
+The five completed/terminal-failure assistant response saves in the
+[Web streaming route](../../routes/chat_routes.py) now enter the
+[Gateway-admitted persistence adapter](../../src/gateway_assistant_persistence.py)
+and then invoke the unchanged
+[legacy response saver](../../routes/chat_helpers.py).
+The issued admission, loaded session, context owner and submitted session ID
+must agree before any call to the writer. Existing response normalization,
+tool/thinking metadata, incognito handling, message IDs, last-access updates
+and write failures preserve their inherited semantics. There is still no
+transactional pair across user and assistant messages.
+
+**Not migrated:** interrupted/disconnected partial response inserts, the
+synchronous Chat response writer, message-count consistency during concurrent
+writes, and the direct no-tools test composer (which remains non-persisting).
+The [fenced-writer prototype](../../src/session_write_fencing.py) remains
+inactive in production. The [M2.1 exit gate](M2_1_EXIT_GATE.md) requires a
+server-owned complete-turn writer and cross-client parity before any cutover.
+[New admission/compatibility tests](../../tests/test_mnerys_gateway_assistant_persistence.py)
+verify five Web save call sites and fail-closed owner checks without opening a
+real database. This is **not** evidence of durable turn acknowledgements,
+idempotent retries, transaction fencing or a tested production migration.
+
 ## Incremental live compatibility extraction: message preparation
 
 **Implemented and exercised in the inherited server writers.** The lightweight [`src/session_message_preparation.py`](../../src/session_message_preparation.py) centralizes conversion of message content and metadata to one immutable `PreparedSessionMessage`. It reuses the existing `persistable_message_content` transformer and exact `json.dumps` metadata format, including stripping inline media data URLs from the persisted **content** field. It intentionally performs **no database access, session authorization, upload reservation, approval decisions or commits**.

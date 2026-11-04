@@ -3849,12 +3849,15 @@ def setup_chat_routes(
                                 if thinking_response.strip():
                                     _terminal_metrics["thinking"] = thinking_response.strip()
                                 _commit_chat_compaction(_actual_candidate_index)
-                                _saved_id = save_assistant_response(
+                                _saved_id = gateway_turns.save_assistant_response(
+                                    _admitted_session,
                                     sess,
                                     session_manager,
                                     session,
                                     _terminal_content,
                                     _terminal_metrics,
+                                    context_owner=ctx.user,
+                                    saver=save_assistant_response,
                                     character_name=ctx.preset.character_name,
                                     incognito=incognito,
                                 )
@@ -3935,8 +3938,11 @@ def setup_chat_routes(
                                 )
                                 if thinking_response.strip() and not _metrics_to_save.get("thinking"):
                                     _metrics_to_save["thinking"] = thinking_response.strip()
-                                _saved_id = save_assistant_response(
+                                _saved_id = gateway_turns.save_assistant_response(
+                                    _admitted_session,
                                     sess, session_manager, session, _response_to_save, _metrics_to_save,
+                                    context_owner=ctx.user,
+                                    saver=save_assistant_response,
                                     character_name=ctx.preset.character_name,
                                     web_sources=web_sources,
                                     rag_sources=ctx.rag_sources,
@@ -4226,12 +4232,15 @@ def setup_chat_routes(
                                     else:
                                         terminal_content = failure_note
                                     if not _terminal_saved:
-                                        _saved_id = save_assistant_response(
+                                        _saved_id = gateway_turns.save_assistant_response(
+                                            _admitted_session,
                                             sess,
                                             session_manager,
                                             session,
                                             terminal_content,
                                             terminal_metadata,
+                                            context_owner=ctx.user,
+                                            saver=save_assistant_response,
                                             character_name=ctx.preset.character_name,
                                             web_sources=web_sources,
                                             rag_sources=ctx.rag_sources,
@@ -4289,12 +4298,15 @@ def setup_chat_routes(
                                         _metrics_to_save = dict(last_metrics)
                                         if thinking_response.strip() and not _metrics_to_save.get("thinking"):
                                             _metrics_to_save["thinking"] = thinking_response.strip()
-                                        _saved_id = save_assistant_response(
+                                        _saved_id = gateway_turns.save_assistant_response(
+                                            _admitted_session,
                                             sess,
                                             session_manager,
                                             session,
                                             _saveable_no_tool_response,
                                             _metrics_to_save,
+                                            context_owner=ctx.user,
+                                            saver=save_assistant_response,
                                             character_name=ctx.preset.character_name,
                                             web_sources=web_sources,
                                             rag_sources=ctx.rag_sources,
@@ -4336,8 +4348,11 @@ def setup_chat_routes(
                                             break
                                 if thinking_response.strip() and not _metrics_to_save.get("thinking"):
                                     _metrics_to_save["thinking"] = thinking_response.strip()
-                                _saved_id = save_assistant_response(
+                                _saved_id = gateway_turns.save_assistant_response(
+                                    _admitted_session,
                                     sess, session_manager, session, _response_to_save, _metrics_to_save,
+                                    context_owner=ctx.user,
+                                    saver=save_assistant_response,
                                     character_name=ctx.preset.character_name,
                                     web_sources=web_sources,
                                     rag_sources=ctx.rag_sources,

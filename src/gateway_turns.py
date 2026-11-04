@@ -43,6 +43,7 @@ from src.gateway_post_session_routing import (
     promote_admitted_document_edit_route,
 )
 from src.gateway_agent_execution import stream_admitted_agent_turn
+from src.gateway_assistant_persistence import save_admitted_assistant_response
 from src.gateway_turn_composer import (
     TextTurnRequest,
     TrustedTextTurnSettings,
@@ -215,6 +216,42 @@ class GatewayTurns:
             plan_mode=plan_mode,
             internal_tool_request=internal_tool_request,
             store=store,
+        )
+
+    def save_assistant_response(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        session_manager: Any,
+        claimed_session_id: str,
+        full_response: str,
+        last_metrics: dict | None,
+        *,
+        context_owner: str | None,
+        saver: Callable[..., Any],
+        character_name: str | None = None,
+        web_sources: list | None = None,
+        rag_sources: list | None = None,
+        research_sources: list | None = None,
+        used_memories: list | None = None,
+        do_research: bool = False,
+        tool_events: list | None = None,
+        incognito: bool = False,
+    ) -> Any:
+        """Persist through the inherited writer after owner-bound admission."""
+        return save_admitted_assistant_response(
+            admission, session, session_manager, claimed_session_id,
+            full_response, last_metrics,
+            context_owner=context_owner,
+            saver=saver,
+            character_name=character_name,
+            web_sources=web_sources,
+            rag_sources=rag_sources,
+            research_sources=research_sources,
+            used_memories=used_memories,
+            do_research=do_research,
+            tool_events=tool_events,
+            incognito=incognito,
         )
 
     async def stream_composed_text_turn(
