@@ -52,6 +52,7 @@ async def stream_admitted_agent_turn(
     workspace: str | None,
     turn_contract: Any,
     native_terminal_events: bool = False,
+    native_tool_events: bool = False,
     **runtime_options: Any,
 ) -> AsyncGenerator[str | CoreNativeEvent, None]:
     """Execute the inherited Agent Loop only for a matching admitted turn.
@@ -97,6 +98,8 @@ async def stream_admitted_agent_turn(
         raise AdmissionDenied(403, "Agent request authority does not match admission")
     if _PROTECTED_AGENT_FIELDS.intersection(runtime_options):
         raise AdmissionDenied(403, "Protected agent execution field cannot be overridden")
+    if type(native_tool_events) is not bool:
+        raise AdmissionDenied(403, "Invalid trusted native tool routing flag")
     if type(native_terminal_events) is not bool:
         raise AdmissionDenied(403, "Invalid trusted native terminal routing flag")
     if native_terminal_events and (
@@ -128,6 +131,8 @@ async def stream_admitted_agent_turn(
     )
 
     options = dict(runtime_options)
+    if native_tool_events:
+        options["native_tool_events"] = True
     if native_terminal_events:
         # An explicit, admitted, no-tools Python consumer opts into Core
         # terminal objects; legacy Web receives the same original SSE bytes.

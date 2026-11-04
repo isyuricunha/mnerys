@@ -1,10 +1,8 @@
-"""Native, transport-independent Agent Core terminal signals.
+"""Immutable in-process Agent Core observations, never authorization grants.
 
-The inherited Agent Loop still emits legacy SSE for most event families.
-An explicitly opted-in, tools-disabled local turn can now receive this
-immutable completion signal directly from the Agent Core, before an SSE
-serializer runs. This is an incremental transition, not the final durable
-TurnEvent protocol, a session identifier or an authorization decision.
+Native text/terminal mode remains restricted to tools-disabled direct turns.
+Separately opted-in admitted runtimes can emit filtered tool metadata and
+sealed approval references. These are not durable, replayable event records.
 """
 
 from dataclasses import dataclass
@@ -45,7 +43,28 @@ class CoreFailureEvent:
     status: int | None = None
 
 
-CoreNativeEvent = CoreTerminalEvent | CoreTextEvent | CoreMetricsEvent | CoreFailureEvent
+@dataclass(frozen=True, slots=True)
+class CoreToolEvent:
+    """Tool lifecycle metadata without arguments, results or provider IDs."""
+
+    type: Literal["tool.started", "tool.progress", "tool.completed", "tool.failed",
+                  "tool.blocked", "tool.awaiting_approval"]
+    tool: str | None = None
+    round: int | None = None
+    exit_code: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CoreApprovalEvent:
+    """Opaque sealed approval reference; never an execution grant."""
+
+    type: Literal["approval.requested", "approval.decided"]
+    approval_id: str
+    decision: Literal["approve", "approve_task", "deny"] | None = None
+
+
+CoreNativeEvent = (CoreTerminalEvent | CoreTextEvent | CoreMetricsEvent
+                   | CoreFailureEvent | CoreToolEvent | CoreApprovalEvent)
 
 
 def core_metrics_event(data: dict) -> CoreMetricsEvent:

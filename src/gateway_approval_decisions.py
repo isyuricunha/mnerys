@@ -9,6 +9,7 @@ durable approval persistence or a remote approval API.
 from dataclasses import dataclass
 from typing import Any
 
+from src.agent_core_events import CoreApprovalEvent
 from src.gateway_admission import AdmittedSession, AdmissionDenied, require_admitted_session
 from src.tool_approvals import ExactToolApproval, PendingToolApproval, ToolApprovalStore
 
@@ -20,6 +21,13 @@ class ToolApprovalDecision:
     decision: str
     pending: PendingToolApproval
     exact: ExactToolApproval | None
+
+    @property
+    def event(self) -> CoreApprovalEvent:
+        """Observation of the already-consumed decision, not a new grant."""
+        return CoreApprovalEvent(
+            "approval.decided", self.pending.approval_id, self.decision,
+        )
 
     @property
     def tainted(self) -> bool:

@@ -33,8 +33,10 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
+from src.agent_tool_events import native_tool_events_enabled
 from src.agent_core_events import (
     CoreTerminalEvent, CoreTextEvent, CoreMetricsEvent, CoreFailureEvent,
+    CoreToolEvent, CoreApprovalEvent,
     completed_core_event,
 )
 
@@ -78,7 +80,7 @@ def with_teacher_takeover(func):
                         failed = True
                         yield chunk
                         continue
-                    if isinstance(chunk, (CoreTextEvent, CoreMetricsEvent)):
+                    if isinstance(chunk, (CoreTextEvent, CoreMetricsEvent, CoreToolEvent, CoreApprovalEvent)):
                         yield chunk
                         continue
                     if chunk.strip() == 'data: [DONE]':
@@ -98,6 +100,9 @@ def with_teacher_takeover(func):
                             if isinstance(chunk, CoreTerminalEvent):
                                 if chunk.type != "turn.completed":
                                     raise TypeError("Unsupported native teacher terminal")
+                                continue
+                            if isinstance(chunk, (CoreToolEvent, CoreApprovalEvent)):
+                                yield chunk
                                 continue
                             if chunk.strip() == 'data: [DONE]':
                                 continue
@@ -739,6 +744,13 @@ async def run_teacher_inline(
         _is_teacher_run=True,
     )) as stream:
         async for evt_str in stream:
+            if isinstance(evt_str, (CoreToolEvent, CoreApprovalEvent)):
+                if isinstance(evt_str, CoreApprovalEvent) and evt_str.type == "approval.requested":
+                    # Keep the original pause-before-distillation invariant
+                    # without reconstructing any raw tool arguments/results.
+                    captured_tool_events.append({"ask_user": True})
+                yield evt_str
+                continue
             # Swallow teacher's own [DONE] — outer loop emits the real one
             if evt_str.strip() == 'data: [DONE]':
                 continue
@@ -761,6 +773,21 @@ async def run_teacher_inline(
                         # payload. Keep a copy so any approval produced after the
                         # recursive teacher run's metrics remains reloadable.
                         captured_metrics = dict(payload["data"])
+                        if native_tool_events_enabled():
+                            # Native observations omit raw results; preserve
+                            # the teacher's private audit trace from the same
+                            # inherited final metrics, never client events.
+                            trace = captured_metrics.get("tool_events")
+                            if isinstance(trace, list):
+                                paused = any(e.get("ask_user") for e in captured_tool_events)
+                                captured_tool_events = [
+                                    {key: e.get(key) for key in (
+                                        "tool", "command", "output", "exit_code", "ask_user",
+                                    )}
+                                    for e in trace if isinstance(e, dict)
+                                ]
+                                if paused:
+                                    captured_tool_events.append({"ask_user": True})
                     if typ == "tool_output":
                         captured_tool_event = {
                             "tool": payload.get("tool"),

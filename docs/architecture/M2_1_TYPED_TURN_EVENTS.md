@@ -1,6 +1,6 @@
 # M2.1 typed direct-turn events — transitional adapter
 
-**Status: PARTIAL — native terminal, completion-gated visible text, sanitized final metrics and generic failures now reach the admitted, tools-disabled direct composer. Tool/approval events, provider ingress and production Web still use inherited SSE.**
+**Status: PARTIAL — native terminal, completion-gated visible text, sanitized final metrics and generic failures now reach the admitted, tools-disabled direct composer. A separate admitted runtime option now emits filtered native tool metadata and sealed approval references; provider ingress and production Web still use inherited SSE.**
 
 This is a bounded implementation record for the [M2.1 exit gate](M2_1_EXIT_GATE.md), not the final [durable Gateway event protocol](GATEWAY_AGENT_CONTRACT.md#event-schema--proposal).
 
@@ -21,6 +21,42 @@ This does **not** create another Agent Loop, an HTTP endpoint, a remote authoriz
 
 [TypedTurnDelivery](../../src/gateway_turn_events.py) couples the async event iterator and its result snapshot.
 
+## Native tool and approval metadata
+
+An already admitted Python caller may opt into `native_tool_events=True` on
+`GatewayTurns.stream_admitted_agent`. The existing execution boundary validates
+session ownership, authority, model and policy before entering `TurnService`.
+The service scopes the mode with a context variable and restores it after the
+inner generator closes, including failure, early close and cancellation. This
+option changes observations only; it never enables a tool or alters approval
+consumption. It is independent of `native_terminal_events`, whose tools-disabled
+restriction remains in force.
+
+The Loop's tool start, progress and output emission sites call
+[`tool_event_frame`](../../src/agent_tool_events.py) before serialization. In
+native mode it returns immutable `CoreToolEvent` metadata: a bounded tool name,
+optional round and integer exit code, with a lifecycle type (`tool.started`,
+`tool.progress`, `tool.completed`, `tool.failed`, `tool.blocked`, or
+`tool.awaiting_approval`). Arguments, output, progress tails, screenshots,
+receipts, resource identifiers and provider call IDs are excluded. These events
+are observations, not complete client tool cards or permission grants. They do
+not yet carry a stable per-call identity for replay or parallel correlation.
+
+`CoreApprovalEvent(approval.requested)` is emitted only after the inherited
+approval store creates the sealed action. `ToolApprovalDecision.event` exposes
+`approval.decided` after admitted owner/session validation and one-use
+consumption, including denial. It is a returned fact, not an automatically
+broadcast event. Both contain only the opaque approval reference and, for a
+decision, its validated choice. A reference alone cannot authorize execution;
+continuation still requires the original interactive admission and sealed store.
+The typed adapter validates the event shape and drops observations after DONE.
+
+Default Web tool frames retain the original `json.dumps` bytes. Raw `ask_user`,
+UI events, retry diagnostics and other legacy families remain SSE, filtered out
+by the typed adapter. The direct text composer still blocks all tools; this is
+not the production composer or Web cutover. Rollback requires reverting code
+only: no schema, persisted events or production data changes are introduced.
+
 ## Legacy frame mapping
 
 | Inherited signal | Typed result | Rules |
@@ -30,6 +66,7 @@ This does **not** create another Agent Loop, an HTTP endpoint, a remote authoriz
 | Native `CoreMetricsEvent` for final Core metrics; legacy provider `usage` SSE remains | `metrics` or `usage` | Retains only nonnegative integer token counts, dropping model IDs, credentials and arbitrary metadata. Distinct event families prevent conflating final totals with provider usage. |
 | Native `CoreTerminalEvent(type="turn.completed")` in restricted direct mode; legacy `data: [DONE]` otherwise | `message.final`, then `turn.completed` | Both map to the same terminal ordering; duplicate terminals never emit another result. The native signal is not decoded from SSE. |
 | Native `CoreFailureEvent` emitted from the Core completion gate after inherited provider/agent errors; legacy error SSE otherwise | `turn.failed` | Generic failure category and validated HTTP status only; never expose provider details or action receipts. Late DONE cannot override failure. |
+| Native `CoreToolEvent` / `CoreApprovalEvent` | Same lifecycle type | Metadata-only observations and opaque sealed approval references; never raw tool arguments or results. |
 | EOF without a completion/error marker | `turn.failed` | `incomplete_stream` rather than a false success. |
 | Generator close or `CancelledError` while running | Outcome becomes `cancelled` | Preserve cancellation propagation; Python async generator closing cannot yield a final cancellation event. |
 | SSE heartbeats, IDs, unknown/tool/approval/reasoning frames | No typed event | Do not interpret raw IDs as durable cursors or expose unfiltered arguments, receipts, hidden reasoning or arbitrary payloads. |
@@ -39,13 +76,28 @@ Frames can arrive fragmented or combined; legacy CRLF and comments are handled, 
 ## Security and compatibility constraints
 
 - Admission, ownership and tool policy are still enforced by the composer and admitted execution boundary **before** model/tool access; client-supplied metadata does not create authority.
-- The current direct text composer intentionally has **all native/MCP tools disabled**, no attachment/document operations and **no conversation writes**. Tool/approval event serialization must wait for the complete permission-filtered Gateway event contract.
+- The current direct text composer intentionally has **all native/MCP tools disabled**, no attachment/document operations and **no conversation writes**. Full tool result rendering and client approval UX still require the complete Gateway composition contract.
 - The Web transport, SSE bytes, run IDs, stop/finish/reconnect identity and legacy response writer remain unchanged. Do not wire this transitional subset into the production Web route as a substitute for its complete event set.
 - The typed `sequence` is **not** a restart-safe event-store sequence. No resume-by-sequence, durable idempotence, revision fencing, or multi-client API is implemented.
-- The Agent Core emits native **completion** objects, while its evidence/completion gate now emits native **filtered answer text, final safe metrics and sanitized failure** objects in the opted-in direct mode. Provider ingress and tool/approval/other events remain SSE; some provider usage events still use legacy SSE. All eleven original DONE sites preserve byte-identical default Web SSE. Future work must move *all* permitted event families to native emission and isolate SSE serialization in Web adapters.
+- The Agent Core emits native **completion** objects, while its evidence/completion gate now emits native **filtered answer text, final safe metrics and sanitized failure** objects in the opted-in direct mode. Provider ingress and other event families remain SSE; native tool/approval metadata is separately opt-in; some provider usage events still use legacy SSE. All eleven original DONE sites preserve byte-identical default Web SSE. Future work must move *all* permitted event families to native emission and isolate SSE serialization in Web adapters.
 - Only a valid, admitted direct turn with all native/MCP tools blocked and no external execution bridge may enable this native completion mode. The teacher takeover wrapper cannot schedule a teacher child from this restricted native path; regular Web behavior remains intact.
 
 ## Verification and remaining gates
+
+[Native tool-event tests](../../tests/test_mnerys_agent_core_tool_events.py)
+exercise actual required-read branch dispatch, native/default serialization,
+completion/teacher wrappers, concurrent formatting isolation, cancellation,
+sealed approval requests and owner-checked approve/deny decisions. No real
+provider, live database or production tool is used. Local validation passed 1,161 Mnerys/required-read tests (27 skipped),
+713 AST/runtime regression tests (2 skipped), and 104 completion/teacher tests;
+the groups overlap. Node architecture/release checks passed 23 tests. The local
+runtime uses Python 3.12 rather than CI's Python 3.11. The full-suite attempt
+was interrupted after multiple failures; it is **not approved**. A separate
+serial run stopped at the process-command isolation test, whose identical
+failure was reproduced on an unmodified worktree at the base commit. This
+runtime also reports nonfunctional bubblewrap. Other full-suite failures have
+not been classified; hosted CI and live-model/Web parity remain required.
+
 
 [Typed event tests](../../tests/test_mnerys_gateway_turn_events.py) cover native/legacy text, metrics, failures and terminal ordering, result snapshots, redaction, duplicates, interruptions and size limits. [Real Agent Core tests](../../tests/test_mnerys_agent_core_native_terminal.py) prove native outputs originate after the actual completion gate, preserve the teacher restrictions and keep default Web-compatible SSE bytes. The provider responses are synthetic; no live-model proof is claimed. The [direct composer tests](../../tests/test_mnerys_gateway_turn_composer.py) verify ownership before context I/O and the no-HTTP Agent Loop handoff, including typed success/failure/cancellation.
 

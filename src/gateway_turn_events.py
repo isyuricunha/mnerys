@@ -3,7 +3,7 @@
 The inherited Agent Loop still emits SSE text. This adapter translates a
 bounded, explicitly allowed subset into typed, in-process events for the
 direct text-only composer. It is NOT the proposed durable TurnEvent schema,
-a complete tool/approval serializer, or a replacement for the Web SSE path.
+a complete tool-result/approval-card serializer, or a replacement for the Web SSE path.
 
 Do not expose this module as a remote event API without owner admission,
 tool-result filtering and a real server-issued turn ID/event sequence.
@@ -14,10 +14,12 @@ from collections.abc import AsyncIterator
 from contextlib import aclosing
 from dataclasses import dataclass
 import json
+import re
 from typing import Any, Literal
 
 from src.agent_core_events import (
     CoreTerminalEvent, CoreTextEvent, CoreMetricsEvent, CoreFailureEvent, CoreNativeEvent,
+    CoreToolEvent, CoreApprovalEvent,
 )
 
 
@@ -127,6 +129,42 @@ async def translate_legacy_turn_events(
     try:
         async with aclosing(frames) as source:
             async for chunk in source:
+                if isinstance(chunk, (CoreToolEvent, CoreApprovalEvent)):
+                    if buffer.strip() or pending_cr:
+                        raise ValueError("Incomplete legacy frame before native Core event")
+                    if outcome.state in ("completed", "failed"):
+                        continue
+                    if isinstance(chunk, CoreToolEvent):
+                        if chunk.type not in {
+                            "tool.started", "tool.progress", "tool.completed",
+                            "tool.failed", "tool.blocked", "tool.awaiting_approval",
+                        }:
+                            raise ValueError("Invalid native Core tool type")
+                        tool = chunk.tool if (
+                            type(chunk.tool) is str
+                            and re.fullmatch(r"[A-Za-z][A-Za-z0-9_.:-]{0,127}", chunk.tool)
+                        ) else None
+                        yield event(chunk.type, {
+                            "tool": tool,
+                            "round": chunk.round if type(chunk.round) is int and chunk.round >= 0 else None,
+                            "exit_code": chunk.exit_code if type(chunk.exit_code) is int else None,
+                        })
+                    else:
+                        if (
+                            chunk.type not in {"approval.requested", "approval.decided"}
+                            or type(chunk.approval_id) is not str
+                            or re.fullmatch(r"[A-Za-z0-9_-]{43}", chunk.approval_id) is None
+                            or (chunk.type == "approval.requested" and chunk.decision is not None)
+                            or (chunk.type == "approval.decided" and chunk.decision not in {
+                                "approve", "approve_task", "deny",
+                            })
+                        ):
+                            raise ValueError("Invalid native Core approval event")
+                        payload = {"approval_id": chunk.approval_id}
+                        if chunk.decision is not None:
+                            payload["decision"] = chunk.decision
+                        yield event(chunk.type, payload)
+                    continue
                 if isinstance(chunk, (CoreTextEvent, CoreMetricsEvent, CoreFailureEvent)):
                     if buffer.strip() or pending_cr:
                         raise ValueError("Incomplete legacy frame before native Core event")

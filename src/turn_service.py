@@ -1,8 +1,8 @@
 """First transport-neutral service seam around the inherited agent runtime.
 
 This is an *internal* service for already-admitted server requests, not the
-future authenticated Gateway API. Stream payloads are still legacy SSE frames,
-not the proposed canonical Gateway event schema. Admission, session ownership,
+future authenticated Gateway API. Stream payloads default to legacy SSE frames; admitted local consumers may opt
+into native observations, not the proposed durable Gateway event schema. Admission, session ownership,
 tool policy, trusted RequestAuthority construction and persistence are owned by the
 existing server routes/runtime. A CLI must not call this directly.
 
@@ -18,6 +18,7 @@ from typing import AsyncGenerator, AsyncIterator, Optional
 
 from src import agent_runs
 from src.agent_core_events import CoreNativeEvent
+from src.agent_tool_events import bind_native_tool_events
 from src.agent_loop import stream_agent_loop
 from src.tool_execution import bind_execution_bridge
 from src.turn_contract import bind_turn_contract
@@ -46,7 +47,8 @@ class TurnService:
         or raises; they are not allowed to leak into a later model/tool turn.
         Tool dispatch still enforces the server-created request authority.
         """
-        with bind_turn_contract(kwargs.get("turn_contract")):
+        native_tools = kwargs.pop("native_tool_events", False)
+        with bind_native_tool_events(native_tools), bind_turn_contract(kwargs.get("turn_contract")):
             # Close the inner generator BEFORE restoring its security context.
             # A caller may close the outer stream immediately after a chunk.
             bridge_binding = (

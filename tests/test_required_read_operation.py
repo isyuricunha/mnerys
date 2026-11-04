@@ -151,6 +151,7 @@ def run_terminal_branch(monkeypatch, native_calls, result, operation=None, *, ma
         # stream_agent_loop function. Supply its server-owned default and
         # Core terminal helper so the isolated scope matches production.
         native_terminal_events=False, completed_core_event=al.completed_core_event,
+        tool_event_frame=al.tool_event_frame,
         json=json, time=time,
     )
     wrapper = ast.parse("async def run():\n    yield 'unexpected synthesis'\n").body[0]

@@ -23,6 +23,9 @@ import logging
 import hashlib
 from src.web_recovery import WebRecoveryBudget
 from src.agent_core_events import CoreNativeEvent, completed_core_event
+from src.agent_tool_events import (
+    tool_event_frame, native_tool_events_enabled, approval_requested_event,
+)
 from itertools import count
 from datetime import date, datetime, timedelta
 from dataclasses import replace
@@ -21437,20 +21440,17 @@ async def stream_agent_loop(
             "body": _early_active_email_reply_body.strip(),
         }
         yield (
-            "data: "
-            + json.dumps({
+            tool_event_frame({
                 "type": "tool_start",
                 "tool": "ui_control",
                 "command": _reply_command,
                 "full_command": _reply_command,
                 "round": 1,
             })
-            + "\n\n"
         )
         yield f"data: {json.dumps({'type': 'ui_control', 'data': _ui_payload})}\n\n"
         yield (
-            "data: "
-            + json.dumps({
+            tool_event_frame({
                 "type": "tool_output",
                 "tool": "ui_control",
                 "command": _reply_command,
@@ -21461,7 +21461,6 @@ async def stream_agent_loop(
                 "mode": "reply",
                 "body": _ui_payload["body"],
             })
-            + "\n\n"
         )
         _reply_summary = "Reply draft opened. Nothing has been sent."
         yield f"data: {json.dumps({'type': 'final_response', 'content': _reply_summary})}\n\n"
@@ -21513,15 +21512,13 @@ async def stream_agent_loop(
         _update_block = ToolBlock("update_document", _new_content)
         _cmd_display = _early_active_email_draft_update[:80]
         yield (
-            "data: "
-            + json.dumps({
+            tool_event_frame({
                 "type": "tool_start",
                 "tool": "update_document",
                 "command": _cmd_display,
                 "full_command": _cmd_display,
                 "round": 1,
             })
-            + "\n\n"
         )
         _desc, _result = await execute_tool_block(
             _update_block,
@@ -21538,8 +21535,7 @@ async def stream_agent_loop(
         if isinstance(_result, dict) and _result.get("error"):
             _output = str(_result.get("error") or _output)
         yield (
-            "data: "
-            + json.dumps({
+            tool_event_frame({
                 "type": "tool_output",
                 "tool": "update_document",
                 "command": _cmd_display,
@@ -21547,7 +21543,6 @@ async def stream_agent_loop(
                 "doc_id": (isinstance(_result, dict) and _result.get("doc_id")) or _doc_id,
                 "version": (isinstance(_result, dict) and _result.get("version")) or None,
             })
-            + "\n\n"
         )
         _draft_summary = (
             "I couldn't update the active email draft."
@@ -21622,15 +21617,13 @@ async def stream_agent_loop(
         _update_block = ToolBlock("update_document", _new_content)
         _cmd_display = _append_text[:80]
         yield (
-            "data: "
-            + json.dumps({
+            tool_event_frame({
                 "type": "tool_start",
                 "tool": "update_document",
                 "command": _cmd_display,
                 "full_command": _cmd_display,
                 "round": 1,
             })
-            + "\n\n"
         )
         _desc, _result = await execute_tool_block(
             _update_block,
@@ -21662,8 +21655,7 @@ async def stream_agent_loop(
             ),
         }
         yield (
-            "data: "
-            + json.dumps({
+            tool_event_frame({
                 "type": "tool_output",
                 "tool": "update_document",
                 "command": _cmd_display,
@@ -21671,7 +21663,6 @@ async def stream_agent_loop(
                 "doc_id": (isinstance(_result, dict) and _result.get("doc_id")) or _doc_id,
                 "version": (isinstance(_result, dict) and _result.get("version")) or None,
             })
-            + "\n\n"
         )
         _doc_summary = (
             "I couldn't update the active document."
@@ -21939,15 +21930,13 @@ async def stream_agent_loop(
         exact_block = ToolBlock("edit_file", json.dumps(_exact_file_edit))
         exact_display = json.dumps(_exact_file_edit, ensure_ascii=False)
         yield (
-            "data: "
-            + json.dumps({
+            tool_event_frame({
                 "type": "tool_start",
                 "tool": "edit_file",
                 "command": exact_display,
                 "full_command": exact_display,
                 "round": 0,
             })
-            + "\n\n"
         )
         _exact_desc, _exact_result = await execute_tool_block(
             exact_block,
@@ -21965,15 +21954,13 @@ async def stream_agent_loop(
             or "(no output)"
         )
         yield (
-            "data: "
-            + json.dumps({
+            tool_event_frame({
                 "type": "tool_output",
                 "tool": "edit_file",
                 "command": exact_display,
                 "output": _truncate(_exact_output),
                 "exit_code": (_exact_result or {}).get("exit_code"),
             })
-            + "\n\n"
         )
         if tool_result_is_successful(_exact_result or {}):
             yield 'data: ' + json.dumps({"delta": "Done."}) + "\n\n"
@@ -25213,18 +25200,14 @@ async def stream_agent_loop(
         )
         if approval_matches:
             yield (
-                "data: "
-                + json.dumps(
-                    {
+                tool_event_frame({
                         "type": "tool_start",
                         "tool": approved.tool_name,
                         "command": approved_display[:240],
                         "full_command": approved_display,
                         "round": 0,
                         "approved": True,
-                    }
-                )
-                + "\n\n"
+                    })
             )
         approved_progress_q: asyncio.Queue = asyncio.Queue()
 
@@ -25255,17 +25238,13 @@ async def stream_agent_loop(
                 if progress_event is None:
                     break
                 yield (
-                    "data: "
-                    + json.dumps(
-                        {
+                    tool_event_frame({
                             "type": "tool_progress",
                             "tool": approved.tool_name,
                             "round": 0,
                             "approved": True,
                             **progress_event,
-                        }
-                    )
-                    + "\n\n"
+                        })
                 )
             desc, approved_result = await approved_tool_task
         finally:
@@ -25532,7 +25511,7 @@ async def stream_agent_loop(
             approved_event["screenshot"] = (
                 f"data:{approved_image['mimeType']};base64,{approved_image['data']}"
             )
-        yield "data: " + json.dumps(approved_event) + "\n\n"
+        yield tool_event_frame(approved_event, result=approved_result)
         if approved.tool_name == "host_shell" and _is_host_bridge_failure_result(approved_result):
             # Approval continuations are new HTTP requests, so the normal
             # per-turn bridge-failure flag does not survive from the original
@@ -26436,8 +26415,7 @@ async def stream_agent_loop(
             ):
                 _preemptive_block = ToolBlock("manage_calendar", _preemptive_calendar_content)
                 yield (
-                    "data: "
-                    + json.dumps({
+                    tool_event_frame({
                         "type": "tool_start",
                         "tool": "manage_calendar",
                         "command": _preemptive_calendar_content,
@@ -26445,7 +26423,6 @@ async def stream_agent_loop(
                         "round": round_num,
                         "fallback": "preemptive_calendar_lookup",
                     })
-                    + "\n\n"
                 )
                 try:
                     _preemptive_desc, _preemptive_result = await execute_tool_block(
@@ -26497,7 +26474,7 @@ async def stream_agent_loop(
                     _preemptive_tool_output["events"] = _preemptive_result.get("events")
                 if isinstance(_preemptive_result, dict) and _preemptive_result.get("error_category") == "tool_execution_error":
                     _preemptive_tool_output["error_category"] = "tool_execution_error"
-                yield f"data: {json.dumps(_preemptive_tool_output)}\n\n"
+                yield tool_event_frame(_preemptive_tool_output)
                 _preemptive_tool_event = {
                     "round": round_num,
                     "model": _round_actual_model,
@@ -26636,8 +26613,7 @@ async def stream_agent_loop(
                 _preemptive_tool, _preemptive_content = _preemptive_explicit_request
                 _preemptive_block = ToolBlock(_preemptive_tool, _preemptive_content)
                 yield (
-                    "data: "
-                    + json.dumps({
+                    tool_event_frame({
                         "type": "tool_start",
                         "tool": _preemptive_tool,
                         "command": _preemptive_content,
@@ -26645,7 +26621,6 @@ async def stream_agent_loop(
                         "round": round_num,
                         "fallback": "preemptive_explicit_admin_session",
                     })
-                    + "\n\n"
                 )
                 try:
                     _preemptive_desc, _preemptive_result = await execute_tool_block(
@@ -26695,7 +26670,7 @@ async def stream_agent_loop(
                 }
                 if isinstance(_preemptive_result, dict) and _preemptive_result.get("error_category") == "tool_execution_error":
                     _preemptive_tool_output["error_category"] = "tool_execution_error"
-                yield f"data: {json.dumps(_preemptive_tool_output)}\n\n"
+                yield tool_event_frame(_preemptive_tool_output)
                 _preemptive_tool_event = {
                     "round": round_num,
                     "model": _round_actual_model,
@@ -26758,8 +26733,7 @@ async def stream_agent_loop(
                     else:
                         for _topic_bulk_block in _topic_bulk_blocks:
                             yield (
-                                "data: "
-                                + json.dumps({
+                                tool_event_frame({
                                     "type": "tool_start",
                                     "tool": _topic_bulk_block.tool_type,
                                     "command": _topic_bulk_block.content,
@@ -26767,7 +26741,6 @@ async def stream_agent_loop(
                                     "round": round_num,
                                     "fallback": "preemptive_topic_bulk_email",
                                 })
-                                + "\n\n"
                             )
                             try:
                                 _topic_bulk_desc, _topic_bulk_result = await execute_tool_block(
@@ -26803,8 +26776,7 @@ async def stream_agent_loop(
                                     or ""
                                 )
                             yield (
-                                "data: "
-                                + json.dumps({
+                                tool_event_frame({
                                     "type": "tool_output",
                                     "tool": _topic_bulk_block.tool_type,
                                     "command": _topic_bulk_block.content,
@@ -26816,7 +26788,6 @@ async def stream_agent_loop(
                                     ),
                                     "fallback": "preemptive_topic_bulk_email",
                                 })
-                                + "\n\n"
                             )
                             _topic_bulk_event = {
                                 "round": round_num,
@@ -27070,8 +27041,7 @@ async def stream_agent_loop(
                     )
                     _fallback_command = _web_search_query_from_block(_fallback_block)
                     yield (
-                        "data: "
-                        + json.dumps({
+                        tool_event_frame({
                             "type": "tool_start",
                             "tool": "web_search",
                             "command": _fallback_command,
@@ -27079,7 +27049,6 @@ async def stream_agent_loop(
                             "round": round_num,
                             "fallback": "provider_empty_public_web_lookup",
                         })
-                        + "\n\n"
                     )
                     try:
                         _fallback_desc, _fallback_result = await execute_tool_block(
@@ -27112,15 +27081,13 @@ async def stream_agent_loop(
                         or ""
                     )
                     yield (
-                        "data: "
-                        + json.dumps({
+                        tool_event_frame({
                             "type": "tool_output",
                             "tool": "web_search",
                             "command": _fallback_command,
                             "output": _truncate(_fallback_output),
                             "exit_code": _fallback_result.get("exit_code"),
                         })
-                        + "\n\n"
                     )
                     if not _fallback_result.get("error") and _fallback_output:
                         _combined_fallback_output = _fallback_output
@@ -27141,8 +27108,7 @@ async def stream_agent_loop(
                             _fx_query = " ".join(dict.fromkeys(_fx_terms))
                             _fx_block = ToolBlock("web_search", _fx_query)
                             yield (
-                                "data: "
-                                + json.dumps({
+                                tool_event_frame({
                                     "type": "tool_start",
                                     "tool": "web_search",
                                     "command": _fx_query,
@@ -27150,7 +27116,6 @@ async def stream_agent_loop(
                                     "round": round_num,
                                     "fallback": "provider_empty_public_web_lookup_fx_recovery",
                                 })
-                                + "\n\n"
                             )
                             try:
                                 _fx_desc, _fx_result = await execute_tool_block(
@@ -27183,15 +27148,13 @@ async def stream_agent_loop(
                                 or ""
                             )
                             yield (
-                                "data: "
-                                + json.dumps({
+                                tool_event_frame({
                                     "type": "tool_output",
                                     "tool": "web_search",
                                     "command": _fx_query,
                                     "output": _truncate(_fx_output),
                                     "exit_code": _fx_result.get("exit_code"),
                                 })
-                                + "\n\n"
                             )
                             if not _fx_result.get("error") and _fx_output:
                                 _combined_fallback_output = _fallback_output + "\n\n" + _fx_output
@@ -27785,7 +27748,7 @@ async def stream_agent_loop(
             _required_block, _required_limit = _required_read
             _required_call_id = _required_read_native_id(_required_block, native_tool_calls)
             _required_call_id = _required_call_id or f"required-read-{round_num}"
-            yield f'data: {json.dumps({"type": "tool_start", "tool": _required_block.tool_type, "command": _required_block.content, "full_command": _required_block.content, "round": round_num, "call_id": _required_call_id})}\n\n'
+            yield tool_event_frame({"type": "tool_start", "tool": _required_block.tool_type, "command": _required_block.content, "full_command": _required_block.content, "round": round_num, "call_id": _required_call_id})
             _required_desc, _required_result, _required_answer = await _dispatch_required_safe_read(
                 _required_read,
                 session_id=session_id, disabled_tools=set(disabled_tools) | _caller_hard_denials,
@@ -27807,7 +27770,7 @@ async def stream_agent_loop(
                 "exit_code": _required_result.get("exit_code", 0 if _required_answer else 1),
                 "call_id": _required_call_id,
             })
-            yield f'data: {json.dumps({"type": "tool_output", **tool_events[-1]})}\n\n'
+            yield tool_event_frame({"type": "tool_output", **tool_events[-1]})
             # A rejected/failed read must not claim completion or fall back to
             # another family. Surface it once, without a mutation-capable retry.
             full_response = _required_answer or (
@@ -33423,6 +33386,8 @@ async def stream_agent_loop(
                         request_authority=active_request_authority(),
                         client_runtime_context=client_runtime_context,
                     )
+                    if native_tool_events_enabled():
+                        yield approval_requested_event(pending_approval)
                     desc = f"{block.tool_type}: APPROVAL REQUIRED"
                     result = {
                         "output": "Waiting for an exact user approval.",
@@ -33443,7 +33408,7 @@ async def stream_agent_loop(
                         _execution_tool_attempts.get(block.tool_type, 0) + 1
                     )
                 yield (
-                    f'data: {json.dumps({"type": "tool_start", "tool": block.tool_type, "command": cmd_display, "full_command": full_command, "round": round_num, **({"call_id": tool_call_id, "tool_call_id": tool_call_id} if tool_call_id else {})})}\n\n'
+                    tool_event_frame({"type": "tool_start", "tool": block.tool_type, "command": cmd_display, "full_command": full_command, "round": round_num, **({"call_id": tool_call_id, "tool_call_id": tool_call_id} if tool_call_id else {})})
                 )
 
                 # Streaming progress for long-running tools (bash, python).
@@ -33511,7 +33476,7 @@ async def stream_agent_loop(
                         if evt is None:
                             break
                         yield (
-                            f'data: {json.dumps({"type": "tool_progress", "tool": block.tool_type, "round": round_num, **evt})}\n\n'
+                            tool_event_frame({"type": "tool_progress", "tool": block.tool_type, "round": round_num, **evt})
                         )
                     desc, result = await _tool_task
                 finally:
@@ -33789,7 +33754,7 @@ async def stream_agent_loop(
                         "private_browser",
                         json.dumps({"action": "batch", "commands": [["open", _browser_url], ["snapshot"]]}),
                     )
-                    yield f'data: {json.dumps({"type": "tool_start", "tool": "private_browser", "command": _browser_url, "round": round_num, "fallback": "empty_web_search"})}\n\n'
+                    yield tool_event_frame({"type": "tool_start", "tool": "private_browser", "command": _browser_url, "round": round_num, "fallback": "empty_web_search"})
                     try:
                         _, _browser_result = await execute_tool_block(
                             _browser_block,
@@ -33804,7 +33769,7 @@ async def stream_agent_loop(
                     except Exception as _browser_exc:
                         _browser_result = {"error": str(_browser_exc), "exit_code": 1}
                     _browser_output = str(_browser_result.get("output") or _browser_result.get("error") or "")
-                    yield f'data: {json.dumps({"type": "tool_output", "tool": "private_browser", "command": _browser_url, "output": _truncate(_browser_output), "exit_code": _browser_result.get("exit_code")})}\n\n'
+                    yield tool_event_frame({"type": "tool_output", "tool": "private_browser", "command": _browser_url, "output": _truncate(_browser_output), "exit_code": _browser_result.get("exit_code")})
                     if (
                         _browser_result.get("exit_code") == 0
                         and _browser_output.strip()
@@ -34152,7 +34117,7 @@ async def stream_agent_loop(
             # Forward a file-write diff for inline before/after rendering
             if "diff" in result:
                 tool_output_data["diff"] = result["diff"]
-            yield f'data: {json.dumps(tool_output_data)}\n\n'
+            yield tool_event_frame(tool_output_data, result=result)
             if host_bridge_failed:
                 _force_answer = True
                 messages.append({
@@ -35084,7 +35049,7 @@ async def stream_agent_loop(
                         )
                     try:
                         yield (
-                            f'data: {json.dumps({"type": "tool_start", "tool": "manage_calendar", "command": _calendar_snapshot_command, "full_command": _calendar_snapshot_command, "round": round_num, "context_only": True, "triggered_by": "ui_control open_panel calendar"})}\n\n'
+                            tool_event_frame({"type": "tool_start", "tool": "manage_calendar", "command": _calendar_snapshot_command, "full_command": _calendar_snapshot_command, "round": round_num, "context_only": True, "triggered_by": "ui_control open_panel calendar"})
                         )
                         _calendar_snapshot_desc, _calendar_snapshot_result = await execute_tool_block(
                             _calendar_snapshot_block,
@@ -35120,7 +35085,7 @@ async def stream_agent_loop(
                         }
                         if isinstance(_calendar_snapshot_result, dict) and isinstance(_calendar_snapshot_result.get("events"), list):
                             _calendar_snapshot_stream_event["events"] = _calendar_snapshot_result.get("events")
-                        yield f"data: {json.dumps(_calendar_snapshot_stream_event)}\n\n"
+                        yield tool_event_frame(_calendar_snapshot_stream_event, result=_calendar_snapshot_result)
                         _calendar_snapshot_event = {
                             "round": round_num,
                             "model": _round_actual_model,
@@ -37435,8 +37400,7 @@ async def stream_agent_loop(
         if _retry_query:
             logger.info("[agent] running one-shot web retry after retry preamble: %r", _retry_query[:180])
             yield (
-                "data: "
-                + json.dumps({
+                tool_event_frame({
                     "type": "tool_start",
                     "tool": "web_search",
                     "command": _retry_query,
@@ -37444,7 +37408,6 @@ async def stream_agent_loop(
                     "round": _last_round_num + 1,
                     "fallback": "web_retry_preamble",
                 })
-                + "\n\n"
             )
             try:
                 _retry_desc, _retry_result = await execute_tool_block(
@@ -37478,8 +37441,7 @@ async def stream_agent_loop(
                 or ""
             )
             yield (
-                "data: "
-                + json.dumps({
+                tool_event_frame({
                     "type": "tool_output",
                     "tool": "web_search",
                     "command": _retry_query,
@@ -37487,7 +37449,6 @@ async def stream_agent_loop(
                     "exit_code": _retry_result.get("exit_code"),
                     "fallback": "web_retry_preamble",
                 })
-                + "\n\n"
             )
             if not _retry_result.get("error") and _retry_output:
                 _web_search_queries.append(_retry_query)

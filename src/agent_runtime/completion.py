@@ -16,7 +16,7 @@ import re
 from time import perf_counter
 
 from src.agent_core_events import (
-    CoreTerminalEvent, CoreTextEvent, completed_core_event,
+    CoreTerminalEvent, CoreTextEvent, CoreToolEvent, CoreApprovalEvent, completed_core_event,
     core_metrics_event, core_failure_event,
 )
 from src.agent_evidence import (
@@ -283,6 +283,10 @@ def with_completion_gate(func):
                             raise TypeError("Unsupported native Agent Core event")
                         done = True
                         native_completed = True
+                        continue
+                    if isinstance(chunk, (CoreToolEvent, CoreApprovalEvent)):
+                        awaiting |= isinstance(chunk, CoreApprovalEvent) and chunk.type == "approval.requested"
+                        yield chunk
                         continue
                     if chunk.strip() == 'data: [DONE]':
                         done = True
