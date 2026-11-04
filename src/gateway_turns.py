@@ -10,7 +10,8 @@ from typing import Any, AsyncGenerator, Callable, Iterable, Optional
 
 from src.agent_runtime.authority import RequestAuthority
 from src.action_intents import ToolIntent
-from src.gateway_admission import AdmittedSession, require_admitted_session
+from src.gateway_admission import AdmittedSession, AdmissionDenied, require_admitted_session
+from src.gateway_context_admission import owner_for_admitted_context
 from src.gateway_foreground_routes import (
     AdmittedForegroundPolicy,
     build_admitted_foreground_routes,
@@ -25,7 +26,7 @@ from src.gateway_approval_decisions import ToolApprovalDecision, consume_admitte
 from src.gateway_turn_authority import authority_for_admitted_turn
 from src.tool_policy import ToolPolicy
 from src.tool_approvals import ExactToolApproval, ToolApprovalStore
-from src.turn_service import TurnService, TurnStream, turn_service
+from src.turn_service import TurnService, TurnStream, TypedTurnStream, turn_service
 from src.gateway_stream_delivery import TurnDelivery, open_admitted_stream
 from src.gateway_post_response import dispatch_admitted_post_response
 from src.gateway_routed_contract import (
@@ -327,6 +328,89 @@ class GatewayTurns:
                 context_owner=context_owner, persistence=persistence,
             )
         return TypedTurnDelivery(events=events, outcome=outcome)
+
+    def open_composed_detached_text_events(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        request: TextTurnRequest | ToolApprovalTurnRequest,
+        ports: ChatContextPorts,
+        chat_handler: Any,
+        chat_processor: Any,
+        settings: TrustedTextTurnSettings,
+        approval_store: ToolApprovalStore | None = None,
+        persistence: TrustedTextPersistence | None = None,
+    ) -> TypedTurnStream:
+        """Run the same direct composer behind the inherited detach/replay manager.
+
+        This is a trusted, process-local operation. Validate the issued owner
+        and adapter before replacing any existing run. The legacy manager
+        retains stop, replacement ordering, and finite replay semantics.
+        """
+        session_id = require_admitted_session(admission)
+        owner = owner_for_admitted_context(admission, session, session_id)
+        if context_owner != owner:
+            raise AdmissionDenied(403, "Detached turn context owner mismatch")
+        if not isinstance(self._turns, TurnService):
+            raise AdmissionDenied(403, "Invalid server turn lifecycle")
+        if not isinstance(settings, TrustedTextTurnSettings):
+            raise AdmissionDenied(403, "Invalid trusted direct turn settings")
+        if not isinstance(request, (TextTurnRequest, ToolApprovalTurnRequest)):
+            raise AdmissionDenied(403, "Invalid direct turn request")
+        delivery = self.open_composed_text_events(
+            admission, session,
+            context_owner=context_owner,
+            request=request, ports=ports,
+            chat_handler=chat_handler,
+            chat_processor=chat_processor,
+            settings=settings,
+            approval_store=approval_store,
+            persistence=persistence,
+        )
+        return self._turns.start_detached_typed(
+            session_id, delivery.events, delivery.outcome,
+        )
+
+    def resume_composed_detached_text_events(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        expected_run_id: str,
+        after_cursor: str | None = None,
+    ) -> TypedTurnStream | None:
+        """Replay a single admitted typed run without crossing owner or run IDs."""
+        session_id = require_admitted_session(admission)
+        owner = owner_for_admitted_context(admission, session, session_id)
+        if context_owner != owner:
+            raise AdmissionDenied(403, "Detached turn context owner mismatch")
+        if not isinstance(self._turns, TurnService):
+            raise AdmissionDenied(403, "Invalid server turn lifecycle")
+        return self._turns.resume_typed(
+            session_id, expected_run_id, after_cursor=after_cursor,
+        )
+
+    def stop_composed_detached_text_turn(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        expected_run_id: str,
+    ) -> bool:
+        """Stop only the exact admitted typed run; reject SSE runs and stale IDs."""
+        session_id = require_admitted_session(admission)
+        owner = owner_for_admitted_context(admission, session, session_id)
+        if context_owner != owner:
+            raise AdmissionDenied(403, "Detached turn context owner mismatch")
+        if not isinstance(self._turns, TurnService):
+            raise AdmissionDenied(403, "Invalid server turn lifecycle")
+        if self._turns.resume_typed(session_id, expected_run_id) is None:
+            return False
+        return self._turns.stop(session_id, expected_run_id)
 
     async def stream_composed_text_turn(
         self,

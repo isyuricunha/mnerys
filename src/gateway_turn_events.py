@@ -53,6 +53,15 @@ class TypedTurnDelivery:
     outcome: TurnOutcome
 
 
+@dataclass(frozen=True, slots=True)
+class TypedRunEvent:
+    """A process-local replay item, not a durable Gateway event cursor."""
+
+    run_id: str
+    cursor: str
+    event: TurnEvent
+
+
 def _frame_fields(frame: str) -> tuple[str, str]:
     event_type = "message"
     payload_lines: list[str] = []

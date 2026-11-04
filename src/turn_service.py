@@ -18,6 +18,7 @@ from typing import AsyncGenerator, AsyncIterator, Optional
 
 from src import agent_runs
 from src.agent_core_events import CoreNativeEvent
+from src.gateway_turn_events import TurnEvent, TurnOutcome, TypedRunEvent
 from src.agent_tool_events import bind_native_tool_events
 from src.tool_approvals import bind_tool_approval_store
 from src.agent_loop import stream_agent_loop
@@ -31,6 +32,15 @@ class TurnStream:
 
     run_id: str
     events: AsyncIterator[str]
+
+
+@dataclass(frozen=True)
+class TypedTurnStream:
+    """Exact process-local run with typed replay and the shared outcome."""
+
+    run_id: str
+    events: AsyncIterator[TypedRunEvent]
+    outcome: TurnOutcome
 
 
 class TurnService:
@@ -72,10 +82,49 @@ class TurnService:
             events=agent_runs.subscribe(session_id, run),
         )
 
+    def start_detached_typed(
+        self, session_id: str, events: AsyncIterator[TurnEvent],
+        outcome: TurnOutcome,
+    ) -> TypedTurnStream:
+        """Use the original detached run manager for trusted typed events."""
+        if (
+            not isinstance(outcome, TurnOutcome)
+            or outcome.state != "pending"
+            or not callable(getattr(events, "aclose", None))
+        ):
+            raise TypeError("A fresh typed outcome and closable stream are required")
+        run = agent_runs.start(session_id, events, mode="typed", outcome=outcome)
+        return TypedTurnStream(
+            run_id=run.run_id, outcome=outcome,
+            events=agent_runs.subscribe(session_id, run, typed=True),
+        )
+
+    def resume_typed(
+        self, session_id: str, expected_run_id: str, *,
+        after_cursor: str | None = None,
+    ) -> Optional[TypedTurnStream]:
+        """Resume only the same in-process typed run, never another modality."""
+        if (
+            type(expected_run_id) is not str or not expected_run_id
+            or len(expected_run_id) > 80
+        ):
+            return None
+        run = agent_runs.get_matching_run(
+            session_id, expected_run_id, mode="typed",
+        )
+        if run is None or not isinstance(run.outcome, TurnOutcome):
+            return None
+        return TypedTurnStream(
+            run_id=run.run_id, outcome=run.outcome,
+            events=agent_runs.subscribe(
+                session_id, run, after_cursor=after_cursor, typed=True,
+            ),
+        )
+
     def resume_active(self, session_id: str) -> Optional[TurnStream]:
         """Subscribe to the exact active run; do not switch on replacement."""
         run = agent_runs.get_active_run(session_id)
-        if run is None:
+        if run is None or run.mode != "sse":
             return None
         return TurnStream(
             run_id=run.run_id,

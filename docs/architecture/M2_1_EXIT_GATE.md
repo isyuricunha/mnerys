@@ -338,3 +338,44 @@ and early close. Candidate selection is not a final response-save receipt
 or proof of a provider's self-reported alias. Real provider acceptance,
 durable model attribution, remote transport and complete M2.1 Web cutover
 remain open. The M2.1 exit gate is still **PARTIAL**.
+
+### One-run typed detach, replay and stop — November 4, 2026
+
+The [admitted direct Gateway facade](../../src/gateway_turns.py) now offers
+`open_composed_detached_text_events`, `resume_composed_detached_text_events`
+and `stop_composed_detached_text_turn` for trusted Python adapters. A
+server-issued session admission and owner-bound loaded session are checked
+**before** registering or stopping a run. There is still no remote API
+or independent client admission protocol.
+
+The [original Web run manager](../../src/agent_runs.py) is reused:
+one session-to-run registry, one drain task, one exact `run_id`, one
+session-scoped replacement/stop rule, one finite in-memory buffer and the
+same run-scoped replay cursor checks. Typed subscribers receive an
+`TypedRunEvent` containing the original filtered `TurnEvent`, the opaque
+run ID and a process-local cursor. They cannot attach to an SSE run,
+and SSE consumers cannot interpret a typed buffer. Closing a subscriber
+does **not** cancel its detached Agent turn; an explicit exact-run Stop
+does, including when the task is cancelled before its first instruction.
+An old run ID/cursor never stops or resumes its replacement.
+
+The manager retains the terminal `turn.completed`, `turn.failed` or
+`turn.awaiting_approval` event until the wrapped composer has finished
+and its inherited text-persistence writer has returned. Therefore
+a detached consumer cannot treat completion as durable before the
+existing writer receipt check. A background stream exception is exposed
+as a generic typed `stream_exception` failure, without raw exception text.
+No duplicate Agent Loop, file/job writer, event registry or schema exists.
+
+[Detached typed lifecycle tests](../../tests/test_mnerys_gateway_detached_typed_lifecycle.py)
+exercise owner and forged-session denials, single model invocation despite
+reconnect, cursor ordering, persisted completion, partial-save-on-stop,
+stale run replacement, Web SSE separation, pre-entry cancellation,
+unexpected provider exceptions and cleanup ordering.
+
+**Boundaries:** replay lasts only as long as the existing process/run
+buffer (with the inherited finite eviction window). It does not survive
+a restart, provide cross-worker cursors, durable turn identity,
+transactional persistence or remote authentication. The production Web
+route remains on its original SSE/Agent path. Real-model and Web-versus-
+direct parity acceptance remain required to close M2.1.

@@ -21,15 +21,27 @@ import re
 import uuid
 from typing import AsyncGenerator, Dict, Optional
 
+from src.gateway_turn_events import TurnEvent, TurnOutcome, TypedRunEvent
+
 logger = logging.getLogger(__name__)
 
 
 class _Run:
-    __slots__ = ("session_id", "buffer", "subscribers", "status", "task", "evict_task", "run_id", "finish_requested", "finish_event")
+    __slots__ = ("session_id", "buffer", "subscribers", "status", "task", "evict_task", "run_id", "finish_requested", "finish_event", "mode", "outcome", "started")
 
-    def __init__(self, session_id: str) -> None:
+    def __init__(
+        self, session_id: str, *, mode: str = "sse",
+        outcome: Optional[TurnOutcome] = None,
+    ) -> None:
+        if mode not in {"sse", "typed"}:
+            raise ValueError("Unsupported process-local run mode")
+        if mode == "typed" and not isinstance(outcome, TurnOutcome):
+            raise TypeError("Typed runs require a trusted turn outcome")
         self.session_id = session_id
-        self.buffer: list = []          # ordered SSE event strings (replay log)
+        self.mode = mode
+        self.outcome = outcome
+        self.started = False
+        self.buffer: list = []          # original SSE frames or sanitized typed events
         self.subscribers: set = set()   # one asyncio.Queue per connected client
         self.status: str = "running"    # running | done | error | stopped
         self.task: Optional[asyncio.Task] = None
@@ -51,8 +63,16 @@ _EVICT_GRACE_S = 180
 _CURSOR_RE = re.compile(r"([0-9a-f]{32}):(0|[1-9][0-9]*)")
 
 
-def _event_for_client(run: _Run, seq: int, event: str, with_event_ids: bool) -> str:
-    """Optionally annotate an SSE frame with an opaque, run-scoped event ID."""
+def _event_for_client(
+    run: _Run, seq: int, event: str | TurnEvent, with_event_ids: bool,
+) -> str | TypedRunEvent:
+    """Use the same per-run cursor for SSE and typed in-process subscribers."""
+    if run.mode == "typed":
+        if not isinstance(event, TurnEvent):
+            raise TypeError("A typed run contained an invalid event")
+        return TypedRunEvent(run.run_id, f"{run.run_id}:{seq}", event)
+    if not isinstance(event, str):
+        raise TypeError("An SSE run contained an invalid frame")
     if not with_event_ids:
         return event
     return f"id: {run.run_id}:{seq}\n{event}"
@@ -75,8 +95,8 @@ def _replay_start(run: _Run, after_cursor: Optional[str]) -> int:
     return seq + 1
 
 
-def _publish(run: _Run, ev: str) -> None:
-    """Append one SSE event and fan it out to every live subscriber."""
+def _publish(run: _Run, ev: str | TurnEvent) -> None:
+    """Append one SSE or filtered typed event to the original run buffer."""
     run.buffer.append(ev)
     seq = len(run.buffer) - 1
     for q in list(run.subscribers):
@@ -141,7 +161,23 @@ def get_active_run(session_id: str) -> Optional[_Run]:
     return r if r and r.status == "running" else None
 
 
-async def _drain(session_id: str, run: _Run, agen: AsyncGenerator[str, None],
+def get_matching_run(
+    session_id: str, expected_run_id: str, *, mode: str,
+) -> Optional[_Run]:
+    """Find one original per-session run, including its terminal replay window."""
+    if (
+        type(session_id) is not str or not session_id
+        or type(expected_run_id) is not str
+        or re.fullmatch(r"[0-9a-f]{32}", expected_run_id) is None
+        or mode not in {"sse", "typed"}
+    ):
+        return None
+    run = _RUNS.get(session_id)
+    return run if run and run.run_id == expected_run_id and run.mode == mode else None
+
+
+async def _drain(
+    session_id: str, run: _Run, agen: AsyncGenerator[str | TurnEvent, None],
                  prev_task: Optional[asyncio.Task] = None) -> None:
     """Pull every event from the wrapped generator into the run buffer, fanning
     each out to live subscribers. Runs to completion regardless of subscribers."""
@@ -154,6 +190,7 @@ async def _drain(session_id: str, run: _Run, agen: AsyncGenerator[str, None],
         subscribers_woken = True
         _wake_run_subscribers(run)
 
+    run.started = True
     # If this run replaced an in-flight one (rapid double-send), wait for that
     # one to fully finish first. Its CancelledError handler calls aclose(), which
     # persists its partial response — letting it complete before we start writing
@@ -161,22 +198,45 @@ async def _drain(session_id: str, run: _Run, agen: AsyncGenerator[str, None],
     try:
         if prev_task is not None and not prev_task.done():
             await asyncio.wait({prev_task})
-        terminal_event: Optional[str] = None
+        terminal_event: str | TurnEvent | None = None
         async for ev in agen:
-            # A client treats [DONE] as permission to submit the next turn.
-            # Do not expose it until the wrapped generator has fully unwound;
-            # chat persistence and active-run cleanup can occur after the
-            # generator yields its terminal SSE event.
-            if str(ev).strip() == "data: [DONE]":
+            # Terminal acknowledgements are held until the original stream
+            # unwinds, including its persistence/cleanup work. Both Web SSE
+            # and in-process typed streams use this exact one-run barrier.
+            if run.mode == "typed":
+                if not isinstance(ev, TurnEvent):
+                    raise TypeError("Invalid event in a typed run")
+                if terminal_event is not None:
+                    # The inner turn has already declared a terminal state.
+                    continue
+                if (
+                    type(ev.sequence) is not int
+                    or ev.sequence != len(run.buffer) + 1
+                ):
+                    raise ValueError("Out-of-order typed event")
+                if ev.type in {
+                    "turn.completed", "turn.failed", "turn.awaiting_approval",
+                }:
+                    terminal_event = ev
+                    continue
+            elif not isinstance(ev, str):
+                raise TypeError("Invalid frame in an SSE run")
+            elif ev.strip() == "data: [DONE]":
                 terminal_event = ev
                 continue
             _publish(run, ev)
         if run.status == "running":
-            run.status = "done"
+            run.status = (
+                "error" if isinstance(terminal_event, TurnEvent)
+                and terminal_event.type == "turn.failed" else "done"
+            )
         if terminal_event is not None:
             _publish(run, terminal_event)
     except asyncio.CancelledError:
         run.status = "stopped"
+        if run.outcome is not None and run.outcome.state in {"pending", "running"}:
+            run.outcome.state = "cancelled"
+            run.outcome.failure_code = None
         # Let the wrapped generator's own CancelledError handler run (it saves
         # the partial response to the session).
         try:
@@ -194,14 +254,32 @@ async def _drain(session_id: str, run: _Run, agen: AsyncGenerator[str, None],
             except (asyncio.CancelledError, Exception):
                 pass
     except Exception as e:
-        logger.error("[agent-run] %s failed: %s", session_id, e, exc_info=True)
+        if run.mode == "typed":
+            # Do not log trusted-port exception bodies: uploads, provider
+            # settings and writer failures may contain private values.
+            logger.warning("[agent-run] typed run failed before completion")
+        else:
+            logger.error("[agent-run] %s failed: %s", session_id, e, exc_info=True)
         run.status = "error"
-        _publish(
-            run,
-            "event: error\n"
-            f"data: {json.dumps({'error': 'Agent run failed before completion.', 'status': 500})}\n\n",
-        )
-        _publish(run, "data: [DONE]\n\n")
+        if run.mode == "typed":
+            # Keep the same typed failure contract, never leak an exception
+            # or append Web SSE into an in-process typed buffer.
+            sequence = len(run.buffer) + 1
+            if run.outcome is not None:
+                run.outcome.state = "failed"
+                run.outcome.failure_code = "stream_exception"
+                run.outcome.last_sequence = sequence
+            _publish(run, TurnEvent(
+                sequence, "turn.failed",
+                {"code": "stream_exception", "status": None},
+            ))
+        else:
+            _publish(
+                run,
+                "event: error\n"
+                f"data: {json.dumps({'error': 'Agent run failed before completion.', 'status': 500})}\n\n",
+            )
+            _publish(run, "data: [DONE]\n\n")
     finally:
         # Wake every subscriber with the end sentinel so their SSE closes.
         _wake_subscribers()
@@ -211,9 +289,14 @@ async def _drain(session_id: str, run: _Run, agen: AsyncGenerator[str, None],
         _schedule_evict(session_id, run)
 
 
-def start(session_id: str, agen: AsyncGenerator[str, None]) -> _Run:
+def start(
+    session_id: str, agen: AsyncGenerator[str | TurnEvent, None], *,
+    mode: str = "sse", outcome: Optional[TurnOutcome] = None,
+) -> _Run:
     """Start a detached run draining `agen` for a session. If a run is already in
     flight for this session (e.g. a rapid double-send), it's cancelled first."""
+    # Validate the new run before cancelling an active one.
+    run = _Run(session_id, mode=mode, outcome=outcome)
     prev = _RUNS.get(session_id)
     prev_task: Optional[asyncio.Task] = None
     if prev:
@@ -225,12 +308,14 @@ def start(session_id: str, agen: AsyncGenerator[str, None]) -> _Run:
             # when the task had already started.
             if prev.status == "running":
                 prev.status = "stopped"
+                if prev.outcome is not None and prev.outcome.state in {"pending", "running"}:
+                    prev.outcome.state = "cancelled"
+                    prev.outcome.failure_code = None
                 _wake_run_subscribers(prev)
             prev.task.cancel()
             prev_task = prev.task   # new run awaits this before it starts writing
         if prev.evict_task and not prev.evict_task.done():
             prev.evict_task.cancel()
-    run = _Run(session_id)
     _RUNS[session_id] = run
     run.task = asyncio.create_task(_drain(session_id, run, agen, prev_task))
     return run
@@ -242,12 +327,13 @@ async def subscribe(
     *,
     after_cursor: Optional[str] = None,
     with_event_ids: bool = False,
-) -> AsyncGenerator[str, None]:
-    """Replay events, optionally resuming strictly after a run-scoped SSE cursor.
+    typed: bool = False,
+) -> AsyncGenerator[str | TypedRunEvent, None]:
+    """Replay SSE or filtered typed events from one original per-session run.
 
-    Existing clients still receive the original byte-for-byte SSE frames. New
-    adapters can opt into ``id: <run_id>:<sequence>`` frames and reconnect with
-    ``after_cursor``. Cursors are in-memory only, NOT restart-durable.
+    Existing SSE subscribers retain byte-for-byte frames. Typed in-process
+    subscribers receive TypedRunEvent with the same run-scoped cursor.
+    Both cursors are in-memory only, NOT restart-durable.
 
     ``expected_run`` binds a lazy StreamingResponse body to the exact run
     whose identity was put in its response headers, even after replacement.
@@ -260,6 +346,8 @@ async def subscribe(
         return
     if run.session_id != session_id:
         raise ValueError("Replay run belongs to a different session")
+    if typed != (run.mode == "typed") or (typed and with_event_ids):
+        raise ValueError("Replay run has a different event representation")
     next_seq = _replay_start(run, after_cursor)
     q: asyncio.Queue = asyncio.Queue()
     run.subscribers.add(q)            # register BEFORE replaying so nothing is missed
@@ -314,6 +402,15 @@ def stop(session_id: str, expected_run_id: Optional[str] = None) -> bool:
     if not expected_run_id or run is None or run.run_id != expected_run_id:
         return False
     if run and run.task and not run.task.done():
+        if not run.started:
+            # A task cancelled before its first instruction never executes
+            # _drain's except/finally. Terminalize it synchronously.
+            run.status = "stopped"
+            if run.outcome is not None and run.outcome.state in {"pending", "running"}:
+                run.outcome.state = "cancelled"
+                run.outcome.failure_code = None
+            _wake_run_subscribers(run)
+            _schedule_evict(session_id, run)
         run.task.cancel()
         return True
     return False

@@ -277,3 +277,22 @@ The existing Web fallback SSE, session writers and message persistence are
 unchanged. No new turn table, event log, retry writer, transactional save
 or durable per-round answering-model attribution was introduced. Refer to
 the [typed-event contract](M2_1_TYPED_TURN_EVENTS.md#native-source-owned-model-route-selection).
+
+## M2.1 detached typed response writer ordering
+
+The direct typed composer can now run detached through the *original*
+per-session [Agent run manager](../../src/agent_runs.py). Its run buffer
+holds the terminal typed acknowledgement until the existing direct
+persistence wrapper returns. The wrapper still invokes the inherited
+admitted assistant writer for completed text and the interrupted writer
+once for a visible stopped partial; no new message writer is introduced.
+
+The run registry is process-local, with finite eviction; its resume cursor
+is not a database receipt or a durable event cursor. Stop before task
+entry prevents any context or writer I/O. Replacement awaits the previous
+run's cancellation/partial-save cleanup to avoid interleaved session writes.
+Existing SSE delivery and native Web adapter behavior remain unchanged.
+
+See [detached lifecycle tests](../../tests/test_mnerys_gateway_detached_typed_lifecycle.py).
+No atomic user/assistant transaction, generation fence, cross-process
+replay, real-model acceptance or production Web cutover was added.

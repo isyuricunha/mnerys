@@ -429,3 +429,32 @@ The non-typed and Web streams preserve their existing event shape. No new
 tool grants, retries, conversation writers or durable event cursors exist
 in this slice. The observation describes a selected route, not a final
 persisted answering model. Real-model and Web parity acceptance remain open.
+
+## Shared Web and typed process-local run lifecycle
+
+A trusted Python caller may now detach a direct composed typed turn through
+`GatewayTurns.open_composed_detached_text_events`. Both typed and existing
+SSE runs use the single [Agent run manager](../../src/agent_runs.py),
+including run replacement, exact-run Stop and a bounded replay buffer.
+The typed path adds a distinct event representation to that **same**
+registry, not another executor, scheduler or event store. A
+`TypedRunEvent` includes an opaque run identity, a run-scoped replay cursor
+and the original filtered `TurnEvent`. Resuming checks the issued
+session/owner and the exact current typed run; a stale cursor, different
+run, foreign owner or SSE/typed representation mismatch fails closed.
+
+The manager holds terminal events until the composer/persistence generator
+has completely unwound; it does not report success before the inherited
+assistant saver confirms its new receipt. Disconnecting from a detached
+subscription does not cancel the Agent; exact-run Stop closes upstream
+execution and reuses the original interrupted partial writer. A stop or
+replacement **before the task starts** is also terminalized immediately
+so it cannot appear permanently active. Provider errors remain generic,
+and no provider body or credential is placed into replay.
+
+[Lifecycle acceptance](../../tests/test_mnerys_gateway_detached_typed_lifecycle.py)
+covers the direct model path and inherited writers using synthetic
+providers and disposable session data. The buffer and cursor are
+**not durable** or a promise of replay after restart; the Web endpoint
+has not switched to typed delivery, and no independently authenticated
+CLI, TUI or Telegram adapter is ready.
