@@ -310,6 +310,25 @@ standalone HTTP Gateway or durable turn/event store is provided by this
 slice. See [M2.1 evidence](M2_GATEWAY_IMPLEMENTATION_PLAN.md)
 and [negative/parity tests](../../tests/test_mnerys_gateway_turn_capabilities.py).
 
+## M2.1 incremental implementation: admitted Web intent reconciliation
+
+**Implemented internally; not a public Gateway or independent agent runtime.**
+[GatewayTurns](../../src/gateway_turns.py) now delegates post-capability
+public-Web intent and Web/browser denylist composition to
+[one admitted service](../../src/gateway_web_intent.py). It verifies the
+issued session and owner, obtains typed contextual Web evidence through
+validated lazy server ports, and preserves the original opt-in/explicit-denial
+precedence, previous-chat distinction, compact-model Web behavior,
+exact-public-URL exception and workspace-output restrictions. These are
+selection and initial denial decisions; they **do not** create executable
+grants or override the later global/account/tool policy.
+
+The Web adapter retains initial lexical intent, route-specific browser and
+workspace state, context formatting and Chat-to-Agent escalation. Model
+calls, hardened tool dispatch and persistence remain inherited. See the
+[M2.1 verification](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
+[Web reconciliation parity tests](../../tests/test_mnerys_gateway_web_intent.py).
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

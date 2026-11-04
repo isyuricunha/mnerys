@@ -76,8 +76,6 @@ from src.tool_policy import (
     WEB_ACCESS_TOOL_NAMES,
     WEB_TOOL_NAMES,
     build_effective_tool_policy,
-    is_web_search_explicitly_denied,
-    web_intent_may_enable_for_turn,
     web_search_enabled_for_turn,
 )
 from src.tool_approvals import tool_approval_store
@@ -3154,96 +3152,43 @@ def setup_chat_routes(
             or "qwen3.5-9b-tool-router" in _model_lower
             or "odysseus-qwen3.5-9b" in _model_lower
         )
-        _explicit_past_chat_search_intent = bool(
-            isinstance(message, str)
-            and re.search(r"\b(?:search|find|look\s*up)\b", message, re.IGNORECASE)
-            and re.search(
-                r"\b(?:prior|past|previous|old)\s+(?:chats?|sessions?|conversations?)\b",
-                message,
-                re.IGNORECASE,
-            )
+        # The admitted Gateway owns Web-intent promotion and the inherited
+        # pre-policy toggle/denylist ordering. Legacy Web helpers supply typed
+        # server-side evidence lazily; the account/global final veto runs next.
+        _web_intent_result = gateway_turns.reconcile_web_intent(
+            _admitted_session, sess,
+            context_owner=ctx.user,
+            message=message,
+            explicit_web_intent=_explicit_web_intent,
+            personal_store_intent=_explicit_personal_store_intent,
+            tool_intent_is_web=bool(
+                _tool_intent and _tool_intent.category == "web"
+            ),
+            capabilities=_turn_capabilities,
+            clean_route_requested=_clean_v3_route_requested,
+            allow_web_search=allow_web_search,
+            search_enabled=_search_enabled,
+            explicit_browser_intent=_explicit_browser_intent,
+            local_browser_render_intent=_local_browser_render_intent,
+            exact_url_fetch_intent=_exact_url_fetch_intent,
+            use_turn_contract=_use_turn_contract,
+            full_schema_route=(_effective_tool_schema_mode == "full"),
+            workspace_bound=bool(workspace),
+            base_disabled_tools=disabled_tools,
+            web_link_followup_lookup=lambda: _is_contextual_web_link_followup(
+                getattr(sess, "history", []) or [], message,
+            ),
+            contextual_web_followup_lookup=lambda: _is_contextual_web_followup(
+                message, sess,
+            ),
+            recent_web_event_lookup=lambda: _has_recent_web_tool_event(sess),
+            message_denies_lookup=lambda: _explicitly_denies_web_lookup(message),
         )
-        if _explicit_past_chat_search_intent:
-            _explicit_web_intent = False
-        _explicit_web_intent = _explicit_web_intent or bool(
-            _tool_intent
-            and _tool_intent.category == "web"
-            and not _explicit_personal_store_intent
-            and not _explicit_past_chat_search_intent
-        )
-        _contextual_web_link_followup = _is_contextual_web_link_followup(
-            getattr(sess, "history", []) or [],
-            message,
-        )
-        _contextual_web_turn_followup = bool(
-            "search_browser" in _turn_capabilities
-            and _is_contextual_web_followup(message, sess)
-            and _has_recent_web_tool_event(sess)
-            and not _explicitly_denies_web_lookup(message)
-        )
-        _clean_v3_web_intent = bool(
-            _clean_v3_route_requested
-            and "search_browser" in _turn_capabilities
-            and not _explicitly_denies_web_lookup(message)
-        )
-        if (
-            (_explicit_web_intent or _contextual_web_link_followup
-             or _contextual_web_turn_followup or _clean_v3_web_intent)
-            and web_intent_may_enable_for_turn(
-                None if (_contextual_web_turn_followup or _clean_v3_web_intent)
-                else allow_web_search,
-                message_denies_lookup=_explicitly_denies_web_lookup(message),
-            )
-        ):
-            _search_enabled = True
-            allow_web_search = "true"
-        if is_web_search_explicitly_denied(allow_web_search) or not _search_enabled:
-            disabled_tools.update(WEB_TOOL_NAMES)
-            if not _explicit_browser_intent:
-                disabled_tools.add("youtube_tool")
-            if not (_explicit_browser_intent or _local_browser_render_intent):
-                disabled_tools.add("private_browser")
-        if _exact_url_fetch_intent:
-            # A pasted URL grants only the exact-target reader. Keep broad
-            # search and interactive browsing behind their normal toggles.
-            disabled_tools.discard("web_fetch")
-        if (
-            _explicit_web_intent
-            and not _use_turn_contract
-            and _effective_tool_schema_mode != "full"
-        ):
-            # A direct lookup/search request should not drift into personal
-            # tools or shell fallbacks. A combined web+workspace deliverable
-            # is the exception: it still needs native file/Python tools after
-            # gathering evidence from the web.
-            disabled_tools.update({
-                "search_chats", "manage_skills", "manage_memory",
-                "create_document", "edit_document", "update_document",
-                "send_email", "reply_to_email",
-                "manage_notes", "manage_calendar", "manage_tasks",
-                "api_call",
-            })
-            _web_workspace_output = bool(
-                workspace
-                and isinstance(message, str)
-                and re.search(r"(?:^|\s)/workspace/[^\s]+", message)
-                and re.search(
-                    r"(?:\b(?:create|generate|save|write|render|export|produce|build|make)\b|"
-                    r"创建|生成|保存|写入|制作|截取|剪辑|拼接|导出)",
-                    message,
-                    re.IGNORECASE,
-                )
-            )
-            if not _web_workspace_output:
-                disabled_tools.update({
-                    "bash", "python", "read_file", "write_file", "edit_file",
-                })
-            if _search_enabled:
-                disabled_tools.difference_update(WEB_TOOL_NAMES)
-            else:
-                disabled_tools.update(WEB_TOOL_NAMES)
-        elif _search_enabled:
-            disabled_tools.difference_update(WEB_TOOL_NAMES)
+        _explicit_web_intent = _web_intent_result.explicit_web_intent
+        _contextual_web_turn_followup = _web_intent_result.contextual_web_turn_followup
+        _search_enabled = _web_intent_result.search_enabled
+        allow_web_search = _web_intent_result.allow_web_search
+        disabled_tools = set(_web_intent_result.disabled_tools)
 
         # Nobody/incognito mode: deny tools that would expose the user's
         # persistent memory, past chats, or other identity-linked data.

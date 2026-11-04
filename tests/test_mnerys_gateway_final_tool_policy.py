@@ -316,4 +316,6 @@ def test_web_handoff_calls_gateway_once_after_request_intent_routing():
     assert isinstance(kwargs["privileges"], ast.Name)
     assert kwargs["privileges"].id == "_privs"
     assert isinstance(kwargs["browser_tools"], ast.Call)
-    assert source.index("disabled_tools.difference_update(WEB_TOOL_NAMES)") < source.index("gateway_turns.finalize_tool_policy(")
+    assert source.index("gateway_turns.reconcile_web_intent(") < source.index("gateway_turns.finalize_tool_policy(")
+    web_service = (Path(__file__).resolve().parents[1] / "src" / "gateway_web_intent.py").read_text()
+    assert "disabled.difference_update(WEB_TOOL_NAMES)" in web_service

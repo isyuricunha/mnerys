@@ -387,6 +387,44 @@ now verifies its relocated Gateway boundary. Local suites passed
 **148 external schema/API-token/file-edit** tests (overlap is possible).
 Hosted CI and preview acceptance checks remain pending for these local commits.
 
+**Nineteenth incremental slice — admitted Web intent reconciliation and opt-in gates:**
+the inherited Web route now delegates its **post-capability public-Web intent
+reconciliation and initial tool-denial ordering** through
+[GatewayTurns.reconcile_web_intent](../../src/gateway_turns.py) to a
+[session-admitted service](../../src/gateway_web_intent.py). The service checks
+the issued admission, loaded session and context owner **before reading
+server-provided Web history evidence**. It retains the inherited distinction
+between private prior-chat searches and public search, explicit request
+classification, typed contextual link/result follow-ups, the trained compact
+route, opt-in Web toggles and explicit request-level search denials. Browser
+automation and local HTML rendering retain separate gates, and exact public
+URL reads do not imply permission for open-ended search.
+
+The same implementation preserves pre-final-policy legacy Web containment:
+non-contract public Web requests cannot drift into unrelated personal,
+document, messaging or shell tools except for the inherited bound
+workspace-output case. A later [final admitted tool policy](../../src/gateway_execution_policy.py)
+still reapplies account, delegated-token and global restrictions. The
+Web adapter continues to detect initial URL/browser/workspace intent, decide
+Chat-to-Agent escalation and collect server-loaded history evidence via
+**lazy, validated callbacks**. These Web-specific compatibilities are **not**
+yet a standalone model/agent orchestration service. No new classifier,
+tool dispatcher, API, DB migration or preview deployment was introduced.
+
+[Independent parity tests](../../tests/test_mnerys_gateway_web_intent.py)
+compare the previous Web ordering across explicit toggles, user "no search"
+instructions, prior-chat requests, typed contextual evidence, compact
+routing, exact URLs, browser/local rendering and workspace outputs. Negative
+tests reject forged or cross-owner sessions, malformed server flags and
+invalid evidence callbacks **before** performing external lookups.
+Legacy [Web source-policy](../../tests/test_chat_route_tool_policy.py) and
+[final policy boundary](../../tests/test_mnerys_gateway_final_tool_policy.py)
+guards now verify the relocated Gateway implementation. Local suites passed
+**452 focused**, **185 routing/streaming**, **159 authority/approval**,
+**160 peripheral**, **1,129 contract compatibility** and **148 external
+schema/API-token/file-edit** cases (some groups overlap). Hosted CI and live
+preview acceptance remain pending for these unpushed local commits.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

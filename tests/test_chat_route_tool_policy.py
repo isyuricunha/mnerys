@@ -216,15 +216,19 @@ def test_disabled_tools_respects_missing_vs_explicit_toggles():
     assert "web_search_enabled_for_turn(allow_web_search, use_web)" in source, (
         "web tools must be gated through the explicit per-turn web setting"
     )
-    assert "web_intent_may_enable_for_turn(" in source, (
+    gateway_web_source = (
+        _CHAT_ROUTES.parents[1] / "src" / "gateway_web_intent.py"
+    ).read_text(encoding="utf-8")
+    assert "gateway_turns.reconcile_web_intent(" in source
+    assert "web_intent_may_enable_for_turn(" in gateway_web_source, (
         "prompt web intent must respect both caller and message-level denials"
     )
     agent_source = (Path(__file__).resolve().parent.parent / "src" / "agent_loop.py").read_text(encoding="utf-8")
     assert "explicit web domain enabled private web tools" in agent_source
     assert "elif forced_tools and (set(forced_tools) & WEB_TOOL_NAMES):" in agent_source
     assert "disabled_tools.difference_update(WEB_TOOL_NAMES)" in agent_source
-    assert "disabled_tools.update(WEB_TOOL_NAMES)" in source, (
-        "disabled_tools must add web_search/web_fetch when web is not explicitly enabled"
+    assert "disabled.update(WEB_TOOL_NAMES)" in gateway_web_source, (
+        "disabled tools must include web_search/web_fetch when search is disabled"
     )
     assert "_forced_tools = set(WEB_TOOL_NAMES)" in source, (
         "web tools should only be forced visible from the explicit web setting"
@@ -235,8 +239,13 @@ def test_explicit_private_browser_workflow_survives_web_search_disabled():
     source = _CHAT_ROUTES.read_text(encoding="utf-8")
     assert "_explicit_private_browser_intent" in source
     assert "_explicit_private_browser_intent = bool(re.search" in source
-    assert "if not (_explicit_browser_intent or _local_browser_render_intent):" in source
-    assert 'disabled_tools.add("private_browser")' in source
+    gateway_web_source = (
+        _CHAT_ROUTES.parents[1] / "src" / "gateway_web_intent.py"
+    ).read_text(encoding="utf-8")
+    assert "explicit_browser_intent=_explicit_browser_intent" in source
+    assert "local_browser_render_intent=_local_browser_render_intent" in source
+    assert "if not (explicit_browser_intent or local_browser_render_intent):" in gateway_web_source
+    assert 'disabled.add("private_browser")' in gateway_web_source
 
 
 def test_clean_private_browser_warmth_requires_typed_success():
@@ -665,12 +674,15 @@ def test_explicit_false_disables_web_despite_prompt_web_intent(message):
 def test_trained_odysseus_route_uses_explicit_web_intent_without_ui_toggle_gate():
     """The exact trained model owns intent routing; other models retain the gate."""
     source = _CHAT_ROUTES.read_text(encoding="utf-8")
-    assert "_clean_v3_web_intent = bool(" in source
-    assert "_clean_v3_route_requested" in source
-    assert 'and "search_browser" in _turn_capabilities' in source
-    assert "or _clean_v3_web_intent" in source
-    assert "or _contextual_web_turn_followup or _clean_v3_web_intent" in source
-    assert "and not _explicitly_denies_web_lookup(message)" in source
+    gateway_web_source = (
+        _CHAT_ROUTES.parents[1] / "src" / "gateway_web_intent.py"
+    ).read_text(encoding="utf-8")
+    assert "gateway_turns.reconcile_web_intent(" in source
+    assert "clean_route_requested=_clean_v3_route_requested" in source
+    assert '"search_browser" in capabilities' in gateway_web_source
+    assert "or contextual_web_turn or clean_web_intent" in gateway_web_source
+    assert "and not denied_lookup()" in gateway_web_source
+    assert "None if (contextual_web_turn or clean_web_intent)" in gateway_web_source
 
 
 def test_browser_intent_is_promoted_to_search_browser_capability():

@@ -34,6 +34,10 @@ from src.gateway_tool_inventory import (
     AdmittedToolInventory,
     prepare_admitted_tool_inventory,
 )
+from src.gateway_web_intent import (
+    AdmittedWebIntent,
+    reconcile_admitted_web_intent,
+)
 from src.gateway_turn_capabilities import (
     AdmittedTurnCapabilities,
     classify_admitted_turn_capabilities,
@@ -287,6 +291,57 @@ class GatewayTurns:
             external_discovery_intent=external_discovery_intent,
             private_browser_warm=private_browser_warm,
             contextual_browser_followup_lookup=contextual_browser_followup_lookup,
+        )
+
+    def reconcile_web_intent(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        message: str,
+        explicit_web_intent: bool,
+        personal_store_intent: bool,
+        tool_intent_is_web: bool,
+        capabilities: frozenset[str],
+        clean_route_requested: bool,
+        allow_web_search: Any,
+        search_enabled: bool,
+        explicit_browser_intent: bool,
+        local_browser_render_intent: bool,
+        exact_url_fetch_intent: bool,
+        use_turn_contract: bool,
+        full_schema_route: bool,
+        workspace_bound: bool,
+        base_disabled_tools: set[str] | frozenset[str],
+        web_link_followup_lookup: Callable[[], bool],
+        contextual_web_followup_lookup: Callable[[], bool],
+        recent_web_event_lookup: Callable[[], bool],
+        message_denies_lookup: Callable[[], bool],
+    ) -> AdmittedWebIntent:
+        """Resolve owner-bound Web intent, toggle gates and initial denials."""
+        return reconcile_admitted_web_intent(
+            admission, session,
+            context_owner=context_owner,
+            message=message,
+            explicit_web_intent=explicit_web_intent,
+            personal_store_intent=personal_store_intent,
+            tool_intent_is_web=tool_intent_is_web,
+            capabilities=capabilities,
+            clean_route_requested=clean_route_requested,
+            allow_web_search=allow_web_search,
+            search_enabled=search_enabled,
+            explicit_browser_intent=explicit_browser_intent,
+            local_browser_render_intent=local_browser_render_intent,
+            exact_url_fetch_intent=exact_url_fetch_intent,
+            use_turn_contract=use_turn_contract,
+            full_schema_route=full_schema_route,
+            workspace_bound=workspace_bound,
+            base_disabled_tools=base_disabled_tools,
+            web_link_followup_lookup=web_link_followup_lookup,
+            contextual_web_followup_lookup=contextual_web_followup_lookup,
+            recent_web_event_lookup=recent_web_event_lookup,
+            message_denies_lookup=message_denies_lookup,
         )
 
     def select_tool_intent(
