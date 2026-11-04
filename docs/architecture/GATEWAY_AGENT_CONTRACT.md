@@ -392,6 +392,26 @@ SSE or the existing post-session routing. See the
 The independent Gateway/API, agent runtime and cross-client acceptance
 remain planned.
 
+## M2.1 incremental implementation: admitted runtime toggle state
+
+**Implemented internally as a policy-derived runtime-context projection.**
+The [Gateway facade](../../src/gateway_turns.py) now invokes an
+[owner-admitted runtime-state service](../../src/gateway_turn_runtime_state.py)
+after final account/delegated/global tool policy but before authority
+construction. It always replaces a client-supplied `web_ui_state` with the
+server's effective Web, shell and document-editor availability, and preserves
+the existing RAG, research and incognito request-toggle interpretation.
+This prevents untrusted runtime metadata from presenting denied tools as
+available; it **does not** authorize tools or alter the existing execution
+policy and dispatcher.
+
+Web still parses UI toggles and supplies its validated runtime metadata.
+The Agent Core and `ui_control` continue to consume the same context
+shape. See [M2.1 implementation evidence](M2_GATEWAY_IMPLEMENTATION_PLAN.md)
+and [runtime-state parity/denial tests](../../tests/test_mnerys_gateway_turn_runtime_state.py).
+Persistent turn-state reconciliation, independent authenticated transports
+and cross-client execution acceptance remain planned.
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

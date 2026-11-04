@@ -41,6 +41,10 @@ from src.gateway_post_session_routing import (
     reconcile_admitted_post_session_route,
     promote_admitted_document_edit_route,
 )
+from src.gateway_turn_runtime_state import (
+    AdmittedRuntimeUIState,
+    project_admitted_runtime_ui_state,
+)
 from src.gateway_initial_web_intent import (
     InitialWebIntent,
     classify_initial_web_intent,
@@ -306,6 +310,29 @@ class GatewayTurns:
             external_discovery_intent=external_discovery_intent,
             private_browser_warm=private_browser_warm,
             contextual_browser_followup_lookup=contextual_browser_followup_lookup,
+        )
+
+    def project_runtime_ui_state(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        client_runtime_context: dict[str, Any] | None,
+        policy: ToolPolicy,
+        use_rag: Any,
+        use_research: Any,
+        incognito: bool,
+    ) -> AdmittedRuntimeUIState:
+        """Overwrite client toggle claims with effective admitted policy."""
+        return project_admitted_runtime_ui_state(
+            admission, session,
+            context_owner=context_owner,
+            client_runtime_context=client_runtime_context,
+            policy=policy,
+            use_rag=use_rag,
+            use_research=use_research,
+            incognito=incognito,
         )
 
     def preview_initial_web_intent(

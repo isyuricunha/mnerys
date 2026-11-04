@@ -3138,21 +3138,18 @@ def setup_chat_routes(
                 _global_disabled,
             )
         disabled_tools = tool_policy.all_disabled_names()
-        # ui_control executes server-side, while these interactive toggles are
-        # resolved from this request. Carry the effective, sanitized booleans
-        # into the agent runtime so a get_toggles call reports real turn state
-        # instead of claiming the backend cannot see the client.
-        client_runtime_context = dict(client_runtime_context or {})
-        client_runtime_context["web_ui_state"] = {
-            "web": "web_search" not in disabled_tools,
-            "bash": "bash" not in disabled_tools,
-            "rag": str(use_rag if use_rag is not None else "true").lower() != "false",
-            "research": str(form_data.get("use_research") or "").lower() == "true",
-            "incognito": bool(incognito),
-            "document_editor": not {
-                "manage_documents", "create_document", "edit_document", "update_document",
-            }.issubset(disabled_tools),
-        }
+        # Server-derived runtime toggles now belong to the admitted Gateway.
+        # A client-provided web_ui_state cannot override final tool policy.
+        _runtime_ui_projection = gateway_turns.project_runtime_ui_state(
+            _admitted_session, sess,
+            context_owner=ctx.user,
+            client_runtime_context=client_runtime_context,
+            policy=tool_policy,
+            use_rag=use_rag,
+            use_research=form_data.get("use_research"),
+            incognito=bool(incognito),
+        )
+        client_runtime_context = _runtime_ui_projection.context
         # Capture permission state before schema selection/reconciliation.
         # Only deterministic request intent supplies grants, never inventory.
         _request_authority = gateway_turns.build_authority(

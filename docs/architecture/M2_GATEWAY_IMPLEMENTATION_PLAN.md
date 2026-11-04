@@ -563,6 +563,40 @@ Local checks passed **627 focused**, **185 routing**, **159 authority**,
 **148 external-schema/token/edit** tests (suites may overlap). Hosted CI
 and the private preview have not been run for this local commit.
 
+**Twenty-third incremental slice — admitted effective runtime toggle projection:**
+the Web adapter now passes the issued session, the bound context owner,
+validated runtime metadata and the **final** tool policy to
+[GatewayTurns.project_runtime_ui_state](../../src/gateway_turns.py), backed by
+[the transport-neutral projection service](../../src/gateway_turn_runtime_state.py).
+This occurs after the final account/delegated/global denylist is applied and
+before [request authority construction](../../src/gateway_turn_authority.py).
+The service verifies the issued admission and loaded session/owner, then
+overwrites any untrusted client `web_ui_state` values with server-computed
+toggle facts. The effective `web`, `bash` and `document_editor` availability
+reflects the post-policy disabled tool set; `rag`, `research` and
+`incognito` retain their existing request-toggle semantics. Neither the
+projection nor a client-sent toggle becomes an executable grant.
+
+The inherited runtime context retains all other validated client metadata
+without in-place mutation. The original Agent Core and
+`ui_control.get_toggles` consumers continue to receive the same keys and
+booleans. The Web adapter still parses client runtime context and forms;
+model invocation, ownership checks, durable session handling and SSE remain
+unchanged. No extra RPC endpoint, model executor, database migration or
+preview deployment was introduced. This is a smaller, testable Gateway
+authority/context seam, **not** a completed end-to-end turn boundary.
+
+[Independent parity and denial tests](../../tests/test_mnerys_gateway_turn_runtime_state.py)
+compare the old Web projection across policy disables, document editor state,
+request modes, malformed metadata and client spoofing; verify browser, bearer
+and single-user credentials; and reject forged or cross-owner admissions.
+They also pin the handoff ordering: **final policy → trusted runtime toggle
+projection → request authority**. Local suites passed **672 focused**,
+**185 routing/streaming**, **159 authority**, **160 peripheral**,
+**1,129 contract compatibility** and **148 external schema/token/edit**
+cases (suites may overlap). Hosted CI and private preview acceptance
+remain pending until a permitted publication and deployment.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes
