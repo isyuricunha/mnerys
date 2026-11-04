@@ -154,7 +154,9 @@ These are **two independent inherited message writes**, not a transaction or
 fenced turn receipt. A failed assistant write may leave a user-only message;
 a failed partial write may have committed before raising. Cross-process replay,
 exact-once retries, and production SQLite/PostgreSQL validation remain open.
-The acceptance suite uses synthetic model events and in-memory writers only.
+The earlier typed-event suite uses synthetic model events and in-memory
+writers; a separate suite now exercises the inherited SQLAlchemy writers
+against disposable backends.
 
 ## M2.1 tested receipt and cached-owner compatibility guard
 
@@ -178,7 +180,11 @@ with the same ID, or unguarded writers elsewhere. An incarnation/revision
 fence still requires the coordinated migration described in
 [SESSION_REVISION_MIGRATION.md](SESSION_REVISION_MIGRATION.md).
 
-The verification database is a temporary local SQLite file. Disposable
-PostgreSQL 17 validation of these inherited, unversioned writers is still
-pending, distinct from the previously verified fenced-writer prototype
-tests. No production connection, migration, or restore was performed.
+The same seven direct-turn integration cases now pass independently against
+temporary SQLite and a disposable PostgreSQL 17 Docker container, with five
+additional tests rejecting unsafe PostgreSQL targets before connection. The
+opt-in PostgreSQL fixture checks loopback, database name, role and server major
+version before creating tables. Its dedicated CI role/database are isolated
+from migration tests. These are **legacy unversioned writer tests**, separate
+from the previously tested fenced-writer prototypes. No production connection,
+migration, concurrency guarantee, or restore was performed.

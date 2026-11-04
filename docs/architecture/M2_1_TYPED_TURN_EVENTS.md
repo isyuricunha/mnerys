@@ -239,12 +239,13 @@ explicitly configured by a trusted server caller. A completed assistant answer
 is saved before its `turn.completed` notification; no duplicate terminal
 frame can create another message in the same iterator. Persistence exceptions
 become generic `turn.failed` events without exposing exception messages.
-An interrupted stream or provider failure leaves the user message but does
-not persist an assistant partial in this restricted profile.
+Without the separately trusted interrupted writer, a failure leaves the user
+message but does not persist an assistant partial. With that writer configured,
+only filtered visible partial content is retained.
 
 The default and tool/approval-enabled direct profiles retain their previous
 non-persisting behavior. There is no atomic whole-turn transaction, durable
-run identifier, replay receipt, or independently tested SQL backend. The
+run identifier, replay receipt, or production SQL-backed event store. The
 acceptance tests are in
 [`test_mnerys_gateway_text_persistence.py`](../../tests/test_mnerys_gateway_text_persistence.py).
 
@@ -286,8 +287,9 @@ sanitized `turn.failed` (`persistence_error`) event; no final completion
 is acknowledged. A blocked or deleted session cannot create a false
 successful turn.
 
-These checks are covered by a disposable SQLite database using the
-original SQLAlchemy models and SessionManager, plus synthetic model output.
+These checks are covered by disposable SQLite and PostgreSQL 17 databases
+using the original SQLAlchemy models and SessionManager, plus synthetic model
+output.
 The default direct profile, existing production Web SSE path, and
 tool/approval continuation semantics remain unchanged. No durable
 cross-process completion receipt, SQL-backed event log or transaction fence

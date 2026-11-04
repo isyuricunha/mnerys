@@ -1,13 +1,15 @@
-"""Real inherited persistence writers against a disposable SQLite database.
+"""Real inherited persistence writers on disposable SQLite and PostgreSQL 17.
 
-This suite never opens Mnerys' configured application database or a remote DSN.
-It tests only isolated SQLAlchemy tables and synthetic model output.
+Only an externally provisioned isolated loopback test role/database is accepted
+for PostgreSQL. Never connect to the configured Mnerys primary database.
 """
 
+import os
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -40,14 +42,64 @@ class LegacySqlitePorts(FakePorts):
         return session.get_context_messages()
 
 
-@pytest.fixture
-def isolated_legacy_sqlite(tmp_path, monkeypatch):
-    # Dedicated, disposable SQLite file. NEVER use core.database.SessionLocal.
+PG_ENV = "MNERYS_M21_PG_TEST_DSN"
+PG_ROLE = "mnerys_m21_test"
+PG_DATABASE = "mnerys_m21_isolated"
+
+
+def isolated_postgresql_engine(dsn):
+    # Validate client connection details before even opening the connection.
+    url = make_url(dsn)
+    if (
+        url.get_backend_name() != "postgresql"
+        or url.host != "127.0.0.1"
+        or not url.port
+        or url.database != PG_DATABASE
+        or url.username != PG_ROLE
+    ):
+        raise RuntimeError("Refusing non-isolated PostgreSQL test target")
     engine = create_engine(
-        "sqlite:///" + str(tmp_path / "direct-turn.sqlite"),
+        dsn,
         poolclass=NullPool,
-        connect_args={"check_same_thread": False},
+        connect_args={
+            "connect_timeout": 3,
+            "options": "-c statement_timeout=8000 -c lock_timeout=5000",
+        },
     )
+    try:
+        with engine.connect() as connection:
+            db_name, role, version = connection.execute(
+                text(
+                    "SELECT current_database(), current_user, "
+                    "current_setting('server_version_num')"
+                )
+            ).one()
+        if (
+            db_name != PG_DATABASE
+            or role != PG_ROLE
+            or not str(version).startswith("17")
+        ):
+            raise RuntimeError("Refusing a non-isolated PostgreSQL 17 server")
+    except BaseException:
+        engine.dispose()
+        raise
+    return engine
+
+
+@pytest.fixture(params=("sqlite", "postgres"), ids=("SQLite", "PostgreSQL17"))
+def isolated_legacy_session_database(request, tmp_path, monkeypatch):
+    # Dedicated disposable backend. NEVER use core.database.SessionLocal.
+    if request.param == "sqlite":
+        engine = create_engine(
+            "sqlite:///" + str(tmp_path / "direct-turn.sqlite"),
+            poolclass=NullPool,
+            connect_args={"check_same_thread": False},
+        )
+    else:
+        dsn = os.environ.get(PG_ENV)
+        if not dsn:
+            pytest.skip("Disposable PostgreSQL 17 fixture not supplied")
+        engine = isolated_postgresql_engine(dsn)
     database.Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(manager_module, "SessionLocal", factory)
@@ -112,6 +164,7 @@ def isolated_legacy_sqlite(tmp_path, monkeypatch):
     try:
         yield session, manager, engine, admission, ports, kwargs, persisted
     finally:
+        database.Base.metadata.drop_all(engine)
         engine.dispose()
 
 
@@ -120,10 +173,10 @@ async def collect(delivery):
 
 
 @pytest.mark.asyncio
-async def test_disposable_sqlite_real_legacy_completion_and_reload(
-    isolated_legacy_sqlite, monkeypatch,
+async def test_disposable_db_real_legacy_completion_and_reload(
+    isolated_legacy_session_database, monkeypatch,
 ):
-    session, _manager, _engine, admission, _ports, kwargs, persisted = isolated_legacy_sqlite
+    session, _manager, _engine, admission, _ports, kwargs, persisted = isolated_legacy_session_database
 
     async def model(*_args, **_kwargs):
         yield 'data: {"delta":"Committed answer"}\n\n'
@@ -156,10 +209,10 @@ async def test_disposable_sqlite_real_legacy_completion_and_reload(
 
 
 @pytest.mark.asyncio
-async def test_disposable_sqlite_real_interrupted_writer_commits_stopped_metadata(
-    isolated_legacy_sqlite, monkeypatch,
+async def test_disposable_db_real_interrupted_writer_commits_stopped_metadata(
+    isolated_legacy_session_database, monkeypatch,
 ):
-    session, _manager, _engine, admission, _ports, kwargs, persisted = isolated_legacy_sqlite
+    session, _manager, _engine, admission, _ports, kwargs, persisted = isolated_legacy_session_database
 
     async def model(*_args, **_kwargs):
         yield 'data: {"delta":"visible fragment"}\n\n'
@@ -184,10 +237,10 @@ async def test_disposable_sqlite_real_interrupted_writer_commits_stopped_metadat
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("phase", ["user", "assistant"])
-async def test_disposable_sqlite_insert_refusal_never_claims_success(
-    isolated_legacy_sqlite, monkeypatch, phase,
+async def test_disposable_db_insert_refusal_never_claims_success(
+    isolated_legacy_session_database, monkeypatch, phase,
 ):
-    session, _manager, engine, admission, _ports, kwargs, persisted = isolated_legacy_sqlite
+    session, _manager, engine, admission, _ports, kwargs, persisted = isolated_legacy_session_database
     insertion = 0
 
     def refuse(_conn, _cursor, statement, _params, _context, _many):
@@ -221,10 +274,10 @@ async def test_disposable_sqlite_insert_refusal_never_claims_success(
 
 
 @pytest.mark.asyncio
-async def test_disposable_sqlite_deleted_session_does_not_acknowledge_late_reply(
-    isolated_legacy_sqlite, monkeypatch,
+async def test_disposable_db_deleted_session_does_not_acknowledge_late_reply(
+    isolated_legacy_session_database, monkeypatch,
 ):
-    session, _manager, _engine, admission, _ports, kwargs, persisted = isolated_legacy_sqlite
+    session, _manager, _engine, admission, _ports, kwargs, persisted = isolated_legacy_session_database
     from core.session_manager import SessionLocal as fixture_session_factory
 
     async def model(*_args, **_kwargs):
@@ -247,10 +300,10 @@ async def test_disposable_sqlite_deleted_session_does_not_acknowledge_late_reply
 
 
 @pytest.mark.asyncio
-async def test_disposable_sqlite_owner_transfer_refuses_stale_late_write(
-    isolated_legacy_sqlite, monkeypatch,
+async def test_disposable_db_owner_transfer_refuses_stale_late_write(
+    isolated_legacy_session_database, monkeypatch,
 ):
-    session, _manager, _engine, admission, _ports, kwargs, persisted = isolated_legacy_sqlite
+    session, _manager, _engine, admission, _ports, kwargs, persisted = isolated_legacy_session_database
     from core.session_manager import SessionLocal as fixture_session_factory
 
     async def model(*_args, **_kwargs):
@@ -273,10 +326,10 @@ async def test_disposable_sqlite_owner_transfer_refuses_stale_late_write(
 
 
 @pytest.mark.asyncio
-async def test_disposable_sqlite_refused_partial_append_has_no_false_receipt(
-    isolated_legacy_sqlite, monkeypatch,
+async def test_disposable_db_refused_partial_append_has_no_false_receipt(
+    isolated_legacy_session_database, monkeypatch,
 ):
-    session, _manager, engine, admission, _ports, kwargs, persisted = isolated_legacy_sqlite
+    session, _manager, engine, admission, _ports, kwargs, persisted = isolated_legacy_session_database
     attempted = 0
 
     def refuse_second_insert(_conn, _cursor, statement, _params, _ctx, _many):
@@ -308,3 +361,22 @@ async def test_disposable_sqlite_refused_partial_append_has_no_false_receipt(
     rows, count = persisted()
     assert [row[0] for row in rows] == ["user"]
     assert count == len(rows) == len(session.history) == 1
+
+
+@pytest.mark.parametrize("dsn", [
+    "postgresql+psycopg2://mnerys_m21_test@db.example.invalid:5432/mnerys_m21_isolated",
+    "postgresql+psycopg2://mnerys_m21_test@127.0.0.1:5432/real_application",
+    "postgresql+psycopg2://different_user@127.0.0.1:5432/mnerys_m21_isolated",
+    "postgresql+psycopg2://mnerys_m21_test@127.0.0.1/mnerys_m21_isolated",
+    "sqlite:////tmp/unrelated.db",
+])
+def test_rejects_nonisolated_postgresql_dsn_before_connect(monkeypatch, dsn):
+    monkeypatch.setattr(
+        __import__(__name__),
+        "create_engine",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Invalid PostgreSQL DSN must be rejected before creating an engine"
+        ),
+    )
+    with pytest.raises(RuntimeError, match="Refusing non-isolated"):
+        isolated_postgresql_engine(dsn)

@@ -70,13 +70,13 @@ Late session-owner changes are rejected before either assistant writer runs.
 [Updated isolated acceptance](../../tests/test_mnerys_gateway_text_persistence.py)
 covers these states and continuing a *new* turn from the saved stopped
 partial. It is not replay of the previous run and does not implement durable
-idempotency or restart-safe resumes. All M2.1 parity, real-model, SQL-backend
+idempotency or restart-safe resumes. All M2.1 parity, real-model, production SQL migration
 and atomic turn storage acceptance gates remain open.
 
-### Disposable SQLite writer acceptance — November 4, 2026
+### Disposable SQLite and PostgreSQL 17 writer acceptance — November 4, 2026
 
-The [SQLite integration suite](../../tests/test_mnerys_gateway_text_sqlite_integration.py)
-now uses a separate temporary SQLite database with the inherited SQLAlchemy
+The [cross-backend integration suite](../../tests/test_mnerys_gateway_text_sqlite_integration.py)
+now uses disposable SQLite and PostgreSQL 17 databases with the inherited SQLAlchemy
 `Session` and `ChatMessage` tables, the real `SessionManager._persist_message`
 implementation, and the original assistant/partial save functions. The
 test redirects only the legacy timestamp update and optional SFT trace hook
@@ -99,6 +99,13 @@ compares the cached owner with the current SQL owner before insertion and
 fails closed on mismatch; the cache reverts the append. This narrows a
 specific stale-session window but **does not protect against an owner transfer
 racing between that check and commit**. Revision/incarnation fencing remains
-inactive. SQLite is verified with a disposable file; this slice has **not
-been run against disposable PostgreSQL 17**. No production DB migration,
-Web cutover, or release approval is implied.
+inactive. Both SQLite and PostgreSQL 17 passed the same seven isolated
+direct-turn cases; five more negative tests verify that non-isolated PostgreSQL
+connection strings are refused before connecting. The local PostgreSQL harness
+uses a uniquely named Docker container with tmpfs data, a loopback-only random
+port, and dedicated test credentials. The fixture verifies the authenticated
+database, role, and server version before schema creation. The PostgreSQL 17 CI
+harness creates a separate test database/role for this suite.
+
+No production DB migration, Web cutover, durable fencing, or release approval
+is implied.

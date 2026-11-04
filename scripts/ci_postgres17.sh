@@ -54,3 +54,19 @@ fi
 export MNERYS_TEST_POSTGRES_URL="postgresql+psycopg2://mnerys_test:${secret}@localhost:${port}/mnerys_test_ci"
 export ODYSSEUS_DATA_DIR="$RUNNER_TEMP/mnerys-pg17-tests"
 python -m pytest -q tests/test_sqlite_postgres_migration.py tests/test_postgresql_support.py
+
+# The direct-turn suite uses the inherited writers and must not share a
+# database role or tables with the migration tests above. Both databases
+# reside in this same disposable, loopback-bound CI container.
+# Pipe the temporary credential through stdin, never into a command argument
+# or logs. The harness's EXIT trap removes the entire container afterward.
+printf "CREATE ROLE mnerys_m21_test LOGIN PASSWORD '%s';\\n" "$secret" | \
+  docker exec -i "$name" psql -U mnerys_test -d postgres -v ON_ERROR_STOP=1 -q >/dev/null
+docker exec "$name" psql -U mnerys_test -d postgres -v ON_ERROR_STOP=1 -q \
+  -c "CREATE DATABASE mnerys_m21_isolated OWNER mnerys_m21_test" >/dev/null
+
+# Keep the special test DSN distinct from DATABASE_URL and the application's
+# configured primary database. The suite verifies role, database, loopback
+# host and server major version before creating any tables.
+export MNERYS_M21_PG_TEST_DSN="postgresql+psycopg2://mnerys_m21_test:${secret}@127.0.0.1:${port}/mnerys_m21_isolated"
+python -m pytest -q tests/test_mnerys_gateway_text_sqlite_integration.py
