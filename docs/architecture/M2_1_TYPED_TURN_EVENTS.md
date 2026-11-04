@@ -86,7 +86,7 @@ synthetic; no production database or network service is used. Tests also cover
 browser/bearer/single-user identity, cross-owner rejection before inventory,
 unsupported surfaces, account denials and unchanged default no-tools behavior.
 
-The default operation still does not persist user/assistant messages. An explicitly trusted, tools-disabled direct text profile can now persist the user input through the existing context writer and the completed assistant answer through the admitted legacy saver. A failed assistant write becomes a generic terminal failure; cancellation and provider failures do not save an assistant partial. This is not an atomic transaction, durable receipt, or production Web cutover. Enabled tools
+The default operation still does not persist user/assistant messages. An explicitly trusted, tools-disabled direct text profile can now persist the user input through the existing context writer and the completed assistant answer through the admitted legacy saver. A failed assistant write becomes a generic terminal failure with no prematurely delivered final frame. When the trusted server supplies an interrupted writer, cancellation, early close, incomplete streams and provider failures save only visible partial text through the existing admitted stopped-response boundary. No partial is saved for an empty answer or after an ambiguous completed-response write failure. This is not an atomic transaction, durable receipt, or production Web cutover. Enabled tools
 retain their original authorized effects and storage; do not mistake missing
 conversation writes for a read-only guarantee. Native approval requests and controls can now traverse this same composer.
 Attachment/document context, workspace/browser-bound approval continuation,
@@ -247,3 +247,29 @@ non-persisting behavior. There is no atomic whole-turn transaction, durable
 run identifier, replay receipt, or independently tested SQL backend. The
 acceptance tests are in
 [`test_mnerys_gateway_text_persistence.py`](../../tests/test_mnerys_gateway_text_persistence.py).
+
+## Interrupted direct text delivery (opt-in)
+
+A trusted direct text persistence caller may supply the existing admitted
+interrupted writer. For a nonempty visible answer segment, early close and
+cancellation attempt a stopped partial save during generator cleanup, preserving
+the original interruption even when the legacy writer fails. Explicit provider
+and incomplete-stream failures also attempt a partial save before publishing
+their typed `turn.failed` event. Invalid ownership or an ambiguous writer
+failure never triggers an automatic retry. Empty/reasoning-only streams do not
+create stopped assistant messages.
+
+The persistence wrapper buffers the translated `message.final` signal until
+the legacy completed-response saver succeeds. A failed completed save emits
+only a generic `persistence_error` terminal event, without sending an
+uncommitted final response or appending a second stopped reply. Event sequences
+remain process-local and contiguous for delivered events; there are no durable
+turn identifiers, retention guarantees, cross-worker resume cursors or
+atomic user/assistant writes.
+
+The new regression cases in
+[`test_mnerys_gateway_text_persistence.py`](../../tests/test_mnerys_gateway_text_persistence.py)
+cover early-close history continuation, provider and incomplete-stream failures,
+reasoning exclusion, write errors, late owner changes, duplicate terminals and
+final-event ordering. The production Web serializer and writer paths are not
+migrated by this feature.

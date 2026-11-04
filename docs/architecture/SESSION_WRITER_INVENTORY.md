@@ -47,8 +47,8 @@ idempotency key or a transaction fence.
 
 **Not migrated to the revision-fenced writer:** synchronous Chat response
 writes, all completed/interrupted Web saves, message-count consistency during
-concurrent writes, and the direct no-tools test composer (which remains
-non-persisting).
+concurrent writes, and the new opt-in direct text persistence path (which
+still delegates to the inherited writers without a revision fence).
 The [fenced-writer prototype](../../src/session_write_fencing.py) remains
 inactive in production. The [M2.1 exit gate](M2_1_EXIT_GATE.md) requires a
 server-owned complete-turn writer and cross-client parity before any cutover.
@@ -130,3 +130,28 @@ PostgreSQL tests require `MNERYS_M1_PG_TEST_DSN` and refuse any server that is n
 The [PostgreSQL 17 Read Committed documentation](https://www.postgresql.org/docs/17/transaction-iso.html) confirms that concurrent `UPDATE`s wait and recheck the predicate against the updated row. The [SQLAlchemy versioning guide](https://docs.sqlalchemy.org/en/20/orm/versioning.html) notes that mapper-level versioning does not protect bulk `Query.update()`; explicit CAS predicates and affected-row checks are used in these test-only adapters.
 
 **Remaining verification gaps:** real inherited schema migration and restoration, SQLite table-rebuild strategy for non-null generation columns, full production workload simulation, PostgreSQL nondefault isolation levels, durable run/event records and zero-overlap deployment sequencing.
+
+## M2.1 direct text interruption compatibility (opt-in)
+
+The [trusted direct text persistence adapter](../../src/gateway_text_persistence.py)
+reuses the same admitted assistant-save and interrupted-response boundaries as
+Web. In its default configuration, the direct composer performs no conversation
+writes. With server-owned persistence, shared context ports append the user
+input and the original assistant saver appends the successful reply; the
+`message.final` and `turn.completed` notifications are held back until that
+writer returns successfully. A final writer error is reported as a generic
+persistence failure, without retrying a potentially committed write.
+
+A separately supplied `interrupted_writer` enables compatibility saves for
+nonempty, filtered visible deltas after early close, cancellation, provider
+failure or an incomplete stream. The original admitted stopped-response writer
+receives `stopped=True` plus a bounded internal interruption reason. It is
+attempted once per stream even if its effect is ambiguous. Ownership is
+rechecked at the persistence boundary; a changed owner prevents a late save.
+Nothing grants tools or resumes a sealed approval.
+
+These are **two independent inherited message writes**, not a transaction or
+fenced turn receipt. A failed assistant write may leave a user-only message;
+a failed partial write may have committed before raising. Cross-process replay,
+exact-once retries, and production SQLite/PostgreSQL validation remain open.
+The acceptance suite uses synthetic model events and in-memory writers only.
