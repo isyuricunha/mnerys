@@ -425,6 +425,47 @@ guards now verify the relocated Gateway implementation. Local suites passed
 schema/API-token/file-edit** cases (some groups overlap). Hosted CI and live
 preview acceptance remain pending for these unpushed local commits.
 
+**Twentieth incremental slice — pure early Chat-to-Agent routing preview:**
+the [Web compatibility adapter](../../routes/chat_routes.py) now uses
+[GatewayTurns.preview_initial_agent_route](../../src/gateway_turns.py)
+and a [pure initial routing service](../../src/gateway_initial_agent_routing.py)
+for the pre-session chat-to-agent decision. The service reuses the single
+[legacy action-intent classifier](../../src/action_intents.py), preserving
+the original precedence of typed tool action, opted-in search, explicit
+public-Web request and explicit private-browser workflow. It preserves
+the independent native workspace-intent hint, including the inherited
+`allow_bash="true"` *preliminary toggle* only for an automatically
+promoted workspace action; existing Agent mode retains its previous value.
+The Web route retains the unchanged trained-compact candidate hint and
+audit messages. The result is an immutable, side-effect-free value,
+not a tool permission, admission or operation grant.
+
+**Trust boundary:** this initial step must run **before the default/submitted
+session can be resolved and admitted**. It therefore deliberately does
+not claim a session owner or call protected resources. The later
+[issued admission](../../src/gateway_admission.py), privilege gates,
+[execution-policy finalizer](../../src/gateway_execution_policy.py) and
+[hardened dispatcher](../../src/tool_execution.py) remain mandatory for
+workspace access, shell execution and all other effects. After admission,
+the inherited route still reconciles its loaded model, typed contextual
+browser/Web follow-ups, explicit workspace path, visible document editing
+and turn authority. Those subsequent branches have **not** been extracted
+by this slice. This is not a public API, independent agent runtime,
+durable Gateway or database migration.
+
+[Preflight precedence and safety tests](../../tests/test_mnerys_gateway_initial_agent_routing.py)
+compare the inherited source logic for chat/agent modes, typed notes/calendar/
+shell actions, Web/browser priorities, opaque or empty messages, native
+workspace hints and the no-new-grant guarantee. The
+[workspace routing regression](../../tests/test_chat_route_tool_policy.py)
+now checks the rule's new source location. Local suites passed
+**491 focused**, **185 routing/streaming**, **159 authority/approval**,
+**160 peripheral**, **1,129 contract compatibility**,
+**148 external schema/API-token/file-edit** and **56 original action-intent
+plus new preflight** cases (overlap is possible). Hosted CI and real preview
+acceptance are still pending for this local implementation until publication
+and an authorized deployment.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

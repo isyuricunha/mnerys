@@ -70,7 +70,7 @@ from routes.chat_helpers import (
     _allowed_models_for_request,
     _enforce_chat_privileges,
 )
-from src.action_intents import ToolIntent, classify_tool_intent as _classify_tool_intent
+from src.action_intents import ToolIntent
 from src.image_model_ids import looks_like_image_generation_model
 from src.tool_policy import (
     WEB_ACCESS_TOOL_NAMES,
@@ -2498,50 +2498,41 @@ def setup_chat_routes(
         # withholds shell/code/file tools so the model doesn't try to `bash`
         # its way through a plain chat request (and fail, especially with the
         # shell disabled).
-        auto_escalated = False
-        _tool_intent = _classify_tool_intent(message) if isinstance(message, str) else None
-        # The opt-in trained-tools route owns its complete conversation loop.
-        # Do not make each follow-up earn Agent mode again through the legacy
-        # lexical intent classifier: that recreated the same per-turn RAG gate
-        # this experiment is intended to remove (for example, add-note matched
-        # while delete-notes silently fell back to plain chat).
+        # This is only pre-admission Chat/Agent routing. The selected session
+        # and all workspace/tool effects are checked by admitted Gateway policy.
+        # Preserve the trained compact-route hint separately: it is reconciled
+        # against the loaded model after ownership is verified below.
         _clean_v3_route_requested = bool(
             selected_endpoint_id in _CLEAN_V3_ENDPOINT_ALIASES
             or _clean_v3_route_for_model(form_data.get("selected_model"))
         )
-        # Classify workspace intent independently of chat→agent escalation.
-        # Native terminal callers normally arrive in Agent mode already; they
-        # still need their isolated execution contract, while ordinary native
-        # product turns must use the product tool-family contract below.
-        _workspace_agent_intent = bool(
-            (
-                _tool_intent
-                and _tool_intent.needs_tools
-                and _tool_intent.category in {"shell", "workspace"}
-            )
-            or _native_context_has_workspace_inputs(client_runtime_context)
+        _initial_agent_route = gateway_turns.preview_initial_agent_route(
+            message=message,
+            chat_mode=chat_mode,
+            allow_bash=allow_bash,
+            search_enabled=_search_enabled,
+            explicit_web_intent=_explicit_web_intent,
+            explicit_private_browser_intent=_explicit_private_browser_intent,
+            native_workspace_inputs=_native_context_has_workspace_inputs(
+                client_runtime_context,
+            ),
         )
-        if chat_mode == "chat" and _tool_intent and _tool_intent.needs_tools:
-            chat_mode = "agent"
-            auto_escalated = True
-            if _workspace_agent_intent:
-                allow_bash = "true"
+        chat_mode = _initial_agent_route.chat_mode
+        _tool_intent = _initial_agent_route.tool_intent
+        _workspace_agent_intent = _initial_agent_route.workspace_agent_intent
+        auto_escalated = _initial_agent_route.auto_escalated
+        allow_bash = _initial_agent_route.allow_bash
+        if _initial_agent_route.escalation_reason == "tool_intent":
             logger.info(
                 "chat→agent auto-escalation: category=%s reason=%s",
                 _tool_intent.category,
                 _tool_intent.reason,
             )
-        elif chat_mode == "chat" and _search_enabled:
-            chat_mode = "agent"
-            auto_escalated = True
+        elif _initial_agent_route.escalation_reason == "search_enabled":
             logger.info("chat→agent auto-escalation: search enabled")
-        elif chat_mode == "chat" and _explicit_web_intent:
-            chat_mode = "agent"
-            auto_escalated = True
+        elif _initial_agent_route.escalation_reason == "explicit_web_intent":
             logger.info("chat→agent auto-escalation: explicit web intent")
-        elif chat_mode == "chat" and _explicit_private_browser_intent:
-            chat_mode = "agent"
-            auto_escalated = True
+        elif _initial_agent_route.escalation_reason == "explicit_private_browser_intent":
             logger.info("chat→agent auto-escalation: explicit private browser workflow")
         active_doc_id = form_data.get("active_doc_id", "").strip()
         active_doc_state = form_data.get("active_doc_state", "").strip().casefold()

@@ -34,6 +34,10 @@ from src.gateway_tool_inventory import (
     AdmittedToolInventory,
     prepare_admitted_tool_inventory,
 )
+from src.gateway_initial_agent_routing import (
+    InitialAgentRoute,
+    select_initial_agent_route,
+)
 from src.gateway_web_intent import (
     AdmittedWebIntent,
     reconcile_admitted_web_intent,
@@ -291,6 +295,28 @@ class GatewayTurns:
             external_discovery_intent=external_discovery_intent,
             private_browser_warm=private_browser_warm,
             contextual_browser_followup_lookup=contextual_browser_followup_lookup,
+        )
+
+    def preview_initial_agent_route(
+        self,
+        *,
+        message: Any,
+        chat_mode: str,
+        allow_bash: Any,
+        search_enabled: bool,
+        explicit_web_intent: bool,
+        explicit_private_browser_intent: bool,
+        native_workspace_inputs: bool,
+    ) -> InitialAgentRoute:
+        """Pure pre-admission routing; never returns an executable grant."""
+        return select_initial_agent_route(
+            message=message,
+            chat_mode=chat_mode,
+            allow_bash=allow_bash,
+            search_enabled=search_enabled,
+            explicit_web_intent=explicit_web_intent,
+            explicit_private_browser_intent=explicit_private_browser_intent,
+            native_workspace_inputs=native_workspace_inputs,
         )
 
     def reconcile_web_intent(

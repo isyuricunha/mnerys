@@ -329,6 +329,27 @@ calls, hardened tool dispatch and persistence remain inherited. See the
 [M2.1 verification](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
 [Web reconciliation parity tests](../../tests/test_mnerys_gateway_web_intent.py).
 
+## M2.1 incremental implementation: pure pre-admission Chat routing
+
+**Implemented as an internal, unprivileged preview of Chat-to-Agent mode, not
+as an authorization decision.** The
+[Gateway facade](../../src/gateway_turns.py) now delegates the early
+session-independent promotion to the
+[pure routing service](../../src/gateway_initial_agent_routing.py), which
+reuses the [original intent classifier](../../src/action_intents.py). It
+preserves the typed-tool, search toggle, public-Web and private-browser
+precedence and the old workspace shell-toggle hint without issuing a grant
+or accessing a session. This stage necessarily occurs **before session
+resolution and admission**; no user or workspace authorization is inferred
+from it. The subsequent admitted Gateway policies and unchanged tool
+dispatcher remain required for all operations.
+
+Post-session browser follow-ups, workspace path restoration and visible
+document autoescalation are still Web-managed. No external Gateway client,
+new agent engine, durable event store or database change was added. See the
+[M2.1 incremental evidence](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
+[preflight safety and parity tests](../../tests/test_mnerys_gateway_initial_agent_routing.py).
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

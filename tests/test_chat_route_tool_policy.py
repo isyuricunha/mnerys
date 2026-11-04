@@ -447,7 +447,9 @@ def test_local_html_render_is_separate_from_open_web_access():
 def test_workspace_auto_escalation_keeps_shell_tools():
     """Workspace/shell auto-routing must not use the light typed-tool clamp."""
     source = _CHAT_ROUTES.read_text(encoding="utf-8")
-    assert '_tool_intent.category in {"shell", "workspace"}' in source
+    selector = (_CHAT_ROUTES.parents[1] / "src" / "gateway_initial_agent_routing.py").read_text()
+    assert 'intent.category in {"shell", "workspace"}' in selector
+    assert 'gateway_turns.preview_initial_agent_route(' in source
     assert 'gateway_turns.select_contract_scope(' in source
     from src.gateway_turn_contract_selection import select_admitted_contract_scope
     import inspect
