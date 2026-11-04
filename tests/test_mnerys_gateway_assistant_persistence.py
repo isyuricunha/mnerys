@@ -197,6 +197,143 @@ def test_web_handoff_uses_gateway_for_all_five_terminal_save_branches():
         assert kw["saver"].id=="save_assistant_response"
 
 
+@pytest.mark.parametrize("credential", ["browser", "bearer", "single_user"])
+def test_interrupted_partial_preserves_legacy_writer_and_stopped_metadata(credential):
+    from src.gateway_assistant_persistence import (
+        save_admitted_interrupted_assistant_response,
+    )
+
+    token, session = admitted(credential=credential)
+    manager = object()
+    writer = MagicMock(return_value=None)
+    metadata = {
+        "stopped": True,
+        "model": "actual-model",
+        "requested_model": "selected-model",
+        "round_models": ["selected-model", "actual-model"],
+        "thinking_interrupted": True,
+    }
+    result = GatewayTurns(MagicMock()).save_interrupted_assistant_response(
+        token, session, manager, token.session_id,
+        "Partial answer", metadata,
+        context_owner=token.principal.owner_id,
+        writer=writer,
+        incognito=False,
+    )
+    assert result is None
+    writer.assert_called_once_with(session, manager, "Partial answer", metadata)
+    assert metadata["stopped"] is True
+    writer.reset_mock()
+    assert save_admitted_interrupted_assistant_response(
+        token, session, manager, token.session_id,
+        "Partial answer", metadata,
+        context_owner=token.principal.owner_id,
+        writer=writer, incognito=True,
+    ) is None
+    writer.assert_not_called()
+
+
+@pytest.mark.parametrize("tamper", [
+    "missing", "fabricated", "proof", "principal", "id",
+    "loaded_session", "loaded_owner", "context_owner", "claimed_id",
+])
+def test_interrupted_save_rejects_foreign_admission_before_legacy_writer(tamper):
+    from src.gateway_assistant_persistence import (
+        save_admitted_interrupted_assistant_response,
+    )
+    token, session = admitted()
+    manager = object()
+    writer = MagicMock()
+    owner = "alice"
+    claimed = token.session_id
+    if tamper == "missing":
+        token = None
+    elif tamper == "fabricated":
+        token = AdmittedSession(Principal("alice", "browser"), "session-1")
+    elif tamper == "proof":
+        token = replace(token, _proof=None)
+    elif tamper == "principal":
+        token = replace(token, principal=Principal("mallory", "browser"))
+    elif tamper == "id":
+        token = replace(token, session_id="other")
+    elif tamper == "loaded_session":
+        session.id = "other"
+    elif tamper == "loaded_owner":
+        session.owner = "mallory"
+    elif tamper == "context_owner":
+        owner = "mallory"
+    else:
+        claimed = "other"
+    with pytest.raises(AdmissionDenied) as denied:
+        save_admitted_interrupted_assistant_response(
+            token, session, manager, claimed, "Partial",
+            {"stopped": True}, context_owner=owner, writer=writer,
+        )
+    assert denied.value.status_code == 403
+    writer.assert_not_called()
+
+
+@pytest.mark.parametrize("changes", [
+    {"stopped_metadata": None},
+    {"stopped_metadata": {}},
+    {"stopped_metadata": {"stopped": "true"}},
+    {"stopped_metadata": {"stopped": False}},
+    {"partial_content": None},
+    {"writer": None},
+    {"writer": object()},
+    {"incognito": "false"},
+])
+def test_interrupted_save_invalid_internal_contract_fails_closed(changes):
+    from src.gateway_assistant_persistence import (
+        save_admitted_interrupted_assistant_response,
+    )
+    token, session = admitted()
+    manager = object()
+    writer = MagicMock()
+    kw = dict(
+        partial_content="Partial", stopped_metadata={"stopped": True},
+        writer=writer, context_owner="alice", incognito=False,
+    )
+    kw.update(changes)
+    with pytest.raises(AdmissionDenied):
+        save_admitted_interrupted_assistant_response(
+            token, session, manager, token.session_id, **kw,
+        )
+    writer.assert_not_called()
+
+
+def test_web_cancel_paths_are_admission_bound_and_save_success_once():
+    source = (
+        Path(__file__).resolve().parents[1] / "routes" / "chat_routes.py"
+    ).read_text()
+    stream = source[source.index('@router.post("/api/chat_stream")'):]
+    assert stream.count("gateway_turns.save_interrupted_assistant_response(") == 2
+    assert stream.count("writer=append_interrupted_assistant_response") == 2
+    assert "if full_response and not incognito and not _chat_terminal_saved:" in stream
+    assert "if full_response and not incognito and not _terminal_saved:" in stream
+    assert stream.count("_chat_terminal_saved = True") == 2
+    assert stream.count("_terminal_saved = True") >= 3
+    assert "sess.add_message(ChatMessage(\"assistant\", _stopped_content" not in stream
+    tree=ast.parse(source)
+    paths=[
+        x for x in ast.walk(tree)
+        if isinstance(x, ast.Call)
+        and isinstance(x.func, ast.Attribute)
+        and isinstance(x.func.value, ast.Name)
+        and x.func.value.id == "gateway_turns"
+        and x.func.attr == "save_interrupted_assistant_response"
+    ]
+    assert len(paths) == 2
+    for call in paths:
+        assert [a.id for a in call.args[:4]] == [
+            "_admitted_session", "sess", "session_manager", "session",
+        ]
+        kws={kw.arg:kw.value for kw in call.keywords}
+        assert isinstance(kws["context_owner"],ast.Attribute)
+        assert isinstance(kws["writer"],ast.Name)
+        assert kws["writer"].id == "append_interrupted_assistant_response"
+
+
 def test_service_imports_no_web_or_duplicate_database_writer():
     from src import gateway_assistant_persistence as module
     tree=ast.parse(inspect.getsource(module))

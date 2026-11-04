@@ -467,6 +467,24 @@ and [M2.1 exit gate](M2_1_EXIT_GATE.md) remain authoritative on
 these incomplete migration gates. See
 [admitted save tests](../../tests/test_mnerys_gateway_assistant_persistence.py).
 
+## M2.1 incremental implementation: admitted interruption/terminal lifecycle
+
+**Implemented as a per-stream compatibility fix; durable lifecycle remains
+planned.** In addition to the five admitted final assistant saves, both
+[Web Chat/Agent interrupted partials](../../routes/chat_routes.py) now
+pass through [Gateway admission](../../src/gateway_assistant_persistence.py)
+before invoking the [same inherited session writer](../../routes/chat_helpers.py).
+Saved terminal responses block late cancellation partials and duplicate DONE
+saves. Cancellation cleanup survives an underlying writer failure.
+Original fallback/model provenance and stopped-thinking metadata remain
+untouched.
+
+These checks **do not** provide transactional, cross-worker exactly-once
+message writes, a new event log or a complete direct composer. See the
+[M2.1 exit gate](M2_1_EXIT_GATE.md),
+[writer inventory](SESSION_WRITER_INVENTORY.md), and
+[real-stream cancellation tests](../../tests/test_foreground_model_routing.py).
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

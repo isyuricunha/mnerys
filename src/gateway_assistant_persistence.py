@@ -14,6 +14,41 @@ from src.gateway_admission import AdmittedSession, AdmissionDenied, require_admi
 from src.gateway_context_admission import owner_for_admitted_context
 
 
+def save_admitted_interrupted_assistant_response(
+    admission: AdmittedSession,
+    session: Any,
+    session_manager: Any,
+    claimed_session_id: str,
+    partial_content: str,
+    stopped_metadata: dict,
+    *,
+    context_owner: str | None,
+    writer: Callable[..., Any],
+    incognito: bool = False,
+) -> Any:
+    """Delegate a stopped partial to the original session append writer.
+
+    This does not confer cross-run idempotence or new transaction guarantees.
+    The Web stream must exclude already finalized turns and call this at most
+    once per cancellation. Response shaping remains in its existing pipeline.
+    """
+    session_id = require_admitted_session(admission)
+    owner = owner_for_admitted_context(admission, session, session_id)
+    if context_owner != owner or claimed_session_id != session_id:
+        raise AdmissionDenied(403, "Interrupted response owner/session mismatch")
+    if (
+        session_manager is None or not callable(writer)
+        or not isinstance(partial_content, str)
+        or not isinstance(stopped_metadata, dict)
+        or stopped_metadata.get("stopped") is not True
+        or type(incognito) is not bool
+    ):
+        raise AdmissionDenied(403, "Invalid interrupted response save contract")
+    if incognito:
+        return None
+    return writer(session, session_manager, partial_content, stopped_metadata)
+
+
 def save_admitted_assistant_response(
     admission: AdmittedSession,
     session: Any,

@@ -1358,6 +1358,19 @@ def clean_thinking_for_save(content: str, metadata: dict | None = None) -> tuple
     return content, md
 
 
+def append_interrupted_assistant_response(
+    sess, session_manager, content: str, metadata: dict,
+) -> None:
+    """Retain the inherited cancellation writer without a new transaction.
+
+    The Gateway must validate the issued session and owner before calling
+    this server-owned adapter. The current legacy append/cache and
+    save_sessions behavior is intentionally unchanged.
+    """
+    sess.add_message(ChatMessage("assistant", content, metadata=metadata))
+    session_manager.save_sessions()
+
+
 def save_assistant_response(
     sess,
     session_manager,

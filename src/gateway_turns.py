@@ -43,7 +43,10 @@ from src.gateway_post_session_routing import (
     promote_admitted_document_edit_route,
 )
 from src.gateway_agent_execution import stream_admitted_agent_turn
-from src.gateway_assistant_persistence import save_admitted_assistant_response
+from src.gateway_assistant_persistence import (
+    save_admitted_assistant_response,
+    save_admitted_interrupted_assistant_response,
+)
 from src.gateway_turn_composer import (
     TextTurnRequest,
     TrustedTextTurnSettings,
@@ -216,6 +219,26 @@ class GatewayTurns:
             plan_mode=plan_mode,
             internal_tool_request=internal_tool_request,
             store=store,
+        )
+
+    def save_interrupted_assistant_response(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        session_manager: Any,
+        claimed_session_id: str,
+        partial_content: str,
+        stopped_metadata: dict,
+        *,
+        context_owner: str | None,
+        writer: Callable[..., Any],
+        incognito: bool = False,
+    ) -> Any:
+        """Validate a stopped partial before invoking the original writer."""
+        return save_admitted_interrupted_assistant_response(
+            admission, session, session_manager, claimed_session_id,
+            partial_content, stopped_metadata,
+            context_owner=context_owner, writer=writer, incognito=incognito,
         )
 
     def save_assistant_response(

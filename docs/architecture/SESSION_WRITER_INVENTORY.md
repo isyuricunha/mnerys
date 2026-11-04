@@ -36,9 +36,19 @@ tool/thinking metadata, incognito handling, message IDs, last-access updates
 and write failures preserve their inherited semantics. There is still no
 transactional pair across user and assistant messages.
 
-**Not migrated:** interrupted/disconnected partial response inserts, the
-synchronous Chat response writer, message-count consistency during concurrent
-writes, and the direct no-tools test composer (which remains non-persisting).
+**Incremental follow-up:** both stopped/disconnected partial-response
+inserts are now checked by the same admitted Gateway boundary before
+invoking the unchanged legacy `Session.add_message` and
+`SessionManager.save_sessions` path. Successful Chat/Agent stream completion
+also blocks another save on repeated DONE or disconnect, and the Chat partial
+writer can no longer mask cancellation if it fails. This only prevents
+multiple save attempts **within the same stream**; it is not a durable
+idempotency key or a transaction fence.
+
+**Not migrated to the revision-fenced writer:** synchronous Chat response
+writes, all completed/interrupted Web saves, message-count consistency during
+concurrent writes, and the direct no-tools test composer (which remains
+non-persisting).
 The [fenced-writer prototype](../../src/session_write_fencing.py) remains
 inactive in production. The [M2.1 exit gate](M2_1_EXIT_GATE.md) requires a
 server-owned complete-turn writer and cross-client parity before any cutover.

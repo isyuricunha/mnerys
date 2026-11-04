@@ -63,6 +63,7 @@ from routes.chat_helpers import (
     resolve_session_auth,
     build_chat_context,
     save_assistant_response,
+    append_interrupted_assistant_response,
     run_post_response_tasks,
     accumulate_token_usage,
     clean_thinking_for_save,
@@ -3951,6 +3952,9 @@ def setup_chat_routes(
                                     do_research=effective_do_research,
                                     incognito=incognito,
                                 )
+                                # Mark success before yielding events: a late
+                                # duplicate DONE or disconnect must not resave.
+                                _chat_terminal_saved = True
                                 if _saved_id:
                                     yield f'data: {json.dumps({"type": "message_saved", "id": _saved_id})}\n\n'
                                 gateway_turns.dispatch_post_response(
@@ -3974,22 +3978,32 @@ def setup_chat_routes(
                             _stream_set(session, status="done")
                             yield chunk
                 except (asyncio.CancelledError, GeneratorExit):
-                    if full_response and not incognito:
-                        logger.info("Client disconnected mid-stream (chat mode) for session %s, saving partial (%d chars)", session, len(full_response))
-                        _stopped_content, _stopped_md = clean_thinking_for_save(
-                            full_response,
-                            {
-                                "stopped": True,
-                                "model": _actual_model or _answered_by or _requested_model,
-                                "requested_model": _requested_model,
-                                "endpoint_id": _actual_route.get("endpoint_id"),
-                                "endpoint_label": _actual_route.get("endpoint_label"),
-                                "requested_endpoint_id": _requested_route.get("endpoint_id"),
-                                "requested_endpoint_label": _requested_route.get("endpoint_label"),
-                            },
-                        )
-                        sess.add_message(ChatMessage("assistant", _stopped_content, metadata=_stopped_md))
-                        session_manager.save_sessions()
+                    # Never mask a disconnect/cancellation with a failure in
+                    # the inherited partial-response persistence writer.
+                    try:
+                        if full_response and not incognito and not _chat_terminal_saved:
+                            logger.info("Client disconnected mid-stream (chat mode) for session %s, saving partial (%d chars)", session, len(full_response))
+                            _stopped_content, _stopped_md = clean_thinking_for_save(
+                                full_response,
+                                {
+                                    "stopped": True,
+                                    "model": _actual_model or _answered_by or _requested_model,
+                                    "requested_model": _requested_model,
+                                    "endpoint_id": _actual_route.get("endpoint_id"),
+                                    "endpoint_label": _actual_route.get("endpoint_label"),
+                                    "requested_endpoint_id": _requested_route.get("endpoint_id"),
+                                    "requested_endpoint_label": _requested_route.get("endpoint_label"),
+                                },
+                            )
+                            gateway_turns.save_interrupted_assistant_response(
+                                _admitted_session, sess, session_manager, session,
+                                _stopped_content, _stopped_md,
+                                context_owner=ctx.user,
+                                writer=append_interrupted_assistant_response,
+                                incognito=incognito,
+                            )
+                    except Exception:
+                        logger.exception("Failed to save Chat partial on disconnect (session %s)", session)
                     raise
                 finally:
                     _active_streams.pop(session, None)
@@ -4359,6 +4373,9 @@ def setup_chat_routes(
                                     used_memories=ctx.used_memories,
                                     incognito=incognito,
                                 )
+                                # A completed Agent turn must be saved at
+                                # most once inside this stream, even on close.
+                                _terminal_saved = True
                                 if _saved_id:
                                     yield f'data: {json.dumps(_render_state.message_saved(_saved_id))}\n\n'
                                 gateway_turns.dispatch_post_response(
@@ -4396,7 +4413,7 @@ def setup_chat_routes(
                     # outer finally from running and left _active_streams
                     # with a stale entry).
                     try:
-                        if full_response and not incognito:
+                        if full_response and not incognito and not _terminal_saved:
                             logger.info("Client disconnected mid-stream for session %s, saving partial response (%d chars)", session, len(full_response))
                             _stopped_content2, _stopped_md2 = clean_thinking_for_save(
                                 full_response,
@@ -4422,8 +4439,13 @@ def setup_chat_routes(
                                     ],
                                 },
                             )
-                            sess.add_message(ChatMessage("assistant", _stopped_content2, metadata=_stopped_md2))
-                            session_manager.save_sessions()
+                            gateway_turns.save_interrupted_assistant_response(
+                                _admitted_session, sess, session_manager, session,
+                                _stopped_content2, _stopped_md2,
+                                context_owner=ctx.user,
+                                writer=append_interrupted_assistant_response,
+                                incognito=incognito,
+                            )
                     except Exception:
                         logger.exception("Failed to save partial response on disconnect (session %s)", session)
                     raise

@@ -1026,6 +1026,69 @@ async def test_chat_terminal_preserves_real_usage_and_accumulates_once(monkeypat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["chat", "agent"])
+@pytest.mark.parametrize("late_event", ["duplicate_done", "cancel_after_done"])
+async def test_completed_stream_never_resaves_on_late_done_or_cancel(
+    monkeypatch, mode, late_event,
+):
+    """Exercise the actual Web stream, not a reconstructed fake finalizer."""
+    captured = {}
+    chunks = [
+        'data: {"delta": "A complete answer"}\n\n',
+        "data: [DONE]\n\n",
+        "data: [DONE]\n\n" if late_event == "duplicate_done"
+        else asyncio.CancelledError(),
+    ]
+    endpoint = _chat_stream_endpoint(
+        monkeypatch, mode, captured,
+        chat_chunks=chunks if mode == "chat" else None,
+        agent_chunks=chunks if mode == "agent" else None,
+        capture_completion=True,
+    )
+    response = await endpoint(_RouteRequest(mode))
+    if late_event == "cancel_after_done":
+        with pytest.raises(asyncio.CancelledError):
+            async for _ in response.body_iterator:
+                pass
+    else:
+        emitted = [chunk async for chunk in response.body_iterator]
+        assert "data: [DONE]\n\n" in emitted
+    assert len(captured.get("saved", [])) == 1
+    assert not captured.get("added_messages", [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["chat", "agent"])
+async def test_cancelled_partial_writer_failure_preserves_cancel_and_cleans_up(
+    monkeypatch, mode,
+):
+    captured = {}
+    endpoint = _chat_stream_endpoint(
+        monkeypatch, mode, captured,
+        chat_chunks=[
+            'data: {"delta": "unfinished"}\n\n',
+            asyncio.CancelledError(),
+        ] if mode == "chat" else None,
+        agent_chunks=[
+            'data: {"delta": "unfinished"}\n\n',
+            asyncio.CancelledError(),
+        ] if mode == "agent" else None,
+    )
+    def broken_partial_writer(*_args, **_kwargs):
+        raise RuntimeError("test-only writer failure")
+    monkeypatch.setattr(
+        chat_routes, "append_interrupted_assistant_response",
+        broken_partial_writer,
+    )
+    response = await endpoint(_RouteRequest(mode))
+    with pytest.raises(asyncio.CancelledError):
+        async for _ in response.body_iterator:
+            pass
+    assert not captured.get("added_messages", [])
+    assert "session-1" not in chat_routes._active_streams
+
+
+@pytest.mark.asyncio
 async def test_cancelled_agent_fallback_saves_endpoint_and_round_provenance(monkeypatch):
     captured = {}
     chunks = [

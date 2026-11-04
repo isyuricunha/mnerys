@@ -705,6 +705,46 @@ the focused suite. Local tests passed **839 focused**, **185 routing**,
 **148 extra tool/schema** cases (groups overlap). Hosted CI and preview
 acceptance remain unverified for this local commit.
 
+**Twenty-seventh incremental slice — admitted interrupted saves and duplicate-terminal prevention:**
+both Chat and Agent cancellation/disconnect partial-response branches now call
+[GatewayTurns.save_interrupted_assistant_response](../../src/gateway_turns.py),
+which checks the **issued admission, loaded session, context owner, claimed
+session ID, stopped metadata and incognito mode** before using the inherited
+[session append/save adapter](../../routes/chat_helpers.py). The adapter
+contains the same two legacy calls — append `ChatMessage("assistant")`
+through the existing session object and `session_manager.save_sessions()` —
+not another database writer, message serializer or transaction. Thinking
+cleanup, exact selected/fallback route attribution and stored partial
+metadata remain computed by the original Web stream.
+
+An independent **per-stream** completion bug was also fixed: successful
+Chat and Agent `DONE` handlers now mark terminal persistence complete
+**before yielding** the saved-message event. Cancellation after a saved
+terminal response cannot append a second stopped partial; duplicate DONE
+cannot save another completed message. The Chat cancellation handler now
+also preserves the original `CancelledError`/`GeneratorExit` and cleans
+up active-stream status even if the legacy partial writer fails. Agent
+already had that failure guard.
+
+[Gateway admission and negative tests](../../tests/test_mnerys_gateway_assistant_persistence.py)
+cover browser/bearer/single-user clients, forged and cross-owner sessions,
+claim mismatch, incognito and malformed stopped metadata. Critically,
+[real route streaming regressions](../../tests/test_foreground_model_routing.py)
+exercise both modes with duplicate DONE, cancellation **after** DONE,
+an interrupted-stream save failure, and existing interrupted-fallback
+provenance. [Legacy detached-run and Stop tests](../../tests/test_compare_stop_disconnect_poll.py)
+retain the original exact-run lifecycle. Local test suites passed
+**860 focused**, **191 routing/streaming**, **159 authority/approval**,
+**160 peripheral**, **1,129 contract compatibility** and
+**148 external schema/tool-edit** cases (suites overlap).
+
+This is strictly **one-attempt-per-stream** prevention, **not** durable
+idempotence between workers, atomic user+assistant persistence, or
+incarnation-fenced storage. Synchronous Chat and background research
+writers still use their inherited paths. The direct text-only composer
+still does not persist conversations. Hosted CI and live preview
+acceptance remain pending for this local commit.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes
