@@ -309,7 +309,10 @@ class GatewayTurns:
             chat_handler=chat_handler,
             chat_processor=chat_processor,
             settings=settings,
-            native_terminal_events=True,
+            native_terminal_events=not (
+                isinstance(settings, TrustedTextTurnSettings) and bool(settings.offered_tools)
+            ),
+            native_tool_events=True,
         )
         return TypedTurnDelivery(
             events=translate_legacy_turn_events(stream, outcome),
@@ -328,8 +331,9 @@ class GatewayTurns:
         chat_processor: Any,
         settings: TrustedTextTurnSettings,
         native_terminal_events: bool = False,
+        native_tool_events: bool = False,
     ) -> AsyncGenerator[str | CoreNativeEvent, None]:
-        """Compose a read-only Agent turn without using a Web route."""
+        """Compose a text-input Agent turn without conversation writes or HTTP."""
         async with aclosing(stream_composed_text_turn(
             admission, session, self._turns,
             context_owner=context_owner,
@@ -339,6 +343,7 @@ class GatewayTurns:
             chat_processor=chat_processor,
             settings=settings,
             native_terminal_events=native_terminal_events,
+            native_tool_events=native_tool_events,
         )) as stream:
             async for chunk in stream:
                 yield chunk

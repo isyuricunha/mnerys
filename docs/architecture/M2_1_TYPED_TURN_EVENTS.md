@@ -7,7 +7,7 @@ This is a bounded implementation record for the [M2.1 exit gate](M2_1_EXIT_GATE.
 ## Supported flow
 
 1. The trusted Python caller uses [GatewayTurns.open_composed_text_events](../../src/gateway_turns.py) with the **issued session admission**, server-loaded session, trusted context ports and server-selected [text-turn settings](../../src/gateway_turn_composer.py).
-2. On first consumption, the composer validates owner/account permission, builds the shared prompt and final **tools-disabled** authority, and starts the inherited Agent Loop through [TurnService](../../src/turn_service.py).
+2. On first consumption, the composer validates owner/account permission and builds the shared prompt. Its default authority remains **tools-disabled**; an explicit server-owned native tool surface follows the inventory/selection/contract path described below. Both enter the inherited Agent Loop through [TurnService](../../src/turn_service.py).
 3. The [Agent Core](../../src/agent_loop.py) can emit [CoreTerminalEvent](../../src/agent_core_events.py) directly on completion. Its [completion/evidence gate](../../src/agent_runtime/completion.py) now also produces native, post-filter **visible text, safe final usage counts and generic failure events**. The teacher decorator preserves these signals and prevents restricted direct turns from launching child executions. The [Gateway event adapter](../../src/gateway_turn_events.py) consumes the native objects directly and still interprets other inherited SSE frames; nested generators close before bridge/contract context variables are released.
 4. Consumers can read events and outcome directly in Python, **without importing a Web route**. The production [Web adapter](../../routes/chat_routes.py) remains on its existing SSE transport, detached-run registry, approval and persistence paths.
 
@@ -53,9 +53,64 @@ The typed adapter validates the event shape and drops observations after DONE.
 
 Default Web tool frames retain the original `json.dumps` bytes. Raw `ask_user`,
 UI events, retry diagnostics and other legacy families remain SSE, filtered out
-by the typed adapter. The direct text composer still blocks all tools; this is
-not the production composer or Web cutover. Rollback requires reverting code
+by the typed adapter. The direct text composer blocks all tools by default; a server-owned native
+profile can now exercise this contract as described below. This is not the
+production Web composer or cutover. Rollback requires reverting code
 only: no schema, persisted events or production data changes are introduced.
+
+## Composed native tool profile
+
+The existing `TrustedTextTurnSettings` now accepts an immutable `offered_tools`
+set, empty by default. This is a server-selected adapter surface, never a
+client permission field. A single call to `open_composed_text_events` now runs:
+
+1. Issued admission, loaded owner and account checks before context I/O.
+2. Final account/global restrictions plus denial of non-offered native tools.
+3. The original owner-scoped inventory, capability classifier and exact intent
+   selector, followed by denial of every additional schema in that inventory.
+4. Shared context ports, bound request authority and the original immutable
+   routed contract resolver.
+5. The same `TurnService`, Agent Loop and dispatcher with scoped native tool
+   observations; provider ingress and gated answer text remain legacy SSE in
+   this tools-enabled profile, translated by the existing typed adapter.
+
+Unknown names and `host_shell` are rejected before context I/O. MCP-prefixed
+names are unsupported in this direct profile and MCP execution remains disabled.
+A schema cannot remove an owner, account, global, delegated or guide-only denial.
+The full Web inventory and UI-aware behavior are unchanged.
+
+[Composed tool tests](../../tests/test_mnerys_gateway_composed_tools.py) prove a
+single call reaches the actual Agent Loop and dispatches the immutable notes
+read with a bound authority and contract. The model stream and tool result are
+synthetic; no production database or network service is used. Tests also cover
+browser/bearer/single-user identity, cross-owner rejection before inventory,
+unsupported surfaces, account denials and unchanged default no-tools behavior.
+
+This operation still does not persist user/assistant messages. Enabled tools
+retain their original authorized effects and storage; do not mistake missing
+conversation writes for a read-only guarantee. Approval requests can be
+observed, but approval continuation through this composer, attachment/document
+context, workspace selection, model fallback and full Web parity remain open.
+The native-terminal tools-disabled guard is unchanged. Reverting this code does
+not require a schema/data rollback, but it does not undo any authorized tool
+effect already performed by a caller. No preview rollout is part of this change.
+
+### Local validation for the composed profile
+
+The Mnerys/required-read regression passed 1,183 tests with 27 skips; the
+completed native-profile suite passed 24 tests, including actual Loop dispatch
+and completion/error/cancel/early-close cleanup. The broader contract/policy/
+authority/approval regression passed 1,380 tests, and 23 Node architecture/release
+checks passed. These groups overlap. The
+unchanged default composer and typed delivery tests also passed before the
+broader run. No real provider or production storage was used.
+
+The broad-suite investigation reproduced process-command, containment identity
+and certificate-fixture failures on the unmodified base. Browser tests lack a
+usable Chromium binary; the install attempt failed with a truncated/invalid
+archive. Seven proxy-dependent tests passed after adding SOCKS support to the
+isolated test environment only. This does not establish a green full suite or
+hosted CI, and no security assertion or production dependency was weakened.
 
 ## Legacy frame mapping
 
@@ -76,7 +131,7 @@ Frames can arrive fragmented or combined; legacy CRLF and comments are handled, 
 ## Security and compatibility constraints
 
 - Admission, ownership and tool policy are still enforced by the composer and admitted execution boundary **before** model/tool access; client-supplied metadata does not create authority.
-- The current direct text composer intentionally has **all native/MCP tools disabled**, no attachment/document operations and **no conversation writes**. Full tool result rendering and client approval UX still require the complete Gateway composition contract.
+- The direct text composer defaults to **all tools disabled** and has **no conversation writes**. The server-offered profile supports native tool execution with the same dispatcher; MCP, attachment/document context and approval continuations remain unsupported here. Full tool result rendering and client approval UX still require the complete Gateway composition contract.
 - The Web transport, SSE bytes, run IDs, stop/finish/reconnect identity and legacy response writer remain unchanged. Do not wire this transitional subset into the production Web route as a substitute for its complete event set.
 - The typed `sequence` is **not** a restart-safe event-store sequence. No resume-by-sequence, durable idempotence, revision fencing, or multi-client API is implemented.
 - The Agent Core emits native **completion** objects, while its evidence/completion gate now emits native **filtered answer text, final safe metrics and sanitized failure** objects in the opted-in direct mode. Provider ingress and other event families remain SSE; native tool/approval metadata is separately opt-in; some provider usage events still use legacy SSE. All eleven original DONE sites preserve byte-identical default Web SSE. Future work must move *all* permitted event families to native emission and isolate SSE serialization in Web adapters.
