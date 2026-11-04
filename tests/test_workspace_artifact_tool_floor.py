@@ -1719,10 +1719,62 @@ def test_local_media_gate_has_one_automatic_evidence_acquisition_path():
 
 
 def test_combined_web_workspace_route_keeps_native_writers():
-    source = (Path(__file__).parents[1] / "routes" / "chat_routes.py").read_text()
-    assert "_web_workspace_output" in source
-    assert "if not _web_workspace_output" in source
-    assert "创建|生成|保存|写入|制作|截取|剪辑|拼接|导出" in source
+    root = Path(__file__).parents[1]
+    route = (root / "routes" / "chat_routes.py").read_text()
+    service = (root / "src" / "gateway_web_intent.py").read_text()
+    assert "gateway_turns.reconcile_web_intent(" in route
+    assert "web_workspace_output = bool(" in service
+    assert "if not web_workspace_output:" in service
+    assert "创建|生成|保存|写入|制作|截取|剪辑|拼接|导出" in service
+
+    # Check the extracted behavior too: a bound Web+workspace deliverable
+    # keeps native writers, but a plain Web lookup and an unbound path do not.
+    from src.gateway_admission import GatewayAdmission, Principal, SessionOwnership
+    from src.gateway_web_intent import reconcile_admitted_web_intent
+
+    grant = GatewayAdmission().admit(
+        Principal("alice", "browser"), "session-1",
+        lambda _sid: SessionOwnership(owner_id="alice"),
+    )
+    session = type("LoadedSession", (), {"id": "session-1", "owner": "alice"})()
+    options = dict(
+        context_owner="alice",
+        message="Search sources and create /workspace/report.md",
+        explicit_web_intent=True,
+        personal_store_intent=False,
+        tool_intent_is_web=True,
+        capabilities=frozenset({"search_browser"}),
+        clean_route_requested=False,
+        allow_web_search="true",
+        search_enabled=True,
+        explicit_browser_intent=False,
+        local_browser_render_intent=False,
+        exact_url_fetch_intent=False,
+        use_turn_contract=False,
+        full_schema_route=False,
+        workspace_bound=True,
+        base_disabled_tools=set(),
+        web_link_followup_lookup=lambda: False,
+        contextual_web_followup_lookup=lambda: False,
+        recent_web_event_lookup=lambda: False,
+        message_denies_lookup=lambda: False,
+    )
+    bound = reconcile_admitted_web_intent(grant, session, **options)
+    assert {"bash", "python", "read_file", "write_file", "edit_file"}.isdisjoint(
+        bound.disabled_tools
+    )
+    unbound = reconcile_admitted_web_intent(
+        grant, session, **{**options, "workspace_bound": False},
+    )
+    assert {"bash", "python", "read_file", "write_file", "edit_file"} <= (
+        unbound.disabled_tools
+    )
+    web_only = reconcile_admitted_web_intent(
+        grant, session, **{**options, "message": "Search public sources"},
+    )
+    assert {"bash", "python", "read_file", "write_file", "edit_file"} <= (
+        web_only.disabled_tools
+    )
 
 
 def test_compact_tool_surface_does_not_expand_to_every_admin_schema():

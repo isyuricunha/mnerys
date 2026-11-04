@@ -486,7 +486,12 @@ async def test_model_send_routes_hydrate_before_context_build(monkeypatch, path)
         "_resolve_request_workspace",
         lambda *_args: (None, False),
     )
-    monkeypatch.setattr(chat_routes, "_classify_tool_intent", lambda *_args: None)
+    # Pre-admission action classification now runs in the pure Gateway helper.
+    # Stub its source, not an obsolete alias in the Web compatibility route.
+    monkeypatch.setattr(
+        "src.gateway_initial_agent_routing.classify_tool_intent",
+        lambda *_args: None,
+    )
     monkeypatch.setattr(
         chat_routes,
         "_is_contextual_web_followup",

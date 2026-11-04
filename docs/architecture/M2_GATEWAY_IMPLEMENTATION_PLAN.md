@@ -466,6 +466,28 @@ plus new preflight** cases (overlap is possible). Hosted CI and real preview
 acceptance are still pending for this local implementation until publication
 and an authorized deployment.
 
+**Post-publication CI regression repair (tenth local-commit batch):**
+the first push of the pre-admission and Web-intent extractions triggered
+three GitHub pytest failures, all from tests targeting previous source
+locations. The [session hydration test](../../tests/test_history_display_model_hydration.py)
+now stubs the actual classifier in
+[the initial Gateway routing service](../../src/gateway_initial_agent_routing.py),
+not a removed Web-route alias. The
+[workspace-artifact regression](../../tests/test_workspace_artifact_tool_floor.py)
+now checks the relocated
+[Gateway Web-intent service](../../src/gateway_web_intent.py) and verifies
+that native writers are preserved for a bound Web+workspace deliverable,
+but denied for an unbound or ordinary Web request. Production code and
+execution permissions were not changed.
+
+All three previously failing tests were reproduced and subsequently passed
+in the project test environment; **494 focused tests** also passed. An expanded
+local subset passed **256**, skipped **1** and excluded **3** unrelated tests
+that require functional process/filesystem containment unavailable in the
+isolated local runner. Those three tests remain enabled and must run in
+GitHub CI's explicit bubblewrap setup; local bypass is not accepted as proof.
+Full hosted CI must be checked separately after the corrective push.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes
