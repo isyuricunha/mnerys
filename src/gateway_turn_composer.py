@@ -4,7 +4,8 @@ One operation assembles shared context, owner-scoped policy, authority and,
 for an explicitly server-offered native tool surface, the inherited inventory
 and immutable routed contract. Tools remain disabled by default. An explicitly
 server-selected session workspace can accompany native-only tools and sealed
-native approvals; filesystem/document-bound approvals are still unsupported.
+native approvals; filesystem actions require the original sealed resource
+snapshot and matching admitted workspace. Unbound effects remain unsupported.
 Conversation persistence is separately opt-in for tools-disabled text turns.
 The Web production cutover remains outside this direct profile.
 This is not a remote client entry point.
@@ -42,6 +43,8 @@ from src.gateway_routed_contract import resolve_admitted_routed_contract
 from src.gateway_agent_execution import stream_admitted_agent_turn
 from src.tool_policy import known_tool_names, build_effective_tool_policy
 from src.turn_service import TurnService
+from src.gateway_filesystem_context import require_sealed_filesystem_approval
+from src.agent_runtime.resource_binding import NATIVE_FILESYSTEM_TOOLS
 from src.gateway_document_context import (
     load_admitted_active_document, require_sealed_document_snapshot,
 )
@@ -150,7 +153,7 @@ async def stream_composed_text_turn(
     """Compose one admitted text-input turn with existing Agent Core services.
 
     Native-only approvals may resume in the admitted session workspace. Full
-    Web/active-document and filesystem-resource continuation remain inherited.
+    Full Web/attachment/remote resource continuation remains inherited.
     This function must never be directly exposed to a remote caller.
     """
     session_id = require_admitted_session(admission)
@@ -204,6 +207,7 @@ async def stream_composed_text_turn(
     pending = None
     decision = None
     document_bound = False
+    filesystem_bound = False
     if continuation:
         pending, decision = inspect_admitted_tool_approval(
             admission, request.approval_id, request.decision,
@@ -236,6 +240,7 @@ async def stream_composed_text_turn(
             pending.document_id or pending.document_digest
             or pending.document_version is not None
         )
+        filesystem_bound = pending.tool_name in NATIVE_FILESYSTEM_TOOLS
         if document_bound:
             if pending.tool_name not in {
                 "edit_document", "update_document", "suggest_document",
@@ -249,7 +254,7 @@ async def stream_composed_text_turn(
         if (
             pending.tool_name not in settings.offered_tools
             or pending.workspace != (workspace or "")
-            or pending.resource_operation is not None
+            or (pending.resource_operation is not None and not filesystem_bound)
             or pending.process_operation is not None or pending.browser_operation is not None
             or pending.backend_operation is None
             or not isinstance(pending.backend_operation.resource, NativeBackendResource)
@@ -352,6 +357,15 @@ async def stream_composed_text_turn(
     if pending is not None:
         if policy.blocks(pending.tool_name):
             raise AdmissionDenied(403, "The approved tool is blocked by current policy")
+        if filesystem_bound:
+            require_sealed_filesystem_approval(
+                pending, owner=owner, session_id=session_id, workspace=workspace,
+            )
+            # The restored continuation query may be lexically "unknown".
+            # Route only the already sealed filesystem tool family, narrowed
+            # by selected_tools, policy and exact request authority below.
+            # This is selection, never a new request grant.
+            capabilities = frozenset((*capabilities, "shell_files"))
         # Reuse the original authority snapshot, never derive grants from the
         # button label or the restored retrieval query.
         original_authority = authority_for_admitted_turn(
@@ -364,9 +378,16 @@ async def stream_composed_text_turn(
             raise AdmissionDenied(409, "The sealed action has invalid arguments") from exc
         if original_authority.restricted(operation):
             raise AdmissionDenied(403, "The originating authority still blocks this action")
+        # A filesystem continuation stays restricted to the one approved
+        # native tool class. Do not widen the route to shell/process or other
+        # tools merely because the originating inventory also offered them.
+        restored_tools = (
+            frozenset({pending.tool_name}) if filesystem_bound
+            else frozenset(pending.selected_tools)
+        )
         selection = replace(
             selection,
-            selected_tools=frozenset(pending.selected_tools) & settings.offered_tools,
+            selected_tools=restored_tools & settings.offered_tools,
             required_tools=frozenset({pending.tool_name}),
             active_capabilities=frozenset(),
         )
@@ -463,6 +484,10 @@ async def stream_composed_text_turn(
         # one-use approval. A changed path leaves the card available.
         if _admitted_session_workspace(session, settings.workspace) != workspace:
             raise AdmissionDenied(409, "Workspace changed during approval preparation")
+        if filesystem_bound:
+            require_sealed_filesystem_approval(
+                pending, owner=owner, session_id=session_id, workspace=workspace,
+            )
         # All fallible context preparation completed. The store rechecks
         # expiry/owner/session and consumes exactly once, immediately before
         # yielding the decision and handing off to the existing Agent Loop.
@@ -494,7 +519,10 @@ async def stream_composed_text_turn(
         **({
             "exact_approval": resolution.exact,
             "external_untrusted_context_seen": resolution.tainted,
-            "relevant_tools": set(pending.selected_tools) & settings.offered_tools,
+            "relevant_tools": (
+                {pending.tool_name} if filesystem_bound
+                else set(pending.selected_tools) & settings.offered_tools
+            ),
         } if resolution is not None else {"external_untrusted_context_seen": retired_taint}),
         native_terminal_events=native_terminal_events,
         native_tool_events=native_tool_events,

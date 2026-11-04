@@ -305,10 +305,11 @@ constructing a grant from approval-button input. The typed stream reports the
 same `approval.decided` and tool lifecycle events, and the inherited
 dispatcher claims the first effect at most once.
 
-This does not enable workspace filesystem mutations. A separate, restricted
-active-document profile now supports owner/session/version/digest-checked
-edit/update/suggest approvals; cards with filesystem/process/browser resource
-bindings still fail closed and remain unconsumed. The current account/owner/tool policy,
+Workspace filesystem effects now require a separately validated, original
+sealed filesystem operation; the generic workspace setting alone grants no
+filesystem mutations. Active-document approvals separately require
+owner/session/version/digest checks. Process/browser/remote resource bindings
+still fail closed and remain unconsumed. The current account/owner/tool policy,
 workspace path and pending approval are rechecked before consumption.
 [Isolated tests](../../tests/test_mnerys_gateway_workspace_approvals.py)
 cover the native Agent Loop round trip, real dispatcher handoff, negative
@@ -336,6 +337,31 @@ controls remain available even if the editor has been closed.
 [SQLite/PostgreSQL 17 acceptance](../../tests/test_mnerys_gateway_document_approvals.py)
 covers sealed document IDs, version/digest conflicts, cross-user/session
 denial, archiving/removal, account restrictions, and a real inherited
-dispatcher handoff with no production effect. Filesystem/process/browser
-resource approvals and implicit cross-session rebinding remain unsupported;
+dispatcher handoff with no production effect. Unbound or remote filesystem, process and browser approvals, as well as
+implicit cross-session rebinding, remain unsupported;
 full Web editor and response-persistence parity is still open.
+
+## Exact native filesystem approval routing
+
+The in-process direct composer can now resume an already sealed native
+`read_file`, `write_file`, `edit_file`, `apply_patch`, `ls`,
+`glob` or `grep` operation within the admitted session workspace.
+The server-selected workspace, sealed root, original request ID, exact
+tool arguments and observed resource identities are verified before the
+approval is consumed. The inherited dispatcher performs execution-time
+validation again. A lexical classifier's `unknown` continuation is
+routed to `shell_files` **only after** the filesystem approval preflight
+succeeds; the offered contract remains narrowed to the exact sealed tool
+and can never restore an additional shell/process family.
+
+The same typed approval and tool lifecycle observations are produced.
+A tool refusal is reported as a failed tool, not an authorized effect.
+This is especially important on public deployments: a user approving a
+card cannot override the existing filesystem administrator restriction.
+A denial does not require the workspace to remain available.
+
+[Filesystem-specific acceptance](../../tests/test_mnerys_gateway_filesystem_approvals.py)
+uses only throwaway pytest workspaces and synthetic models, with the
+inherited Agent Loop and dispatcher. No filesystem work against the real
+workspace, remote credentials, durable event replay or Web parity has
+been validated.

@@ -212,3 +212,20 @@ archive/deletion, and the real dispatcher with a mocked final effect.
 No production document mutation, schema migration, or backup is part of this
 slice. Cross-session Web editor parity and all-writer storage fencing remain
 open.
+
+## M2.1 filesystem approval compatibility
+
+[Direct filesystem approval preflight](../../src/gateway_filesystem_context.py)
+reuses existing sealed `BoundFilesystemOperation` identities and
+`resolve_filesystem_operation` rather than adding a filesystem writer or
+deriving a root from the model's path. This introduces no database schema
+change, migration or replacement of the legacy filesystem tools.
+
+The preflight and dispatcher are separate checks: their success does not
+make filesystem effects transactional with chat messages, approvals or
+durable turn events. The existing tool's own path confinement, resource
+identity, admin policy and effect tracking continue to govern execution.
+[Isolated acceptance tests](../../tests/test_mnerys_gateway_filesystem_approvals.py)
+use temporary directories only and include denial of a public non-admin
+write. Full Web/Gateway parity, race-safe filesystem effects and durable
+whole-turn settlement remain open.

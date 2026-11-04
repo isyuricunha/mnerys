@@ -12,7 +12,7 @@ This is the bounded, verifiable completion checklist for [M2.1 in the implementa
 - **Lifecycle proof:** [isolated execution tests](../../tests/test_mnerys_gateway_agent_execution.py) start a synthetic, no-network turn through **admission → trusted authority → the inherited Agent Loop → direct event delivery**, entirely from Python without the Web router. Completion, early close, provider error and cancellation restore the original bridge and tool-contract context; the outer Gateway facade explicitly closes its inner generator.
 - **Direct native, filtered text and terminal signals:** [GatewayTurns.open_composed_text_events](../../src/gateway_turns.py) offers the direct composer (tools-disabled by default) as process-local [typed events and an outcome](M2_1_TYPED_TURN_EVENTS.md). The [Agent Core](../../src/agent_loop.py) emits native completion objects; the [completion/evidence gate](../../src/agent_runtime/completion.py) now emits visible answer text, safe final metrics and generic provider/agent failure objects after security filtering. Separately opted-in admitted execution now emits [filtered native tool metadata and sealed approval references](M2_1_TYPED_TURN_EVENTS.md#native-tool-and-approval-metadata); provider ingress and other families remain inherited SSE, with no durable sequence or Web cutover.
 - **Existing Web response writes now admitted:** [five Chat/Agent completion and terminal-failure saves plus both stopped-partial branches](../../routes/chat_routes.py) pass through the [Gateway assistant-save boundary](../../src/gateway_assistant_persistence.py), which verifies admission, session and owner before calling the unchanged inherited writers. Terminal completion now prevents per-stream duplicate DONE and save-after-cancel writes; incognito, metadata cleanup, fallback attribution, DB IDs and cancellation behavior remain in their existing pipelines. The synchronous route and direct composer are **not** migrated. Neither final nor partial saves use atomic/fenced whole-turn transactions.
-- **One-call text-input composer (opt-in text-only persistence):** [the direct turn composer](../../src/gateway_turn_composer.py) now assembles context through injected [trusted ports](../../src/gateway_context_ports.py), applies admitted account policy, seals a tools-disabled authority by default, and enters the existing Agent Loop through the same execution service. It validates admission and account limits **before any context I/O**. The default mode appends the preprocessed input only to the model prompt and writes no conversation messages; the explicit trusted, tools-disabled text profile writes the user through the original context port and the completed answer through the inherited admitted saver. Its optional server-owned native tool profile now composes the existing inventory, capability/intent services, bound authority and immutable contract before entering the same Agent Loop; [composed tool tests](../../tests/test_mnerys_gateway_composed_tools.py) exercise an actual loop/immutable-read handoff using synthetic model/tool results. Native approval controls now resume sealed actions through this composer and the original dispatcher, with an explicit waiting outcome and no button-derived grants. Context preparation precedes one-use consumption; denial executes no tools. [Approval acceptance tests](../../tests/test_mnerys_gateway_composed_approvals.py) cover request/approve/resume, replay, scope checks, failures and cancellation. [Workspace-bound native approval tests](../../tests/test_mnerys_gateway_workspace_approvals.py) now cover a server-selected workspace matching the admitted session, the inherited Loop/dispatcher, policy changes and approval replay. MCP, filesystem-resource approvals, and full Web workspace parity remain unsupported. A separately verified, restricted active-document edit/update/suggest profile is described below. [Direct functional tests](../../tests/test_mnerys_gateway_turn_composer.py) cover browser/bearer/single-user identity, invalid/foreign sessions, account veto, no-write behavior, disabled tools and stream lifecycle. This is intentionally **not** the general production composer yet.
+- **One-call text-input composer (opt-in text-only persistence):** [the direct turn composer](../../src/gateway_turn_composer.py) now assembles context through injected [trusted ports](../../src/gateway_context_ports.py), applies admitted account policy, seals a tools-disabled authority by default, and enters the existing Agent Loop through the same execution service. It validates admission and account limits **before any context I/O**. The default mode appends the preprocessed input only to the model prompt and writes no conversation messages; the explicit trusted, tools-disabled text profile writes the user through the original context port and the completed answer through the inherited admitted saver. Its optional server-owned native tool profile now composes the existing inventory, capability/intent services, bound authority and immutable contract before entering the same Agent Loop; [composed tool tests](../../tests/test_mnerys_gateway_composed_tools.py) exercise an actual loop/immutable-read handoff using synthetic model/tool results. Native approval controls now resume sealed actions through this composer and the original dispatcher, with an explicit waiting outcome and no button-derived grants. Context preparation precedes one-use consumption; denial executes no tools. [Approval acceptance tests](../../tests/test_mnerys_gateway_composed_approvals.py) cover request/approve/resume, replay, scope checks, failures and cancellation. [Workspace-bound native approval tests](../../tests/test_mnerys_gateway_workspace_approvals.py) now cover a server-selected workspace matching the admitted session, the inherited Loop/dispatcher, policy changes and approval replay. MCP, remote/unbound filesystem approvals, process/browser resources and full Web workspace parity remain unsupported. A restricted, sealed native filesystem approval profile is described below. A separately verified, restricted active-document edit/update/suggest profile is described below. [Direct functional tests](../../tests/test_mnerys_gateway_turn_composer.py) cover browser/bearer/single-user identity, invalid/foreign sessions, account veto, no-write behavior, disabled tools and stream lifecycle. This is intentionally **not** the general production composer yet.
 
 These checks prove an internal executable boundary, **not** a fully independent user-facing Gateway or a real-model production run.
 
@@ -125,8 +125,9 @@ binding before any approval is consumed.
 Only the existing **native backend** approval subset is admitted. The direct
 workspace-only acceptance did not enable document IDs/digests/versions.
 A separate active-document profile now allows only exact sealed
-edit/update/suggest actions for the same owner/session, while filesystem
-resource operations, subprocess or browser bindings, and MCP remain blocked. A trusted
+edit/update/suggest actions for the same owner/session. Native filesystem
+resource approvals require the additional same-workspace sealed-operation
+check described below; subprocess, browser and MCP bindings remain blocked. A trusted
 workspace value does not add tool grants or weaken policy, offered-schema,
 ownership or approval-scope checks. The path is checked again after async
 context preparation and before consuming an *allow* decision. Changing the
@@ -191,3 +192,47 @@ still a time-of-check/time-of-use gap between the Gateway read and the
 original dispatcher; the inherited resource identity checks and document
 writer's expected-version/digest guard remain authoritative, with no
 new exactly-once guarantee. Full M2.1 exit gates remain open.
+
+### Sealed native filesystem approval continuation — November 4, 2026
+
+The [direct Gateway filesystem preflight](../../src/gateway_filesystem_context.py)
+accepts **only** an existing `BoundFilesystemOperation` already attached
+to the owner's one-use pending approval. An explicitly trusted workspace
+must still resolve to the exact canonical directory selected by the admitted
+session. Every sealed filesystem binding must use one identical
+`FilesystemScope.WORKSPACE` root, owned by the admitted principal and
+identical to the selected workspace. The original request ID, owner,
+session and exact native operation must match the sealed resource. Inherited
+or unavailable resource bindings fail closed: the Gateway never creates a
+replacement root, infers an external path grant from tool text or accepts
+the approval button as a new authority.
+
+The inherited resource resolver checks the originally observed root and
+file/ancestor identities, plus path confinement and control-plane path
+exclusions. The Gateway validates the sealed operation **after current tool
+policy checks and again after async context preparation**, immediately before
+consuming an allow decision. Only that exact filesystem tool class enters
+the routed contract on resume, even if the first run had offered additional
+tool families such as `bash`. The original Agent Loop and dispatcher then
+revalidate resource identity, actual account/tool-policy restrictions and
+the one-use exact approval before an effect. Explicit `deny` remains
+available without workspace access.
+
+[Isolated acceptance tests](../../tests/test_mnerys_gateway_filesystem_approvals.py)
+cover real inherited Agent Loop/dispatcher reads and writes of disposable
+pytest files; other native operations are exercised at their sealed
+handoff. Negative tests cover retargeted symlinks, replaced file/root/
+ancestor objects, foreign resources, missing sealed operations, modified
+request identity, cross-workspace context, current account/tool veto,
+loss of workspace, cancellation, replay and an attempted multi-tool
+continuation. The real public filesystem admin restriction is retained;
+positive execution tests explicitly simulate an authorized administrator,
+and a separate negative test proves a non-admin cannot write even after
+approving a sealed action.
+
+This is **not** OS-level inode/FD fencing, content snapshotting, sandbox
+verification, production filesystem mutation, remote-resource support or
+Web cutover. In-place content changes and filesystem races after validation
+remain subject to the inherited tool/resolver's existing checks. No
+session or event persistence semantics changed, and the M2.1 exit gate
+remains open.
