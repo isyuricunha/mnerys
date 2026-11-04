@@ -14,7 +14,7 @@ from contextlib import aclosing
 from dataclasses import dataclass, replace
 from typing import Any, AsyncGenerator
 
-from src.agent_core_events import CoreTerminalEvent
+from src.agent_core_events import CoreNativeEvent
 from src.gateway_admission import AdmittedSession, AdmissionDenied, require_admitted_session
 from src.gateway_chat_context import assemble_chat_context
 from src.gateway_context_admission import owner_for_admitted_context
@@ -66,7 +66,7 @@ async def stream_composed_text_turn(
     chat_processor: Any,
     settings: TrustedTextTurnSettings,
     native_terminal_events: bool = False,
-) -> AsyncGenerator[str | CoreTerminalEvent, None]:
+) -> AsyncGenerator[str | CoreNativeEvent, None]:
     """Run one non-persisting text-only Agent turn without any Web dependency.
 
     Production turn persistence and approval continuity remain on the

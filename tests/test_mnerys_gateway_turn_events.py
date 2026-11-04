@@ -351,6 +351,78 @@ async def test_native_core_terminal_rejects_forged_unknown_signal():
     assert outcome.state == "failed"
 
 
+
+
+@pytest.mark.asyncio
+async def test_native_core_text_metrics_and_completion_never_decode_sse():
+    from src.agent_core_events import (
+        CoreTextEvent, CoreMetricsEvent, completed_core_event,
+    )
+
+    stream, outcome = open_test_events([
+        CoreTextEvent("message.delta", "Native "),
+        CoreTextEvent("message.delta", "text"),
+        CoreTextEvent("message.final", "Accepted text"),
+        CoreMetricsEvent(input_tokens=4, output_tokens=3),
+        completed_core_event(),
+        completed_core_event(),
+    ])
+    events = await collect_events(stream)
+    assert [item.type for item in events] == [
+        "message.delta", "message.delta", "metrics",
+        "message.final", "turn.completed",
+    ]
+    assert events[2].payload == {"input_tokens": 4, "output_tokens": 3}
+    assert events[-2].payload == {"text": "Accepted text"}
+    assert outcome.state == "completed"
+    assert outcome.content == "Accepted text"
+    assert outcome.last_sequence == 5
+
+
+@pytest.mark.asyncio
+async def test_native_core_failure_filters_status_and_late_completion():
+    from src.agent_core_events import (
+        CoreTextEvent, CoreFailureEvent, completed_core_event,
+    )
+
+    stream, outcome = open_test_events([
+        CoreTextEvent("message.delta", "Safe partial"),
+        CoreFailureEvent(code="agent_terminal", status=429),
+        completed_core_event(),
+    ])
+    events = await collect_events(stream)
+    assert [item.type for item in events] == ["message.delta", "turn.failed"]
+    assert events[1].payload == {"code": "agent_terminal", "status": 429}
+    assert outcome.state == "failed"
+    assert outcome.failure_code == "agent_terminal"
+
+
+@pytest.mark.asyncio
+async def test_native_core_metrics_filter_malformed_fields_and_unknown_codes():
+    from src.agent_core_events import CoreMetricsEvent, CoreFailureEvent
+
+    stream, outcome = open_test_events([
+        CoreMetricsEvent(input_tokens=True, output_tokens=-1, total_tokens=7),
+        CoreFailureEvent(code="provider_error", status=True),
+    ])
+    events = await collect_events(stream)
+    assert events[0].payload == {"total_tokens": 7}
+    assert events[1].payload == {"code": "provider_error", "status": None}
+    assert outcome.state == "failed"
+
+
+@pytest.mark.asyncio
+async def test_native_core_text_rejects_forged_payload_without_leaking():
+    from src.agent_core_events import CoreTextEvent
+
+    stream, outcome = open_test_events([
+        CoreTextEvent("message.delta", None),
+    ])
+    with pytest.raises(ValueError, match="Invalid native Core text"):
+        await collect_events(stream)
+    assert outcome.state == "failed"
+
+
 def test_no_web_transport_exec_or_persistence_imports():
     import ast
     from src import gateway_turn_events

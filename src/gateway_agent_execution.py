@@ -15,7 +15,7 @@ from contextlib import aclosing
 from typing import Any, AsyncGenerator
 
 from src.agent_runtime.authority import RequestAuthority
-from src.agent_core_events import CoreTerminalEvent
+from src.agent_core_events import CoreNativeEvent
 from src.gateway_admission import AdmittedSession, AdmissionDenied, require_admitted_session
 from src.gateway_context_admission import owner_for_admitted_context
 from src.gateway_execution_policy import execution_limits_for_admission
@@ -53,7 +53,7 @@ async def stream_admitted_agent_turn(
     turn_contract: Any,
     native_terminal_events: bool = False,
     **runtime_options: Any,
-) -> AsyncGenerator[str | CoreTerminalEvent, None]:
+) -> AsyncGenerator[str | CoreNativeEvent, None]:
     """Execute the inherited Agent Loop only for a matching admitted turn.
 
     The caller must supply the server-selected final request authority/policy.

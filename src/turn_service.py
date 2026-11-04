@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import AsyncGenerator, AsyncIterator, Optional
 
 from src import agent_runs
-from src.agent_core_events import CoreTerminalEvent
+from src.agent_core_events import CoreNativeEvent
 from src.agent_loop import stream_agent_loop
 from src.tool_execution import bind_execution_bridge
 from src.turn_contract import bind_turn_contract
@@ -39,7 +39,7 @@ class TurnService:
     The eventual Gateway will own principal admission and durable turn state.
     """
 
-    async def stream_agent(self, bridge, *args, **kwargs) -> AsyncGenerator[str | CoreTerminalEvent, None]:
+    async def stream_agent(self, bridge, *args, **kwargs) -> AsyncGenerator[str | CoreNativeEvent, None]:
         """Use the inherited loop with the same turn and bridge context.
 
         In particular, context managers remain active until the stream closes

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from src.agent_core_events import (
-    CoreTerminalEvent,
+    CoreTerminalEvent, CoreTextEvent, CoreMetricsEvent, CoreFailureEvent,
     completed_core_event,
     legacy_core_terminal_frame,
 )
@@ -55,13 +55,21 @@ async def test_actual_agent_loop_emits_native_completion_only_when_opted_in(
         native_terminal_events=native,
     )]
     assert outputs[:-1]
-    assert all(isinstance(item, str) for item in outputs[:-1])
-    assert any("No active workspace is set" in item for item in outputs)
-    assert any('"missing_workspace": true' in item for item in outputs)
     if native:
+        assert any(
+            isinstance(item, CoreTextEvent)
+            and item.type == "message.delta"
+            and "No active workspace is set" in item.text
+            for item in outputs
+        )
+        assert any(isinstance(item, CoreMetricsEvent) for item in outputs)
         assert isinstance(outputs[-1], CoreTerminalEvent)
         assert outputs[-1].type == "turn.completed"
+        assert not any('"missing_workspace": true' in str(item) for item in outputs)
     else:
+        assert all(isinstance(item, str) for item in outputs)
+        assert any("No active workspace is set" in item for item in outputs)
+        assert any('"missing_workspace": true' in item for item in outputs)
         assert outputs[-1] == "data: [DONE]\n\n"
 
 
@@ -91,8 +99,10 @@ async def test_real_core_native_terminal_flows_to_typed_delivery_without_sse_don
     outcome = TurnOutcome()
     events = [item async for item in translate_legacy_turn_events(stream, outcome)]
     assert [item.type for item in events] == [
-        "message.delta", "message.final", "turn.completed",
+        "message.delta", "metrics", "message.final", "turn.completed",
     ]
+    assert events[1].payload["input_tokens"] == 10
+    assert events[1].payload["output_tokens"] > 0
     assert outcome.state == "completed"
     assert outcome.content.startswith("No active workspace is set.")
     assert "workspace set" in outcome.content
@@ -175,6 +185,136 @@ async def test_legacy_terminal_keeps_existing_teacher_child_behavior(
         'data: {"delta":"teacher answer"}\n\n',
         "data: [DONE]\n\n",
     ]
+
+
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("native", [False, True])
+async def test_completion_gate_emits_filtered_text_and_metrics_without_provider_secrets(
+    native,
+):
+    from src.agent_runtime.completion import with_completion_gate
+
+    @with_completion_gate
+    async def fake_inner(messages, native_terminal_events=False):
+        yield 'data: {"delta":"Visible answer"}\n\n'
+        yield 'data: {"type":"metrics","data":{"input_tokens":7,"output_tokens":9,"model":"SECRET_MODEL","api_key":"SECRET_KEY","thinking":"SECRET_REASONING"}}\n\n'
+        yield completed_core_event() if native_terminal_events else "data: [DONE]\n\n"
+
+    chunks = [x async for x in fake_inner(
+        [{"role": "user", "content": "Explain a queue"}],
+        native_terminal_events=native,
+    )]
+    if native:
+        visible = [item for item in chunks if isinstance(item, CoreTextEvent)]
+        metrics = [item for item in chunks if isinstance(item, CoreMetricsEvent)]
+        assert [item.text for item in visible] == ["Visible answer"]
+        assert len(metrics) == 1
+        assert metrics[0].input_tokens == 7
+        assert metrics[0].output_tokens == 9
+        assert not hasattr(metrics[0], "api_key")
+        assert not hasattr(metrics[0], "model")
+        assert isinstance(chunks[-1], CoreTerminalEvent)
+        assert "SECRET_" not in repr(chunks)
+    else:
+        assert all(isinstance(item, str) for item in chunks)
+        assert chunks[-1] == "data: [DONE]\n\n"
+        assert any("SECRET_MODEL" in item for item in chunks)
+        # The Web route still owns and filters the original rich SSE metrics.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["provider_error", "agent_terminal"])
+async def test_native_core_failure_redacts_diagnostics_and_never_completes(source):
+    from src.agent_runtime.completion import with_completion_gate
+
+    @with_completion_gate
+    async def fake_inner(messages, native_terminal_events=False):
+        yield 'data: {"delta":"Visible partial"}\n\n'
+        if source == "agent_terminal":
+            yield 'data: {"type":"agent_terminal","data":{"failure":{"status":429,"message":"SECRET_FAILURE"},"round_texts":["SECRET_TRANSCRIPT"]}}\n\n'
+            yield completed_core_event()
+        else:
+            yield 'event: error\ndata: {"status":503,"error":"SECRET_ENDPOINT"}\n\n'
+            yield completed_core_event()
+
+    chunks = [x async for x in fake_inner(
+        [{"role": "user", "content": "Explain a queue"}],
+        native_terminal_events=True,
+    )]
+    failures = [item for item in chunks if isinstance(item, CoreFailureEvent)]
+    assert len(failures) == 1
+    assert failures[0].code == source
+    assert failures[0].status == (503 if source == "provider_error" else 429)
+    assert not any(isinstance(item, CoreTerminalEvent) for item in chunks)
+    assert "SECRET_" not in repr(chunks)
+
+
+@pytest.mark.asyncio
+async def test_native_teacher_gate_preserves_failure_and_prevents_child(monkeypatch):
+    import src.teacher_escalation as teacher
+    called = []
+
+    async def unexpected_teacher(**_kw):
+        called.append(True)
+        yield "unexpected"
+
+    monkeypatch.setattr(teacher, "run_teacher_inline", unexpected_teacher)
+
+    @teacher.with_teacher_takeover
+    async def failing_student():
+        teacher.request_teacher_takeover(owner="alice", session_id="session-1")
+        yield CoreTextEvent("message.delta", "Visible fragment")
+        yield CoreFailureEvent(code="provider_error", status=502)
+
+    chunks = [x async for x in failing_student()]
+    assert len(chunks) == 2
+    assert isinstance(chunks[0], CoreTextEvent)
+    assert isinstance(chunks[1], CoreFailureEvent)
+    assert not called
+
+
+def test_core_metric_and_failure_factories_keep_only_valid_fields():
+    from src.agent_core_events import core_metrics_event, core_failure_event
+
+    metrics = core_metrics_event({
+        "input_tokens": True,
+        "output_tokens": -42,
+        "total_tokens": 8,
+        "token": "SECRET",
+    })
+    assert metrics.input_tokens is None
+    assert metrics.output_tokens is None
+    assert metrics.total_tokens == 8
+    assert not hasattr(metrics, "token")
+    assert core_failure_event("provider_error", True).status is None
+    assert core_failure_event("provider_error", 502).status == 502
+    with pytest.raises(ValueError):
+        core_failure_event("private_stack_trace", 500)
+
+
+
+
+@pytest.mark.asyncio
+async def test_native_teacher_request_without_done_still_cannot_spawn_child(monkeypatch):
+    import src.teacher_escalation as teacher
+    called = []
+
+    async def unexpected_teacher(**_kw):
+        called.append("child")
+        yield "unexpected"
+
+    monkeypatch.setattr(teacher, "run_teacher_inline", unexpected_teacher)
+
+    @teacher.with_teacher_takeover
+    async def incomplete_native_student(native_terminal_events=False):
+        teacher.request_teacher_takeover(owner="alice", session_id="session-1")
+        yield CoreTextEvent("message.delta", "Unfinished answer")
+
+    events = [e async for e in incomplete_native_student(native_terminal_events=True)]
+    assert events == [CoreTextEvent("message.delta", "Unfinished answer")]
+    assert called == []
 
 
 def test_all_existing_core_done_emission_sites_offer_native_completion():

@@ -15,7 +15,10 @@ import json
 import re
 from time import perf_counter
 
-from src.agent_core_events import CoreTerminalEvent, completed_core_event
+from src.agent_core_events import (
+    CoreTerminalEvent, CoreTextEvent, completed_core_event,
+    core_metrics_event, core_failure_event,
+)
 from src.agent_evidence import (
     CompletionDecision, CompletionStatus, EvidenceKind, EvidenceLedger,
     requirements_from_runtime_context, _execution_obligation, _unquoted_statements,
@@ -204,6 +207,36 @@ def _event(data: dict) -> str:
     return 'data: ' + json.dumps(data) + '\n\n'
 
 
+def _safe_provider_failure(frame: str):
+    """Read only HTTP status from a legacy provider error, not its details."""
+    for line in frame.splitlines():
+        if line.startswith('data: '):
+            try:
+                payload = json.loads(line[6:])
+            except (TypeError, ValueError):
+                return core_failure_event('provider_error')
+            if isinstance(payload, dict):
+                return core_failure_event('provider_error', payload.get('status'))
+            break
+    return core_failure_event('provider_error')
+
+
+def _present_event(data: dict, native: bool):
+    """Make the final, disclosure-filtered text native only in direct mode."""
+    if native:
+        if data.get('type') == 'final_response' and isinstance(data.get('content'), str):
+            return CoreTextEvent('message.final', data['content'])
+        if (
+            data.get('type') in (None, 'delta')
+            and isinstance(data.get('delta'), str)
+            and not data.get('thinking') and not data.get('reasoning')
+            and data.get('channel') not in ('analysis', 'thinking', 'reasoning')
+            and 'reasoning_content' not in data
+        ):
+            return CoreTextEvent('message.delta', data['delta'])
+    return _event(data)
+
+
 def with_completion_gate(func):
     call_signature = signature(func)
 
@@ -214,6 +247,7 @@ def with_completion_gate(func):
         arguments = call_signature.bind(*args, **kwargs)
         arguments.apply_defaults()
         bound = arguments.arguments
+        native_output = bound.get('native_terminal_events') is True
         messages = bound.get('messages') or []
         instruction = next((m.get('content', '') for m in reversed(messages)
                             if m.get('role') == 'user' and isinstance(m.get('content'), str)), '')
@@ -320,7 +354,7 @@ def with_completion_gate(func):
                         continue
                     yield chunk
             if provider_error and not answer_events and not metrics_events:
-                yield provider_error
+                yield _safe_provider_failure(provider_error) if native_output else provider_error
                 return
             presentation_replaced = False
             if not provider_error and not has_final and requirements.required_artifacts:
@@ -378,14 +412,15 @@ def with_completion_gate(func):
                 if not unsafe_reasoning:
                     for event in reasoning:
                         yield _event(event)
-                yield _event({'type': 'final_response', 'content': safe_answer})
+                yield _present_event({'type': 'final_response', 'content': safe_answer}, native_output)
             else:
                 for event in answer_events:
-                    yield _event(event)
+                    yield _present_event(event, native_output)
                 if disclosure_only:
-                    yield _event({'delta': disclosure})
+                    yield _present_event({'delta': disclosure}, native_output)
             if provider_error:
                 yield _event({'type': 'completion_decision', 'data': decision.to_dict()})
+            native_failed = False
             for event in metrics_events:
                 metadata = event.setdefault('data', {})
                 metadata.update(completion_decision=decision.to_dict(), evidence_events=ledger.to_list(),
@@ -419,11 +454,26 @@ def with_completion_gate(func):
                         replace(presentation_decision, can_complete=True))
                     if unsafe_thinking:
                         metadata.pop('thinking')
-                yield _event(event)
+                if native_output and event.get('type') == 'agent_terminal':
+                    if not native_failed:
+                        failure = metadata.get('failure')
+                        status = (failure.get('status') if isinstance(failure, dict)
+                                  else metadata.get('status'))
+                        yield core_failure_event('agent_terminal', status)
+                        native_failed = True
+                    continue
+                if native_output and event.get('type') == 'metrics':
+                    yield core_metrics_event(metadata)
+                else:
+                    yield _event(event)
             if provider_error:
-                yield provider_error
+                if native_output:
+                    if not native_failed:
+                        yield _safe_provider_failure(provider_error)
+                else:
+                    yield provider_error
                 return
-            if done:
+            if done and not native_failed:
                 yield completed_core_event() if native_completed else 'data: [DONE]\n\n'
 
     return wrapped

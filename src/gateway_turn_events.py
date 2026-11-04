@@ -16,7 +16,9 @@ from dataclasses import dataclass
 import json
 from typing import Any, Literal
 
-from src.agent_core_events import CoreTerminalEvent
+from src.agent_core_events import (
+    CoreTerminalEvent, CoreTextEvent, CoreMetricsEvent, CoreFailureEvent, CoreNativeEvent,
+)
 
 
 TurnState = Literal["pending", "running", "completed", "failed", "cancelled"]
@@ -94,7 +96,7 @@ def _safe_metrics(payload: Any) -> dict[str, int]:
 
 
 async def translate_legacy_turn_events(
-    frames: AsyncIterator[str | CoreTerminalEvent],
+    frames: AsyncIterator[str | CoreNativeEvent],
     outcome: TurnOutcome,
 ) -> AsyncIterator[TurnEvent]:
     """Translate safe legacy SSE signals and terminate a process-local turn.
@@ -125,6 +127,45 @@ async def translate_legacy_turn_events(
     try:
         async with aclosing(frames) as source:
             async for chunk in source:
+                if isinstance(chunk, (CoreTextEvent, CoreMetricsEvent, CoreFailureEvent)):
+                    if buffer.strip() or pending_cr:
+                        raise ValueError("Incomplete legacy frame before native Core event")
+                    if outcome.state in ("completed", "failed"):
+                        continue
+                    if isinstance(chunk, CoreTextEvent):
+                        if type(chunk.text) is not str:
+                            raise ValueError("Invalid native Core text")
+                        if chunk.type == "message.delta":
+                            deltas.append(chunk.text)
+                            yield event("message.delta", {"text": chunk.text})
+                        elif chunk.type == "message.final":
+                            final_response = chunk.text
+                        else:
+                            raise ValueError("Unknown native Core text event")
+                    elif isinstance(chunk, CoreMetricsEvent):
+                        if chunk.type != "metrics":
+                            raise ValueError("Invalid native Core metrics")
+                        fields = {
+                            key: value for key in (
+                                "input_tokens", "output_tokens", "total_tokens"
+                            )
+                            if type(value := getattr(chunk, key)) is int and value >= 0
+                        }
+                        yield event("metrics", fields)
+                    else:
+                        if chunk.type != "turn.failed" or chunk.code not in (
+                            "provider_error", "agent_terminal",
+                        ):
+                            raise ValueError("Invalid native Core failure")
+                        status = chunk.status if (
+                            type(chunk.status) is int and 400 <= chunk.status <= 599
+                        ) else None
+                        outcome.state = "failed"
+                        outcome.failure_code = chunk.code
+                        yield event("turn.failed", {
+                            "code": chunk.code, "status": status,
+                        })
+                    continue
                 if isinstance(chunk, CoreTerminalEvent):
                     # Core-native completion for admitted, tools-disabled
                     # direct turns: no SSE decode is needed for this terminal.

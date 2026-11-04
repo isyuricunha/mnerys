@@ -822,6 +822,43 @@ other core tests passed separately. Full hosted CI/real model/preview
 acceptance remain pending, and the [M2.1 exit gate](M2_1_EXIT_GATE.md)
 continues **PARTIAL**.
 
+**Thirtieth incremental slice — native post-gate answer and failure events:**
+the [Agent Core completion/evidence gate](../../src/agent_runtime/completion.py)
+now emits [CoreTextEvent, CoreMetricsEvent and CoreFailureEvent](../../src/agent_core_events.py)
+when the existing admitted, tools-disabled direct composer opts in. Text
+is emitted **after** evidence checks, disclosure filtering and possible
+answer replacement, not as raw, unreviewed model deltas. Final Core
+metrics contain only validated, nonnegative input/output/total token
+counts; provider credentials, model diagnostics, action receipts and
+reasoning remain absent from these immutable payloads. Provider/agent
+failures expose only a generic code and validated HTTP status. Late DONE
+cannot turn a failure into a success. The teacher gate passes filtered
+native outputs and will not start a child agent even if a restricted
+native stream ends without its completion marker.
+
+The [Gateway typed adapter](../../src/gateway_turn_events.py) accepts
+these Core objects directly, while retaining the previous bounded,
+fail-closed decoder for inherited provider usage and unconverted events.
+The original [Web streaming adapter](../../routes/chat_routes.py),
+tool/approval events, model providers, persistence, account checks and
+default SSE bytes are unchanged. Native event sequence and outcome are
+**process-local**, not a durable event log or an authenticated public API.
+The existing opt-in parameter retains its internal name
+`native_terminal_events` for compatibility; it now gates this restricted
+family of post-gate Core events, not only completion.
+
+[Native Core regression tests](../../tests/test_mnerys_agent_core_native_terminal.py)
+cover real-loop emission, evidence filtering, status sanitization, legacy
+SSE parity and child-teacher exclusion. [Gateway event tests](../../tests/test_mnerys_gateway_turn_events.py)
+exercise typed text, metrics, provider failures, unknown inputs and
+exactly-once **per-stream** terminal ordering. The focused suite passed
+**917 tests**; other local batches passed **191 routing**, **159 authority**,
+**160 peripheral**, **1,129 contract**, **148 integration** and **196
+additional Agent Core/teacher** tests (overlap). Full hosted CI, a live
+model call and preview acceptance remain outside this local test evidence.
+The [M2.1 exit gate](M2_1_EXIT_GATE.md) remains **PARTIAL**: tool/approval
+event families and the full composer/Web parity are still open.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

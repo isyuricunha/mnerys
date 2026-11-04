@@ -531,6 +531,25 @@ persistent, versioned TurnEvent protocol. See
 [real Core emission tests](../../tests/test_mnerys_agent_core_native_terminal.py)
 and [M2.1 exit gate](M2_1_EXIT_GATE.md).
 
+## M2.1 incremental implementation: post-evidence native event families
+
+**Implemented for admitted, tools-disabled direct text turns only.** The
+[Agent Core completion gate](../../src/agent_runtime/completion.py)
+emits [native visible text, safe final token metrics and redacted failure
+events](../../src/agent_core_events.py) after applying its existing
+evidence/disclosure checks. The [teacher gate](../../src/teacher_escalation.py)
+passes these typed events without starting an effectful teacher child.
+The [Gateway event adapter](../../src/gateway_turn_events.py) consumes
+them directly. The model/provider ingestion path and all tool/approval
+events still use legacy SSE internally; the production Web transport
+still receives the original SSE without opting into native output.
+
+Native payloads omit provider diagnostics, raw tool data, reasoning and
+credentials. The restricted opt-in does not grant tools. The local sequence
+is not durable, and the composer still does not persist the conversation.
+See [transitional event mapping](M2_1_TYPED_TURN_EVENTS.md) and
+[the M2.1 exit gate](M2_1_EXIT_GATE.md).
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

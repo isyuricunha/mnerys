@@ -33,7 +33,10 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from src.agent_core_events import CoreTerminalEvent, completed_core_event
+from src.agent_core_events import (
+    CoreTerminalEvent, CoreTextEvent, CoreMetricsEvent, CoreFailureEvent,
+    completed_core_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,9 @@ def with_teacher_takeover(func):
     """Orchestrate gated invocations and own the single outer stream terminator."""
     @wraps(func)
     async def wrapped(*args, **kwargs):
+        # A direct typed turn cannot escalate into an effectful teacher child,
+        # including when its model ends without a completion marker.
+        native_requested = kwargs.get('native_terminal_events') is True
         request = {}
         token = _TAKEOVER.set(request)
         done = False
@@ -68,6 +74,13 @@ def with_teacher_takeover(func):
                         done = True
                         native_completed = True
                         continue
+                    if isinstance(chunk, CoreFailureEvent):
+                        failed = True
+                        yield chunk
+                        continue
+                    if isinstance(chunk, (CoreTextEvent, CoreMetricsEvent)):
+                        yield chunk
+                        continue
                     if chunk.strip() == 'data: [DONE]':
                         done = True
                         continue
@@ -78,7 +91,7 @@ def with_teacher_takeover(func):
             # The native terminal stream is a trusted no-tools direct turn.
             # Do not start a teacher child (which can write skills) from that
             # intentionally restricted execution mode.
-            if request and not failed and not native_completed:
+            if request and not failed and not native_completed and not native_requested:
                 try:
                     async with aclosing(run_teacher_inline(**request)) as stream:
                         async for chunk in stream:

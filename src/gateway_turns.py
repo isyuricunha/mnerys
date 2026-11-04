@@ -42,7 +42,7 @@ from src.gateway_post_session_routing import (
     reconcile_admitted_post_session_route,
     promote_admitted_document_edit_route,
 )
-from src.agent_core_events import CoreTerminalEvent
+from src.agent_core_events import CoreNativeEvent
 from src.gateway_agent_execution import stream_admitted_agent_turn
 from src.gateway_turn_events import (
     TurnOutcome,
@@ -328,7 +328,7 @@ class GatewayTurns:
         chat_processor: Any,
         settings: TrustedTextTurnSettings,
         native_terminal_events: bool = False,
-    ) -> AsyncGenerator[str | CoreTerminalEvent, None]:
+    ) -> AsyncGenerator[str | CoreNativeEvent, None]:
         """Compose a read-only Agent turn without using a Web route."""
         async with aclosing(stream_composed_text_turn(
             admission, session, self._turns,
@@ -358,7 +358,7 @@ class GatewayTurns:
         workspace: str | None,
         turn_contract: Any,
         **runtime_options: Any,
-    ) -> AsyncGenerator[str | CoreTerminalEvent, None]:
+    ) -> AsyncGenerator[str | CoreNativeEvent, None]:
         """Run the existing Agent Loop behind issued session authority."""
         # Closing the facade must synchronously close the admitted service
         # and its inherited loop before request-scoped contextvars are reset.

@@ -22,7 +22,7 @@ import time
 import logging
 import hashlib
 from src.web_recovery import WebRecoveryBudget
-from src.agent_core_events import CoreTerminalEvent, completed_core_event
+from src.agent_core_events import CoreNativeEvent, completed_core_event
 from itertools import count
 from datetime import date, datetime, timedelta
 from dataclasses import replace
@@ -21073,7 +21073,7 @@ async def stream_agent_loop(
     request_authority=MISSING_AUTHORITY,
     context_resolution=None,
     native_terminal_events: bool = False,
-) -> AsyncGenerator[str | CoreTerminalEvent, None]:
+) -> AsyncGenerator[str | CoreNativeEvent, None]:
     """Streaming agent loop generator.
 
     Yields SSE events:
