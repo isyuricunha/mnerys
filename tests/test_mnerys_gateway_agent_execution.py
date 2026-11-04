@@ -370,6 +370,82 @@ async def test_gateway_composes_admission_authority_execution_and_direct_deliver
     assert observed["history_session"] is session
 
 
+
+
+@pytest.mark.asyncio
+async def test_native_terminal_opt_in_is_denied_without_strict_tool_policy():
+    admission, session, kw = setup()
+    kw["native_terminal_events"] = True
+    with pytest.raises(AdmissionDenied) as denied:
+        await collect(GatewayTurns(TurnService()).stream_admitted_agent(
+            admission, session, **kw,
+        ))
+    assert denied.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_native_terminal_rejects_nonboolean_setting():
+    admission, session, kw = setup(disabled={"bash"})
+    kw["native_terminal_events"] = "true"
+    with pytest.raises(AdmissionDenied) as denied:
+        await collect(GatewayTurns(TurnService()).stream_admitted_agent(
+            admission, session, **kw,
+        ))
+    assert denied.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_native_terminal_rejects_execution_bridge_even_when_tools_disabled():
+    from dataclasses import replace
+
+    async def unused_tool(*_a, **_kw):
+        raise AssertionError("unexpected tool")
+
+    admission, session, kw = setup()
+    kw["policy"] = replace(
+        kw["policy"], block_all_tool_calls=True, disable_mcp=True,
+    )
+    kw["bridge"] = AgentExecutionBridge(
+        unused_tool, frozenset({"web_search"}), name="deny-native-bridge",
+    )
+    kw["native_terminal_events"] = True
+    with pytest.raises(AdmissionDenied) as denied:
+        await collect(GatewayTurns(TurnService()).stream_admitted_agent(
+            admission, session, **kw,
+        ))
+    assert denied.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_strict_admitted_agent_can_yield_native_core_terminal(monkeypatch):
+    from dataclasses import replace
+    from src.agent_core_events import CoreTerminalEvent, completed_core_event
+
+    admission, session, kw = setup()
+    kw["policy"] = replace(
+        kw["policy"], block_all_tool_calls=True, disable_mcp=True,
+    )
+    kw["native_terminal_events"] = True
+    calls = []
+
+    async def fake_core(*_a, **options):
+        calls.append(options)
+        yield 'data: {"delta":"Answer"}\n\n'
+        yield completed_core_event()
+
+    monkeypatch.setattr(turn_service_module, "stream_agent_loop", fake_core)
+    data = await collect(
+        GatewayTurns(TurnService()).stream_admitted_agent(
+            admission, session, **kw,
+        )
+    )
+    assert data[0] == 'data: {"delta":"Answer"}\n\n'
+    assert isinstance(data[1], CoreTerminalEvent)
+    assert calls[0]["native_terminal_events"] is True
+    assert calls[0]["tool_policy"].block_all_tool_calls
+    assert calls[0]["tool_policy"].disable_mcp
+
+
 def test_execution_service_is_transport_independent_and_does_not_duplicate_loop():
     from src import gateway_agent_execution
     source = inspect.getsource(gateway_agent_execution)

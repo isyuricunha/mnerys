@@ -33,6 +33,8 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
+from src.agent_core_events import CoreTerminalEvent, completed_core_event
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,10 +57,17 @@ def with_teacher_takeover(func):
         request = {}
         token = _TAKEOVER.set(request)
         done = False
+        native_completed = False
         failed = False
         try:
             async with aclosing(func(*args, **kwargs)) as stream:
                 async for chunk in stream:
+                    if isinstance(chunk, CoreTerminalEvent):
+                        if chunk.type != "turn.completed":
+                            raise TypeError("Unsupported native Agent Core event")
+                        done = True
+                        native_completed = True
+                        continue
                     if chunk.strip() == 'data: [DONE]':
                         done = True
                         continue
@@ -66,10 +75,17 @@ def with_teacher_takeover(func):
                     yield chunk
             # The parent generator and gate have both unwound. Child control
             # events now belong only to the child, never to the parent gate.
-            if request and not failed:
+            # The native terminal stream is a trusted no-tools direct turn.
+            # Do not start a teacher child (which can write skills) from that
+            # intentionally restricted execution mode.
+            if request and not failed and not native_completed:
                 try:
                     async with aclosing(run_teacher_inline(**request)) as stream:
                         async for chunk in stream:
+                            if isinstance(chunk, CoreTerminalEvent):
+                                if chunk.type != "turn.completed":
+                                    raise TypeError("Unsupported native teacher terminal")
+                                continue
                             if chunk.strip() == 'data: [DONE]':
                                 continue
                             failed |= chunk.startswith('event: error')
@@ -81,7 +97,7 @@ def with_teacher_takeover(func):
                         yield 'data: ' + json.dumps({'type': 'escalation_failed', 'reason': str(exc),
                                                     'teacher': True}) + '\n\n'
             if done and not failed:
-                yield 'data: [DONE]\n\n'
+                yield completed_core_event() if native_completed else 'data: [DONE]\n\n'
         finally:
             _TAKEOVER.reset(token)
 

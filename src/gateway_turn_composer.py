@@ -14,6 +14,7 @@ from contextlib import aclosing
 from dataclasses import dataclass, replace
 from typing import Any, AsyncGenerator
 
+from src.agent_core_events import CoreTerminalEvent
 from src.gateway_admission import AdmittedSession, AdmissionDenied, require_admitted_session
 from src.gateway_chat_context import assemble_chat_context
 from src.gateway_context_admission import owner_for_admitted_context
@@ -64,7 +65,8 @@ async def stream_composed_text_turn(
     chat_handler: Any,
     chat_processor: Any,
     settings: TrustedTextTurnSettings,
-) -> AsyncGenerator[str, None]:
+    native_terminal_events: bool = False,
+) -> AsyncGenerator[str | CoreTerminalEvent, None]:
     """Run one non-persisting text-only Agent turn without any Web dependency.
 
     Production turn persistence and approval continuity remain on the
@@ -81,6 +83,8 @@ async def stream_composed_text_turn(
         raise AdmissionDenied(403, "Invalid direct text turn")
     if not isinstance(settings, TrustedTextTurnSettings):
         raise AdmissionDenied(403, "Invalid trusted turn settings")
+    if type(native_terminal_events) is not bool:
+        raise AdmissionDenied(403, "Invalid trusted terminal event mode")
     if (
         type(settings.max_rounds) is not int or not 1 <= settings.max_rounds <= 32
         or type(settings.max_tokens) is not int or not 1 <= settings.max_tokens <= 131072
@@ -175,6 +179,7 @@ async def stream_composed_text_turn(
         max_tokens=settings.max_tokens,
         context_length=context.context_length,
         uploaded_files=[],
+        native_terminal_events=native_terminal_events,
     )) as stream:
         async for chunk in stream:
             yield chunk

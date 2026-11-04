@@ -453,6 +453,55 @@ def test_web_uses_inherited_sse_while_direct_composer_has_typed_event_surface():
 
 
 
+
+
+@pytest.mark.asyncio
+async def test_composed_typed_delivery_requests_native_core_completion(monkeypatch):
+    from src.agent_core_events import CoreTerminalEvent, completed_core_event
+
+    admission, session, ports, kw = fixture()
+    emitted = []
+
+    async def fake_core(_url, _model, _messages, **options):
+        assert options["native_terminal_events"] is True
+        emitted.append("native")
+        yield 'data: {"delta":"Visible"}\n\n'
+        yield completed_core_event()
+
+    monkeypatch.setattr(turn_module, "stream_agent_loop", fake_core)
+    handle = GatewayTurns(TurnService()).open_composed_text_events(
+        admission, session, **kw,
+    )
+    events = [event async for event in handle.events]
+    assert [event.type for event in events] == [
+        "message.delta", "message.final", "turn.completed",
+    ]
+    assert handle.outcome.state == "completed"
+    assert handle.outcome.content == "Visible"
+    assert emitted == ["native"]
+    assert session.messages == []
+    assert not hasattr(handle, "tool_grants")
+
+
+@pytest.mark.asyncio
+async def test_default_composed_sse_does_not_enable_native_core_terminals(monkeypatch):
+    admission, session, ports, kw = fixture()
+
+    async def fake_core(_url, _model, _messages, **options):
+        assert "native_terminal_events" not in options
+        yield 'data: {"delta":"Legacy"}\n\n'
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(turn_module, "stream_agent_loop", fake_core)
+    stream = GatewayTurns(TurnService()).stream_composed_text_turn(
+        admission, session, **kw,
+    )
+    assert await gather(stream) == [
+        'data: {"delta":"Legacy"}\n\n',
+        "data: [DONE]\n\n",
+    ]
+
+
 def test_composer_imports_no_web_or_http_and_declares_no_api():
     from src import gateway_turn_composer
 

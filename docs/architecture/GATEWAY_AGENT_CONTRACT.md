@@ -507,6 +507,30 @@ SSE transport and response writers unchanged. See the
 [typed event regression tests](../../tests/test_mnerys_gateway_turn_events.py)
 and [direct composer tests](../../tests/test_mnerys_gateway_turn_composer.py).
 
+## M2.1 incremental implementation: native, opt-in Core completion
+
+**Implemented as a narrow internal Core emission seam.** The
+[Agent Loop](../../src/agent_loop.py) now emits an immutable
+[CoreTerminalEvent](../../src/agent_core_events.py) at its eleven original
+completion sites when an admitted direct text-turn requests native terminal
+delivery. The [evidence/completion gate](../../src/agent_runtime/completion.py)
+and [teacher gate](../../src/teacher_escalation.py) preserve the native
+completion signal and still own final answer filtering, terminal precedence
+and cancellation cleanup. The tools-disabled direct mode suppresses teacher
+child escalation; the existing Web request mode continues to emit the
+**same SSE completion bytes** and retains existing teacher behavior.
+
+The [Gateway execution boundary](../../src/gateway_agent_execution.py)
+rejects native mode unless admission/owner/authority match and the final
+ToolPolicy disables all native and MCP tools without an external bridge.
+The [direct event adapter](../../src/gateway_turn_events.py) consumes native
+completion directly while still translating legacy SSE deltas/usage/errors.
+This is **not** native emission for all event families or the promised
+persistent, versioned TurnEvent protocol. See
+[the transitional event contract](M2_1_TYPED_TURN_EVENTS.md),
+[real Core emission tests](../../tests/test_mnerys_agent_core_native_terminal.py)
+and [M2.1 exit gate](M2_1_EXIT_GATE.md).
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

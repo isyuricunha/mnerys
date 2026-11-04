@@ -22,6 +22,7 @@ import time
 import logging
 import hashlib
 from src.web_recovery import WebRecoveryBudget
+from src.agent_core_events import CoreTerminalEvent, completed_core_event
 from itertools import count
 from datetime import date, datetime, timedelta
 from dataclasses import replace
@@ -21071,7 +21072,8 @@ async def stream_agent_loop(
     _parent_run_id: Optional[str] = None,
     request_authority=MISSING_AUTHORITY,
     context_resolution=None,
-) -> AsyncGenerator[str, None]:
+    native_terminal_events: bool = False,
+) -> AsyncGenerator[str | CoreTerminalEvent, None]:
     """Streaming agent loop generator.
 
     Yields SSE events:
@@ -21082,6 +21084,9 @@ async def stream_agent_loop(
       - data: {"type": "metrics", "data": {...}}            (final metrics)
       - data: [DONE]                                        (end)
     """
+
+    if type(native_terminal_events) is not bool:
+        raise TypeError("Invalid trusted Agent Core terminal event flag")
 
     # Caller and credential denials remain absolute across contract routing.
     disabled_tools = set(disabled_tools or ())
@@ -21133,7 +21138,7 @@ async def stream_agent_loop(
                 f"(unavailable: {unavailable}). I haven’t substituted another tool."
             )
             yield 'data: ' + json.dumps({"delta": clarification}) + '\n\n'
-            yield 'data: [DONE]\n\n'
+            yield (completed_core_event() if native_terminal_events else 'data: [DONE]\n\n')
             return
 
     normalized_external_tool_schemas: list[dict[str, Any]] = []
@@ -21482,7 +21487,7 @@ async def stream_agent_loop(
             })
             + "\n\n"
         )
-        yield "data: [DONE]\n\n"
+        yield (completed_core_event() if native_terminal_events else "data: [DONE]\n\n")
         return
     _early_active_email_draft_update = (
         _extract_followup_content_update(_last_user)
@@ -21572,7 +21577,7 @@ async def stream_agent_loop(
             })
             + "\n\n"
         )
-        yield "data: [DONE]\n\n"
+        yield (completed_core_event() if native_terminal_events else "data: [DONE]\n\n")
         return
     _early_active_document_append = (
         _extract_followup_content_update(_last_user)
@@ -21697,7 +21702,7 @@ async def stream_agent_loop(
             })
             + "\n\n"
         )
-        yield "data: [DONE]\n\n"
+        yield (completed_core_event() if native_terminal_events else "data: [DONE]\n\n")
         return
     _no_tool_boundary_answer = _qwen_no_tool_boundary_answer(_last_user)
     if (
@@ -21732,7 +21737,7 @@ async def stream_agent_loop(
             })
             + "\n\n"
         )
-        yield "data: [DONE]\n\n"
+        yield (completed_core_event() if native_terminal_events else "data: [DONE]\n\n")
         return
     _ody_memory_identity_turn = _looks_like_memory_identity_turn(_last_user)
     _intent = _classify_agent_request(messages, _last_user)
@@ -21905,7 +21910,7 @@ async def stream_agent_loop(
             "missing_workspace": True,
         }
         yield f"data: {json.dumps({'type': 'metrics', 'data': metrics})}\n\n"
-        yield "data: [DONE]\n\n"
+        yield (completed_core_event() if native_terminal_events else "data: [DONE]\n\n")
         return
     _exact_file_edit = _parse_exact_file_replacement(_last_user)
     _inspection_file_edit = _parse_inspection_file_replacement(_last_user)
@@ -21991,7 +21996,7 @@ async def stream_agent_loop(
             })
             + "\n\n"
         )
-        yield "data: [DONE]\n\n"
+        yield (completed_core_event() if native_terminal_events else "data: [DONE]\n\n")
         return
     logger.info(
         "[agent-intent] latest=%r continuation=%s low_signal=%s domains=%s active_doc_relevant=%s retrieval_query=%r",
@@ -22050,7 +22055,7 @@ async def stream_agent_loop(
                 })
                 + "\n\n"
             )
-            yield "data: [DONE]\n\n"
+            yield (completed_core_event() if native_terminal_events else "data: [DONE]\n\n")
             return
         _merged_tools_model = (model or "").lower().startswith(
             "odysseus-qwen3.5-tools-"
@@ -22393,7 +22398,7 @@ async def stream_agent_loop(
                 metrics["cost_usd"] = round(_direct_est, 6)
                 metrics["cost_source"] = "estimated"
         yield f"data: {json.dumps({'type': 'metrics', 'data': metrics})}\n\n"
-        yield "data: [DONE]\n\n"
+        yield (completed_core_event() if native_terminal_events else "data: [DONE]\n\n")
         return
 
     if plan_mode and mcp_mgr:
@@ -27825,7 +27830,7 @@ async def stream_agent_loop(
                 "render_owner": "structured", "replacement_scope": "turn",
             })
             yield f'data: {json.dumps({"type": "metrics", "data": _required_metrics})}\n\n'
-            yield 'data: [DONE]\n\n'
+            yield (completed_core_event() if native_terminal_events else 'data: [DONE]\n\n')
             return
         if _terminal_completion_contract:
             _adjacent_write = _recover_adjacent_fenced_write_file(
@@ -38036,4 +38041,4 @@ async def stream_agent_loop(
             delegated_credential=delegated_credential,
         )
 
-    yield "data: [DONE]\n\n"
+    yield (completed_core_event() if native_terminal_events else "data: [DONE]\n\n")

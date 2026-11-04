@@ -275,6 +275,82 @@ async def test_cancel_after_completed_terminal_cannot_rewrite_result():
     assert result.last_sequence == 3
 
 
+
+
+@pytest.mark.asyncio
+async def test_native_core_terminal_completes_without_legacy_done_frame():
+    from src.agent_core_events import completed_core_event
+
+    stream, outcome = open_test_events([
+        'data: {"delta":"Typed completion"}\n\n',
+        completed_core_event(),
+    ])
+    events = await collect_events(stream)
+    assert [e.type for e in events] == [
+        "message.delta", "message.final", "turn.completed",
+    ]
+    assert events[-2].payload == {"text": "Typed completion"}
+    assert outcome.state == "completed"
+    assert outcome.content == "Typed completion"
+
+
+@pytest.mark.asyncio
+async def test_native_core_completion_keeps_explicit_final_response():
+    from src.agent_core_events import completed_core_event
+
+    stream, outcome = open_test_events([
+        'data: {"delta":"Draft"}\n\n',
+        'data: {"type":"final_response","content":"Approved visible text"}\n\n',
+        completed_core_event(),
+        completed_core_event(),
+    ])
+    events = await collect_events(stream)
+    assert [e.type for e in events] == [
+        "message.delta", "message.final", "turn.completed",
+    ]
+    assert outcome.content == "Approved visible text"
+    assert outcome.last_sequence == 3
+
+
+@pytest.mark.asyncio
+async def test_native_core_terminal_cannot_recover_provider_failure():
+    from src.agent_core_events import completed_core_event
+
+    stream, outcome = open_test_events([
+        'event: error\ndata: {"status":502,"error":"private upstream"}\n\n',
+        completed_core_event(),
+    ])
+    events = await collect_events(stream)
+    assert [e.type for e in events] == ["turn.failed"]
+    assert outcome.state == "failed"
+    assert "private upstream" not in repr(events)
+
+
+@pytest.mark.asyncio
+async def test_native_core_terminal_rejects_incomplete_preceding_sse_frame():
+    from src.agent_core_events import completed_core_event
+
+    stream, outcome = open_test_events([
+        'data: {"delta":"unterminated"}',
+        completed_core_event(),
+    ])
+    with pytest.raises(ValueError, match="Incomplete legacy frame"):
+        await collect_events(stream)
+    assert outcome.state == "failed"
+
+
+@pytest.mark.asyncio
+async def test_native_core_terminal_rejects_forged_unknown_signal():
+    from src.agent_core_events import CoreTerminalEvent
+
+    stream, outcome = open_test_events([
+        CoreTerminalEvent("turn.failed"),
+    ])
+    with pytest.raises(ValueError, match="Invalid Agent Core"):
+        await collect_events(stream)
+    assert outcome.state == "failed"
+
+
 def test_no_web_transport_exec_or_persistence_imports():
     import ast
     from src import gateway_turn_events

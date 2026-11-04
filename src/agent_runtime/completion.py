@@ -15,6 +15,7 @@ import json
 import re
 from time import perf_counter
 
+from src.agent_core_events import CoreTerminalEvent, completed_core_event
 from src.agent_evidence import (
     CompletionDecision, CompletionStatus, EvidenceKind, EvidenceLedger,
     requirements_from_runtime_context, _execution_obligation, _unquoted_statements,
@@ -236,12 +237,19 @@ def with_completion_gate(func):
         answer = ''
         has_final = False
         done = False
+        native_completed = False
         awaiting = False
         exhausted = False
         provider_error: str | None = None
         with bind_journal(journal):
             async with aclosing(func(*args, **kwargs)) as stream:
                 async for chunk in stream:
+                    if isinstance(chunk, CoreTerminalEvent):
+                        if chunk.type != "turn.completed":
+                            raise TypeError("Unsupported native Agent Core event")
+                        done = True
+                        native_completed = True
+                        continue
                     if chunk.strip() == 'data: [DONE]':
                         done = True
                         continue
@@ -416,6 +424,6 @@ def with_completion_gate(func):
                 yield provider_error
                 return
             if done:
-                yield 'data: [DONE]\n\n'
+                yield completed_core_event() if native_completed else 'data: [DONE]\n\n'
 
     return wrapped

@@ -16,6 +16,8 @@ from dataclasses import dataclass
 import json
 from typing import Any, Literal
 
+from src.agent_core_events import CoreTerminalEvent
+
 
 TurnState = Literal["pending", "running", "completed", "failed", "cancelled"]
 
@@ -92,7 +94,7 @@ def _safe_metrics(payload: Any) -> dict[str, int]:
 
 
 async def translate_legacy_turn_events(
-    frames: AsyncIterator[str],
+    frames: AsyncIterator[str | CoreTerminalEvent],
     outcome: TurnOutcome,
 ) -> AsyncIterator[TurnEvent]:
     """Translate safe legacy SSE signals and terminate a process-local turn.
@@ -123,6 +125,23 @@ async def translate_legacy_turn_events(
     try:
         async with aclosing(frames) as source:
             async for chunk in source:
+                if isinstance(chunk, CoreTerminalEvent):
+                    # Core-native completion for admitted, tools-disabled
+                    # direct turns: no SSE decode is needed for this terminal.
+                    if chunk.type != "turn.completed":
+                        raise ValueError("Invalid Agent Core terminal signal")
+                    if outcome.state in ("completed", "failed"):
+                        continue
+                    if buffer.strip() or pending_cr:
+                        raise ValueError("Incomplete legacy frame before Core terminal")
+                    outcome.content = (
+                        final_response if final_response is not None
+                        else "".join(deltas)
+                    )
+                    outcome.state = "completed"
+                    yield event("message.final", {"text": outcome.content})
+                    yield event("turn.completed", {})
+                    continue
                 if not isinstance(chunk, str):
                     raise ValueError("Invalid inherited stream chunk")
                 # Canonicalize legacy CRLF frames without changing the model

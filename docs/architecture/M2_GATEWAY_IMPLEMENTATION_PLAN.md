@@ -782,6 +782,46 @@ The [M2.1 exit gate](M2_1_EXIT_GATE.md) remains **PARTIAL** until the
 Agent Core itself emits native permission-filtered events and the complete
 Web/direct lifecycle is accepted.
 
+**Twenty-ninth incremental slice — native Agent Core completion signals (opt-in):**
+the [inherited Agent Loop](../../src/agent_loop.py) now constructs a
+[typed, immutable CoreTerminalEvent](../../src/agent_core_events.py)
+for each of its eleven original completion yield sites **only when** a
+trusted direct consumer opts in. The old path still returns the exact
+`data: [DONE]` bytes by default. The [completion/evidence gate](../../src/agent_runtime/completion.py)
+and [teacher takeover gate](../../src/teacher_escalation.py) now recognize
+the native signal, preserve original buffering, evidence decisions, terminal
+precedence, cancellation and context teardown, and emit the native signal
+from the outer wrapper instead of reconstituting DONE as text. The restricted
+direct native path does not launch a teacher child that might create skills;
+legacy Web teacher behavior remains unchanged.
+
+Only the [owner-admitted execution boundary](../../src/gateway_agent_execution.py)
+can activate native terminal delivery for the direct composer when its
+ToolPolicy **blocks all native tools and MCP** and no execution bridge is
+present. Wrong credential/session/authority/model and malformed flags remain
+fail-closed. [GatewayTurns.open_composed_text_events](../../src/gateway_turns.py)
+opts in and its [typed event adapter](../../src/gateway_turn_events.py)
+accepts CoreTerminalEvent directly, so **completion is no longer decoded
+from SSE** for that path. Incremental model deltas, usage, tool events and
+provider errors are still transported in inherited SSE; the application
+service does not yet have fully native typed events or durable turn storage.
+
+[Real Agent Loop emission and teacher-compatibility tests](../../tests/test_mnerys_agent_core_native_terminal.py)
+verify native versus byte-identical default completion and refuse unknown
+native signals. [Typed adapter](../../tests/test_mnerys_gateway_turn_events.py),
+[composer](../../tests/test_mnerys_gateway_turn_composer.py) and
+[execution security tests](../../tests/test_mnerys_gateway_agent_execution.py)
+exercise provider errors, one terminal, contract/bridge cleanup, account
+policy, no-teacher escalation and Web-safe default output. Local suites passed
+**906 focused**, **191 routing**, **159 authority**, **160 peripheral**,
+**1,129 compatibility**, **148 external-schema** and **196 additional
+Agent Core/contract/teacher** tests (overlapping suites). One separate,
+sandbox-dependent workspace subprocess E2E did not pass in this restricted
+local execution environment; the relevant workspace routing case and
+other core tests passed separately. Full hosted CI/real model/preview
+acceptance remain pending, and the [M2.1 exit gate](M2_1_EXIT_GATE.md)
+continues **PARTIAL**.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes
