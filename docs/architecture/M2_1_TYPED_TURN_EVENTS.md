@@ -89,7 +89,7 @@ unsupported surfaces, account denials and unchanged default no-tools behavior.
 The default operation still does not persist user/assistant messages. An explicitly trusted, tools-disabled direct text profile can now persist the user input through the existing context writer and the completed assistant answer through the admitted legacy saver. A failed assistant write becomes a generic terminal failure with no prematurely delivered final frame. When the trusted server supplies an interrupted writer, cancellation, early close, incomplete streams and provider failures save only visible partial text through the existing admitted stopped-response boundary. No partial is saved for an empty answer or after an ambiguous completed-response write failure. This is not an atomic transaction, durable receipt, or production Web cutover. Enabled tools
 retain their original authorized effects and storage; do not mistake missing
 conversation writes for a read-only guarantee. Native approval requests and controls can now traverse this same composer.
-Attachment/document context, workspace/browser-bound approval continuation,
+Attachment/document context, document- and filesystem-bound approvals, browser continuation,
 model fallback and full Web parity remain open.
 The native-terminal tools-disabled guard is unchanged. Reverting this code does
 not require a schema/data rollback, but it does not undo any authorized tool
@@ -294,3 +294,23 @@ The default direct profile, existing production Web SSE path, and
 tool/approval continuation semantics remain unchanged. No durable
 cross-process completion receipt, SQL-backed event log or transaction fence
 has been implemented.
+
+## Session-bound workspace approval observations
+
+The direct text profile can now pass a workspace already selected by the
+trusted server adapter and matching the admitted session's persisted `cwd`
+to the *same* authority, contract and Agent Loop. Existing sealed native
+backend approvals can be resumed for exactly that workspace, without
+constructing a grant from approval-button input. The typed stream reports the
+same `approval.decided` and tool lifecycle events, and the inherited
+dispatcher claims the first effect at most once.
+
+This does not enable workspace filesystem mutations or active-document
+approvals; cards carrying document/FS/process/browser resource bindings still
+fail closed and remain unconsumed. The current account/owner/tool policy,
+workspace path and pending approval are rechecked before consumption.
+[Isolated tests](../../tests/test_mnerys_gateway_workspace_approvals.py)
+cover the native Agent Loop round trip, real dispatcher handoff, negative
+workspace changes, symlink retargeting, cancellations and policy revocations.
+This is process-local functionality, not a durable approval record or a
+Web-versus-direct acceptance claim.

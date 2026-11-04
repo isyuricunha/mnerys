@@ -2,11 +2,11 @@
 
 One operation assembles shared context, owner-scoped policy, authority and,
 for an explicitly server-offered native tool surface, the inherited inventory
-and immutable routed contract. Tools remain disabled by default. Conversation
-messages are never persisted here; enabled tools retain their own existing
-authorization and effects. Native approval controls reuse the sealed store;
-attachments, active UI resources and production Web cutover remain outside
-this direct profile.
+and immutable routed contract. Tools remain disabled by default. An explicitly
+server-selected session workspace can accompany native-only tools and sealed
+native approvals; filesystem/document-bound approvals are still unsupported.
+Conversation persistence is separately opt-in for tools-disabled text turns.
+The Web production cutover remains outside this direct profile.
 This is not a remote client entry point.
 """
 
@@ -14,13 +14,17 @@ from collections.abc import Mapping
 from contextlib import aclosing
 from dataclasses import dataclass, replace
 import json
+import os
 from typing import Any, AsyncGenerator
 
 from src.agent_core_events import CoreNativeEvent, completed_core_event
 from src.gateway_approval_decisions import (
     ToolApprovalDecision, inspect_admitted_tool_approval, consume_admitted_tool_approval,
 )
-from src.tool_approvals import ExactToolApproval, ToolApprovalStore, tool_approval_store
+from src.tool_approvals import (
+    ExactToolApproval, ToolApprovalStore, tool_approval_store,
+    _normalized_workspace,
+)
 from src.agent_runtime.resources import NativeBackendResource
 from src.agent_runtime.authority import ExactOperation
 from src.gateway_admission import AdmittedSession, AdmissionDenied, require_admitted_session
@@ -70,6 +74,36 @@ class TrustedTextTurnSettings:
     # Adapter-supported schema names, selected by the server. This only
     # narrows the inherited inventory; request authority still gates effects.
     offered_tools: frozenset[str] = frozenset()
+    # Trusted adapter setting, checked against the loaded session cwd.
+    # Never deserialize a client-supplied workspace into this field.
+    workspace: str | None = None
+
+
+def _admitted_session_workspace(session: Any, configured: str | None) -> str | None:
+    """Allow only an existing workspace already bound to the loaded session.
+
+    This is not a filesystem grant or a replacement for the dispatcher's
+    resource-confinement checks. A full Web workspace resolver is still needed.
+    """
+    if configured is None:
+        return None
+    stored = getattr(session, "cwd", None)
+    if (
+        type(configured) is not str or type(stored) is not str
+        or not configured or not stored
+        or len(configured) > 4096 or len(stored) > 4096
+        or any(ord(char) < 32 for char in configured + stored)
+        or not os.path.isabs(configured) or not os.path.isabs(stored)
+    ):
+        raise AdmissionDenied(403, "Invalid trusted session workspace")
+    try:
+        chosen = _normalized_workspace(configured)
+        stored_path = _normalized_workspace(stored)
+        if chosen != stored_path or not os.path.isdir(chosen):
+            raise AdmissionDenied(403, "Workspace differs from the admitted session")
+    except (OSError, ValueError) as exc:
+        raise AdmissionDenied(403, "Invalid trusted session workspace") from exc
+    return chosen
 
 
 _PORT_METHODS = (
@@ -107,10 +141,10 @@ async def stream_composed_text_turn(
     approval_store: ToolApprovalStore | None = None,
     persistence: TrustedTextPersistence | None = None,
 ) -> AsyncGenerator[str | CoreNativeEvent, None]:
-    """Compose a text-input Agent turn without conversation persistence.
+    """Compose one admitted text-input turn with existing Agent Core services.
 
-    Production persistence and UI-bound approval continuations remain on the
-    inherited Web path; native controls require a supported sealed context.
+    Native-only approvals may resume in the admitted session workspace. Full
+    Web/active-document and filesystem-resource continuation remain inherited.
     This function must never be directly exposed to a remote caller.
     """
     session_id = require_admitted_session(admission)
@@ -150,7 +184,7 @@ async def stream_composed_text_turn(
     tools_enabled = bool(settings.offered_tools)
     if persistence is not None:
         require_trusted_text_persistence(persistence)
-        if tools_enabled or continuation:
+        if tools_enabled or continuation or settings.workspace is not None:
             raise AdmissionDenied(403, "Persisted direct turns require plain text without tools or approvals")
     if tools_enabled and native_terminal_events:
         raise AdmissionDenied(403, "Native terminal mode requires a tools-disabled turn")
@@ -176,11 +210,13 @@ async def stream_composed_text_turn(
             yield 'data: ' + json.dumps({"type": "final_response", "content": "The action was denied."}) + '\n\n'
             yield completed_core_event() if native_terminal_events else 'data: [DONE]\n\n'
             return
-        # This direct profile has no workspace/active-document/browser adapter.
+        workspace = _admitted_session_workspace(session, settings.workspace)
+        # This direct profile has no active-document/browser adapter.
         # Retain unsupported cards rather than consuming a grant we cannot run.
         if (
             pending.tool_name not in settings.offered_tools
-            or pending.workspace or pending.document_id or pending.document_version is not None
+            or pending.workspace != (workspace or "")
+            or pending.document_id or pending.document_version is not None
             or pending.document_digest or pending.resource_operation is not None
             or pending.process_operation is not None or pending.browser_operation is not None
             or pending.backend_operation is None
@@ -189,12 +225,13 @@ async def stream_composed_text_turn(
             raise AdmissionDenied(409, "Approval requires an unsupported direct-turn context")
         proof = ExactToolApproval(pending)
         if not proof.matches(owner=owner, session_id=session_id,
-                             tool_name=pending.tool_name, content=pending.content, workspace=None):
+                             tool_name=pending.tool_name, content=pending.content, workspace=workspace):
             raise AdmissionDenied(409, "Approval action no longer matches its sealed record")
         message = pending.continuation_query or pending.request_text
         if not isinstance(message, str) or not message.strip():
             raise AdmissionDenied(409, "Approval has no originating turn context")
     else:
+        workspace = _admitted_session_workspace(session, settings.workspace)
         message = request.message
 
     if any(type(value) is not str or not value.strip() for value in (
@@ -222,7 +259,7 @@ async def stream_composed_text_turn(
         last_user_message=message,
         chat_mode="agent",
         auto_escalated=False,
-        workspace_agent_intent=False,
+        workspace_agent_intent=bool(workspace),
         use_turn_contract=tools_enabled,
         allow_browser_for_web_turn=False,
         compare_mode=False,
@@ -254,7 +291,7 @@ async def stream_composed_text_turn(
                             disabled_tools=frozenset(inventory.disabled_tools | denied))
         classified = classify_admitted_turn_capabilities(
             admission, session, context_owner=owner, message=message,
-            use_turn_contract=True, active_document=False, workspace_bound=False,
+            use_turn_contract=True, active_document=False, workspace_bound=bool(workspace),
             image_attachment=False, explicit_browser_intent=False,
             external_discovery_intent=False, private_browser_warm=False,
             contextual_browser_followup_lookup=lambda: False,
@@ -281,7 +318,7 @@ async def stream_composed_text_turn(
         # Reuse the original authority snapshot, never derive grants from the
         # button label or the restored retrieval query.
         original_authority = authority_for_admitted_turn(
-            admission, message, workspace=None, history=[], policy=policy,
+            admission, message, workspace=workspace, history=[], policy=policy,
             internal_tool_request=False, exact_approval=ExactToolApproval(pending),
         )
         try:
@@ -342,7 +379,7 @@ async def stream_composed_text_turn(
 
     authority = authority_for_admitted_turn(
         admission, message,
-        workspace=None,
+        workspace=workspace,
         history=getattr(session, "history", []) or [],
         policy=policy,
         capabilities=capabilities,
@@ -370,6 +407,11 @@ async def stream_composed_text_turn(
 
     resolution = None
     if continuation:
+        # Context preprocessing is asynchronous. Workspace selection must
+        # still match the loaded session immediately before consuming the
+        # one-use approval. A changed path leaves the card available.
+        if _admitted_session_workspace(session, settings.workspace) != workspace:
+            raise AdmissionDenied(409, "Workspace changed during approval preparation")
         # All fallible context preparation completed. The store rechecks
         # expiry/owner/session and consumes exactly once, immediately before
         # yielding the decision and handing off to the existing Agent Loop.
@@ -390,7 +432,7 @@ async def stream_composed_text_turn(
         messages=model_messages,
         authority=authority,
         policy=policy,
-        workspace=None,
+        workspace=workspace,
         turn_contract=contract,
         max_rounds=settings.max_rounds,
         max_tokens=settings.max_tokens,
