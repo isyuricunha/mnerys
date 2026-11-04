@@ -527,6 +527,42 @@ workspace writer containment, plus visible-document context. Tests passed **577 
 Hosted CI and live preview behavior have not been verified for this local
 commit; no DB or deploy change is included.
 
+**Twenty-second incremental slice — pure early public-Web/URL/browser intent classification:**
+the Web compatibility adapter now delegates lexical public-Web, direct public
+URL, interactive browser, private-browser, authoritative-source discovery and
+personal-store search intent to
+[GatewayTurns.preview_initial_web_intent](../../src/gateway_turns.py),
+backed by the [pure, pre-admission classifier](../../src/gateway_initial_web_intent.py).
+It preserves the original source regexes, ordering and private-browser
+precedence, including the rule that a concrete public URL authorizes only
+the original exact-reader *candidate*, not unrestricted Web discovery.
+The original lexical helper names remain import-compatible reexports from
+Web; there is a single source of truth instead of duplicate classifiers.
+
+This step runs before owner/session admission and **does not** read history,
+mint policy grants, invoke network tools or inspect arbitrary workspace
+paths. The existing Web adapter still calculates the per-turn search toggle,
+resolves and confines any workspace, and lazily supplies the local HTML
+rendering predicate only for a string request with a bound workspace.
+Local rendering remains separate from public-Web search and is subject to
+the later admitted browser/account/global policies and hardened dispatcher.
+The already-admitted post-session routing, request authority, model loop,
+durable persistence and SSE transport are unchanged; the complete Gateway
+and independently authenticated remote clients remain planned.
+
+[New parity and negative tests](../../tests/test_mnerys_gateway_initial_web_intent.py)
+compare the previous route's classification order for personal content,
+URLs/PDF/YouTube, explicit navigation, unsubscribe/browser requests,
+external discovery, optional Web search and workspace-local rendering.
+They pin lazy server evidence, deny malformed internal flags and check
+that the original Web helper names alias the same pure functions.
+The [existing route source regressions](../../tests/test_chat_route_tool_policy.py)
+now check the new service location without relaxing policy assertions.
+Local checks passed **627 focused**, **185 routing**, **159 authority**,
+**160 peripheral**, **1,129 contract compatibility** and
+**148 external-schema/token/edit** tests (suites may overlap). Hosted CI
+and the private preview have not been run for this local commit.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes

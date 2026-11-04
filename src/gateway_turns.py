@@ -41,6 +41,10 @@ from src.gateway_post_session_routing import (
     reconcile_admitted_post_session_route,
     promote_admitted_document_edit_route,
 )
+from src.gateway_initial_web_intent import (
+    InitialWebIntent,
+    classify_initial_web_intent,
+)
 from src.gateway_initial_agent_routing import (
     InitialAgentRoute,
     select_initial_agent_route,
@@ -302,6 +306,22 @@ class GatewayTurns:
             external_discovery_intent=external_discovery_intent,
             private_browser_warm=private_browser_warm,
             contextual_browser_followup_lookup=contextual_browser_followup_lookup,
+        )
+
+    def preview_initial_web_intent(
+        self,
+        *,
+        message: Any,
+        search_enabled: bool,
+        workspace_bound: bool,
+        local_browser_render_lookup: Callable[[], bool],
+    ) -> InitialWebIntent:
+        """Classify early Web/browser hints without granting tool authority."""
+        return classify_initial_web_intent(
+            message=message,
+            search_enabled=search_enabled,
+            workspace_bound=workspace_bound,
+            local_browser_render_lookup=local_browser_render_lookup,
         )
 
     def preview_initial_agent_route(

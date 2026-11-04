@@ -180,8 +180,12 @@ def test_personal_store_search_takes_precedence_over_generic_web_words():
 
     assert "_explicit_personal_store_intent" in source
     assert "_explicit_web_target" in source
-    assert "not _explicit_personal_store_intent or _explicit_web_target" in source
-    assert "and not _explicit_personal_store_intent" in source
+    classifier = (
+        _CHAT_ROUTES.parents[1] / "src" / "gateway_initial_web_intent.py"
+    ).read_text(encoding="utf-8")
+    assert "gateway_turns.preview_initial_web_intent(" in source
+    assert "not personal or web_target" in classifier
+    assert "explicit_web and not personal" in classifier
 
 
 def test_browser_form_followups_include_approval_and_send_phrases():
@@ -238,7 +242,11 @@ def test_disabled_tools_respects_missing_vs_explicit_toggles():
 def test_explicit_private_browser_workflow_survives_web_search_disabled():
     source = _CHAT_ROUTES.read_text(encoding="utf-8")
     assert "_explicit_private_browser_intent" in source
-    assert "_explicit_private_browser_intent = bool(re.search" in source
+    classifier = (
+        _CHAT_ROUTES.parents[1] / "src" / "gateway_initial_web_intent.py"
+    ).read_text(encoding="utf-8")
+    assert "gateway_turns.preview_initial_web_intent(" in source
+    assert "private = bool(re.search" in classifier
     gateway_web_source = (
         _CHAT_ROUTES.parents[1] / "src" / "gateway_web_intent.py"
     ).read_text(encoding="utf-8")
@@ -425,7 +433,10 @@ def test_failed_web_tool_is_not_retained_for_followup():
 
 def test_site_navigation_forces_private_browser_with_search_enabled():
     source = _CHAT_ROUTES.read_text(encoding="utf-8")
-    assert "visit|go\\s+to|navigate\\s+to" in source
+    classifier = (
+        _CHAT_ROUTES.parents[1] / "src" / "gateway_initial_web_intent.py"
+    ).read_text(encoding="utf-8")
+    assert "visit|go\\s+to|navigate\\s+to" in classifier
     assert 'set(_BROWSER_MCP_TOOLS) | {"private_browser"}' in source
 
 
@@ -441,7 +452,10 @@ def test_local_html_render_is_separate_from_open_web_access():
     source = _CHAT_ROUTES.read_text(encoding="utf-8")
     assert "_local_media_needs_browser_render(message)" in source
     assert "_native_runtime_requires_local_browser(client_runtime_context)" in source
-    assert "or _local_browser_render_intent" in source
+    classifier = (
+        _CHAT_ROUTES.parents[1] / "src" / "gateway_initial_web_intent.py"
+    ).read_text(encoding="utf-8")
+    assert "browser or local_render" in classifier
 
 
 def test_workspace_auto_escalation_keeps_shell_tools():

@@ -90,8 +90,7 @@ from src.agent_runtime.authority import is_internal_tool_request
 from src.gateway_turn_contract_selection import turn_contract_enabled as _turn_contract_enabled
 from src.gateway_tool_inventory import explicitly_denies_tool_use as _explicitly_denies_tool_use
 from src.turn_contract import (
-    FAMILY_TOOLS, requires_external_web_verification,
-    selected_tools_for_request,
+    FAMILY_TOOLS, selected_tools_for_request,
 )
 
 logger = logging.getLogger(__name__)
@@ -203,86 +202,16 @@ def _visible_response_text_for_save(text: object) -> str:
         flags=re.DOTALL,
     )
     return value
-def _is_personal_data_search_without_web_target(text: str) -> bool:
-    """Prevent generic ``search`` wording from disabling personal tools."""
-    text = str(text or "")
-    if not re.search(
-        r"\b(?:memory|memories|remembered|recall|brain|prior\s+chats?|"
-        r"previous\s+chats?|past\s+conversations?|previous\s+conversations?|"
-        r"chat\s+history|sessions?|notes?|todos?|tasks?|skills?|documents?|docs?|"
-        r"calendar|events?|meetings?|appointments?|schedule|emails?|inbox|contacts?)\b",
-        text,
-        re.IGNORECASE,
-    ):
-        return False
-    return not re.search(
-        r"\b(?:web|internet|online|google|news|weather|website|url|"
-        r"browse|browser)\b",
-        text,
-        re.IGNORECASE,
-    )
-
-
-def _explicitly_denies_web_lookup(text: str) -> bool:
-    return bool(
-        re.search(
-            r"\b(?:no\s+web|do\s+not\s+search|don'?t\s+search|without\s+looking\s+it\s+up|"
-            r"without\s+searching|answer\s+from\s+memory\s+only|from\s+memory|"
-            r"no\s+tools?|do\s+not\s+use\s+(?:any\s+)?tools?|don'?t\s+use\s+(?:any\s+)?tools?)\b",
-            str(text or "").lower(),
-        )
-    )
-
-
-_EXPLICIT_URL_TARGET = re.compile(
-    r"\bhttps?://\S+|(?<![/\\@])\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/\S*)?",
-    re.IGNORECASE,
+# Legacy helper names remain import-compatible for the Web adapter and tests.
+# Actual lexical source of truth is the unprivileged Gateway classifier.
+from src.gateway_initial_web_intent import (
+    _is_personal_data_search_without_web_target,
+    _explicitly_denies_web_lookup,
+    _contains_explicit_url_target,
+    _authorizes_exact_url_fetch,
+    _is_explicit_browser_automation_request,
+    _is_external_discovery_request,
 )
-
-
-def _contains_explicit_url_target(text: str) -> bool:
-    """Recognize public URLs/domains without treating local paths as domains."""
-    return bool(_EXPLICIT_URL_TARGET.search(str(text or "")))
-
-
-def _authorizes_exact_url_fetch(text: str) -> bool:
-    """Treat a pasted public URL as authority to read that URL, not search.
-
-    The Web toggle controls open-ended discovery.  A concrete URL is already
-    the user's chosen network target, so reading it does not need the broader
-    search grant. Interactive navigation remains owned by ``private_browser``;
-    YouTube links remain owned by ``youtube_tool``.
-    """
-    value = str(text or "")
-    if _explicitly_denies_web_lookup(value) or _is_explicit_browser_automation_request(value):
-        return False
-    urls = re.findall(r"\bhttps?://[^\s<>\"']+", value, re.IGNORECASE)
-    return any(
-        not re.match(r"https?://(?:www\.)?(?:youtube\.com|youtu\.be)(?:/|$)", url, re.IGNORECASE)
-        for url in urls
-    )
-
-
-def _is_explicit_browser_automation_request(text: str) -> bool:
-    """Distinguish interactive navigation from ordinary URL/PDF retrieval."""
-    return bool(re.search(
-        r"\b(brow(?:ser|esr|sr)|browse|visit|go\s+to|navigate\s+to|"
-        r"open\s+(?:the\s+)?(?:site|page|url|link)|click|fill(?:\s+out)?|"
-        r"submit|send\s+(?:the\s+)?form|contact\s+form|form\s+submission)\b",
-        str(text or ""),
-        re.IGNORECASE,
-    ))
-
-
-def _is_external_discovery_request(text: str) -> bool:
-    """Recognize requests to locate an authoritative public web source."""
-    return bool(re.search(
-        r"\b(?:find|locate|get)\s+(?:me\s+)?(?:the\s+|an?\s+)?"
-        r"(?:official\s+)?(?:announcement|press\s+release|article|source|web\s*page|website|site)\b",
-        str(text or ""),
-        re.IGNORECASE,
-    ))
-
 
 _URL_SCHEME_RE = re.compile(r"https?://", re.I)
 _PDF_URL_TAIL_RE = re.compile(r"\.pdf\b|/pdf/", re.I)
@@ -2424,72 +2353,29 @@ def setup_chat_routes(
         # not chats we quietly promoted for a notes/calendar intent.
         user_requested_agent = (chat_mode == "agent")
         _search_enabled = web_search_enabled_for_turn(allow_web_search, use_web)
-        _explicit_web_intent = False
-        _explicit_personal_store_intent = False
-        _explicit_web_target = False
-        _exact_url_fetch_intent = False
-        _explicit_browser_intent = False
-        _external_discovery_intent = False
-        _explicit_private_browser_intent = False
+        # Pre-admission text classification is a routing hint, never a tool
+        # grant. A validated workspace is required before considering local
+        # HTML rendering, and its own server checks stay in the Web adapter.
+        _initial_web_intent = gateway_turns.preview_initial_web_intent(
+            message=message,
+            search_enabled=_search_enabled,
+            workspace_bound=bool(workspace),
+            local_browser_render_lookup=lambda: (
+                _local_media_needs_browser_render(message)
+                or _native_runtime_requires_local_browser(client_runtime_context)
+            ),
+        )
+        _explicit_web_intent = _initial_web_intent.explicit_web_intent
+        _explicit_personal_store_intent = _initial_web_intent.personal_store_intent
+        _explicit_web_target = _initial_web_intent.explicit_web_target
+        _exact_url_fetch_intent = _initial_web_intent.exact_url_fetch_intent
+        _explicit_browser_intent = _initial_web_intent.explicit_browser_intent
+        _external_discovery_intent = _initial_web_intent.external_discovery_intent
+        _explicit_private_browser_intent = _initial_web_intent.explicit_private_browser_intent
+        _local_browser_render_intent = _initial_web_intent.local_browser_render_intent
+        _allow_browser_for_web_turn = _initial_web_intent.allow_browser_for_web_turn
         _clean_v3_private_browser_warm = False
         _contextual_browser_turn_followup = False
-        _local_browser_render_intent = False
-        if isinstance(message, str):
-            _msg_l = message.lower()
-            _explicit_url_target = _contains_explicit_url_target(_msg_l)
-            _explicit_personal_store_intent = _is_personal_data_search_without_web_target(_msg_l)
-            _explicit_web_target = bool(re.search(
-                r"\b(?:web|internet|online|google|news|weather|website|url|browse|browser)\b",
-                _msg_l,
-            )) or _explicit_url_target
-            _explicit_web_intent = (
-                _explicit_url_target
-                or bool(re.search(
-                r"\b(search|look\s+(?:(?:this|that|it|them|these|those)\s*)?up|lookup|find\s*out|google|browse|web|online|latest|current|today|news|weather|forecast|rate|exchange\s+rate)\b",
-                _msg_l,
-                ))
-                or requires_external_web_verification(message)
-            ) and (not _explicit_personal_store_intent or _explicit_web_target)
-            _explicit_browser_intent = _is_explicit_browser_automation_request(
-                _msg_l
-            )
-            _external_discovery_intent = _is_external_discovery_request(_msg_l)
-            if _external_discovery_intent:
-                _explicit_web_intent = True
-            _exact_url_fetch_intent = _authorizes_exact_url_fetch(_msg_l)
-            # Browser automation is distinct from open-ended web search. This
-            # is also used by reviewed email flows whose prompt contains an
-            # exact unsubscribe URL and explicitly names private_browser.
-            _explicit_private_browser_intent = bool(re.search(
-                r"\bprivate[_ -]?brow(?:ser|esr|sr)\b",
-                _msg_l,
-            )) or bool(re.search(
-                r"\bagent\s+unsubscribe\b.*\bhttps?://",
-                _msg_l,
-                re.DOTALL,
-            ))
-            if _explicit_private_browser_intent:
-                _explicit_browser_intent = True
-                # An exact browser workflow must not be downgraded to a
-                # search-only turn merely because its URL is present.
-                _explicit_web_intent = False
-            # Rendering a workspace HTML page to an image uses the local
-            # browser as an artifact tool, not as open-ended web access. Keep
-            # that capability independent from the web-search toggle while
-            # retaining the ordinary browser privilege and global policy
-            # checks below.
-            _local_browser_render_intent = bool(
-                workspace and (
-                    _local_media_needs_browser_render(message)
-                    or _native_runtime_requires_local_browser(client_runtime_context)
-                )
-            )
-        _allow_browser_for_web_turn = bool(
-            _explicit_browser_intent
-            or _local_browser_render_intent
-            or (_explicit_web_intent and not _explicit_personal_store_intent)
-            or _search_enabled
-        )
         # Intent auto-escalation: if the user is clearly asking the assistant
         # to create a todo, reminder, or calendar event, promote chat → agent
         # for this turn so the LLM has access to manage_notes / manage_calendar.

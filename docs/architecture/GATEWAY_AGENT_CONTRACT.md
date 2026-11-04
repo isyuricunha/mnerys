@@ -372,6 +372,26 @@ acceptance are not implemented by this slice. See the
 [M2.1 verification record](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
 [routing parity/negative tests](../../tests/test_mnerys_gateway_post_session_routing.py).
 
+## M2.1 incremental implementation: pure initial Web/browser intent
+
+**Implemented internally as a pre-admission lexical classifier, not a tool
+grant or authenticated Gateway.** [GatewayTurns](../../src/gateway_turns.py)
+now calls the [single pure Web-intent service](../../src/gateway_initial_web_intent.py)
+for explicit public URLs, search/discovery, personal-store precedence,
+interactive or private browsing and workspace-local HTML rendering requests.
+The Web compatibility adapter reexports inherited helpers, resolves the
+search toggle and validated workspace, and computes local-rendering
+necessity lazily through a server-owned callback. An explicit URL is never
+an unrestricted browsing grant; all tool offers and execution remain
+subject to owner-admitted policy and the existing dispatcher.
+
+This slice does not change session admission, persistence, model execution,
+SSE or the existing post-session routing. See the
+[M2.1 verification record](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
+[lexical parity/denial tests](../../tests/test_mnerys_gateway_initial_web_intent.py).
+The independent Gateway/API, agent runtime and cross-client acceptance
+remain planned.
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.
