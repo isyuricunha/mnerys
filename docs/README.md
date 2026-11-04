@@ -8,6 +8,7 @@ This index is the entry point for **current Mnerys documentation**. Documents in
 - [Architecture index](architecture/README.md) — M1 Agent Core/Gateway source audit, internal seams and inherited contracts.
 - [M1 design exit review](architecture/M1_EXIT_REVIEW.md) — verified audit/contract-design completion, not a shipped independent Gateway.
 - [M2 Gateway execution plan](architecture/M2_GATEWAY_IMPLEMENTATION_PLAN.md) — ordered implementation, authorization, migration and cross-transport acceptance gates.
+- [M2.1 executable-turn exit gate](architecture/M2_1_EXIT_GATE.md) — verified in-process Gateway execution and the remaining, finite completion criteria.
 - [Frontend architecture](frontend-architecture/handbook.md) — frontend design and implementation notes; verify historical assessments against current code.
 - [Runtime decomposition](runtime-decomposition/COMPARISON_PROTOCOL.md) — imported analysis and tests from the runtime refactoring effort; not a substitute for a new Mnerys architectural contract.
 

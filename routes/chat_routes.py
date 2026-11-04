@@ -4064,12 +4064,17 @@ def setup_chat_routes(
                     if _turn_contract is not None:
                         _forced_tools = set(_turn_contract.offered)
 
-                    async for chunk in turn_service.stream_agent(
-                        _external_execution_bridge(client_runtime_context),
-                        sess.endpoint_url,
-                        sess.model,
-                        messages,
-                        headers=sess.headers,
+                    async for chunk in gateway_turns.stream_admitted_agent(
+                        _admitted_session, sess,
+                        context_owner=ctx.user,
+                        bridge=_external_execution_bridge(client_runtime_context),
+                        endpoint_url=sess.endpoint_url,
+                        model=sess.model,
+                        messages=messages,
+                        authority=_request_authority,
+                        policy=tool_policy,
+                        workspace=workspace or None,
+                        turn_contract=_turn_contract,
                         temperature=(temperature_override if temperature_override is not None else 1.0),
                         max_tokens=_max_tokens,
                         prompt_type=preset_id,
@@ -4078,18 +4083,13 @@ def setup_chat_routes(
                         context_length=_selected_context_length,
                         active_document=active_doc,
                         active_email=active_email_ctx,
-                        session_id=session,
-                        history_session=sess,
                         disabled_tools=disabled_tools if disabled_tools else None,
-                        tool_policy=tool_policy,
-                        owner=_user,
                         fallbacks=_foreground_candidates[1:],
                         route_descriptors=_foreground_route_descriptors,
                         fallback_statuses=_foreground_policy.eligible_statuses,
                         fallback_on_empty=_foreground_policy.fallback_on_empty,
                         plan_mode=plan_mode,
                         approved_plan=approved_plan or None,
-                        workspace=workspace or None,
                         relevant_tools=(
                             set(pending_tool_approval.selected_tools)
                             if exact_tool_approval
@@ -4099,12 +4099,9 @@ def setup_chat_routes(
                         ),
                         cwd=_agent_turn_cwd(sess, client_runtime_context),
                         forced_tools=_forced_tools,
-                        turn_contract=_turn_contract,
-                        request_authority=_request_authority,
                         uploaded_files=ctx.uploaded_files,
                         defer_context_shaping=_foreground_policy.enabled,
                         external_untrusted_context_seen=external_untrusted_context_seen,
-                        delegated_credential=_delegated_credential,
                         exact_approval=exact_tool_approval,
                         client_runtime_context=client_runtime_context,
                         thinking_mode=thinking_mode,

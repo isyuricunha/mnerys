@@ -5,6 +5,7 @@ requires an AdmittedSession produced by the Gateway session policy. It keeps
 Web adapters from calling the unrestricted legacy run manager directly.
 """
 
+from contextlib import aclosing
 from typing import Any, AsyncGenerator, Callable, Iterable, Optional
 
 from src.agent_runtime.authority import RequestAuthority
@@ -41,6 +42,8 @@ from src.gateway_post_session_routing import (
     reconcile_admitted_post_session_route,
     promote_admitted_document_edit_route,
 )
+from src.gateway_agent_execution import stream_admitted_agent_turn
+from src.tool_execution import AgentExecutionBridge
 from src.gateway_turn_runtime_state import (
     AdmittedRuntimeUIState,
     project_admitted_runtime_ui_state,
@@ -207,6 +210,41 @@ class GatewayTurns:
             internal_tool_request=internal_tool_request,
             store=store,
         )
+
+    async def stream_admitted_agent(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        bridge: AgentExecutionBridge | None,
+        endpoint_url: str,
+        model: str,
+        messages: list,
+        authority: RequestAuthority,
+        policy: ToolPolicy,
+        workspace: str | None,
+        turn_contract: Any,
+        **runtime_options: Any,
+    ) -> AsyncGenerator[str, None]:
+        """Run the existing Agent Loop behind issued session authority."""
+        # Closing the facade must synchronously close the admitted service
+        # and its inherited loop before request-scoped contextvars are reset.
+        async with aclosing(stream_admitted_agent_turn(
+            admission, session, self._turns,
+            context_owner=context_owner,
+            bridge=bridge,
+            endpoint_url=endpoint_url,
+            model=model,
+            messages=messages,
+            authority=authority,
+            policy=policy,
+            workspace=workspace,
+            turn_contract=turn_contract,
+            **runtime_options,
+        )) as stream:
+            async for chunk in stream:
+                yield chunk
 
     def open_stream(
         self,

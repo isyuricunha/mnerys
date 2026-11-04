@@ -412,6 +412,24 @@ and [runtime-state parity/denial tests](../../tests/test_mnerys_gateway_turn_run
 Persistent turn-state reconciliation, independent authenticated transports
 and cross-client execution acceptance remain planned.
 
+## M2.1 incremental implementation: admitted Agent Loop execution
+
+**Implemented as a guarded in-process run entry point, not an independent
+transport.** [GatewayTurns.stream_admitted_agent](../../src/gateway_turns.py)
+now calls the [admitted execution service](../../src/gateway_agent_execution.py)
+to validate session/owner, selected model, bound RequestAuthority and final
+ToolPolicy before invoking the [unchanged TurnService](../../src/turn_service.py).
+Provider headers, session identity and delegated status are server-derived;
+runtime overrides cannot replace them. Stream completion, early close, errors
+and cancellation restore bridge/contract bindings. The model-loop behavior
+is tested with a synthetic provider from Python without Web or HTTP.
+
+**Still partial:** Web constructs policy and context before this call, and
+streaming events are still inherited SSE frames. This is not the proposed
+TurnRequest/TurnEvent protocol, a durable event store or a public remote API.
+See the [M2.1 exit gate](M2_1_EXIT_GATE.md) and
+[execution acceptance tests](../../tests/test_mnerys_gateway_agent_execution.py).
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

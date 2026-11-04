@@ -597,6 +597,40 @@ projection → request authority**. Local suites passed **672 focused**,
 cases (suites may overlap). Hosted CI and private preview acceptance
 remain pending until a permitted publication and deployment.
 
+**Twenty-fourth incremental slice — first executable Gateway-bound Agent turn:**
+the inherited Web stream now enters the Agent Loop through
+[GatewayTurns.stream_admitted_agent](../../src/gateway_turns.py), backed by
+[the owner-admitted execution service](../../src/gateway_agent_execution.py).
+That boundary checks the issued admission, loaded session and context owner,
+then requires the selected model/endpoint and RequestAuthority to match the
+same session, owner and workspace. Session identity, provider headers,
+delegated-credential status and policy-derived denials come from trusted
+server state; callers cannot override those fields through generic runtime
+options. The service only **narrows** effective tool denials and forwards
+the turn into the **same** [TurnService and inherited Agent Loop](../../src/turn_service.py).
+It does not create a new model engine, tool grants or database writer.
+
+The Web adapter still prepares context, model selection, exact approval,
+policy, response persistence and SSE, but it no longer calls TurnService
+directly when starting the Agent Loop. The stream wrapper uses explicit
+nested generator closure: a new test exposed and fixed an early-close
+bridge/contract context lifetime bug introduced by this additional
+async boundary. No change to the existing dispatcher, durable storage
+or running preview was made.
+
+**Executable, no-HTTP proof:** [new Gateway execution tests](../../tests/test_mnerys_gateway_agent_execution.py)
+build admitted authority, call the inherited runtime and consume direct
+events without importing Web routes or invoking a real provider. They
+also cover browser/bearer/single-user credentials, model/authority/session
+mismatch, reserved runtime-field spoofing, denied tools, approved workspace
+binding, and completion/early close/error/cancellation. Local validation:
+**727 focused**, **185 routing**, **159 authority**, **160 peripheral**,
+**1,129 contract compatibility**, **148 extra schema/tool** tests (overlap).
+These are synthetic model-provider tests, **not** real model or deployment
+acceptance. The exact remaining M2.1 gates are tracked in the
+[bounded exit checklist](M2_1_EXIT_GATE.md); complete turn composition,
+transport-neutral events and Web-versus-direct acceptance remain OPEN.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes
