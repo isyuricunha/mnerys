@@ -41,6 +41,9 @@ from src.gateway_turn_capabilities import classify_admitted_turn_capabilities
 from src.gateway_tool_intent import select_admitted_tool_intent
 from src.gateway_routed_contract import resolve_admitted_routed_contract
 from src.gateway_agent_execution import stream_admitted_agent_turn
+from src.gateway_foreground_routes import (
+    resolve_admitted_foreground_policy, build_admitted_foreground_routes,
+)
 from src.tool_policy import known_tool_names, build_effective_tool_policy
 from src.turn_service import TurnService
 from src.gateway_filesystem_context import require_sealed_filesystem_approval
@@ -86,6 +89,10 @@ class TrustedTextTurnSettings:
     # Explicit server-selected active editor context. The selected ID is
     # always owner/session-verified against the existing SQL document store.
     active_document_id: str | None = None
+    # Opt-in: the trusted server adapter supplies the allowed model names;
+    # the user must separately enable the owner-scoped foreground preference.
+    enable_model_fallback: bool = False
+    allowed_fallback_models: frozenset[str] = frozenset()
 
 
 def _admitted_session_workspace(session: Any, configured: str | None) -> str | None:
@@ -152,7 +159,7 @@ async def stream_composed_text_turn(
 ) -> AsyncGenerator[str | CoreNativeEvent, None]:
     """Compose one admitted text-input turn with existing Agent Core services.
 
-    Native-only approvals may resume in the admitted session workspace. Full
+    Native-only approvals may resume in the admitted session workspace.
     Full Web/attachment/remote resource continuation remains inherited.
     This function must never be directly exposed to a remote caller.
     """
@@ -190,6 +197,20 @@ async def stream_composed_text_turn(
                for name in settings.offered_tools)
     ):
         raise AdmissionDenied(403, "Invalid trusted adapter tool surface")
+    if (
+        type(settings.enable_model_fallback) is not bool
+        or not isinstance(settings.allowed_fallback_models, frozenset)
+        or len(settings.allowed_fallback_models) > 128
+        or any(
+            type(item) is not str or not item.strip() or len(item) > 256
+            for item in settings.allowed_fallback_models
+        )
+        or (
+            settings.enable_model_fallback
+            and not settings.allowed_fallback_models
+        )
+    ):
+        raise AdmissionDenied(403, "Invalid trusted fallback model allowance")
     tools_enabled = bool(settings.offered_tools)
     if persistence is not None:
         require_trusted_text_persistence(persistence)
@@ -477,6 +498,44 @@ async def stream_composed_text_turn(
         if pending is not None and pending.document_id:
             require_sealed_document_snapshot(pending, current_document)
 
+    # The selected model remains the owner-admitted session model. Optional
+    # fallback candidates and their credential-bearing headers are resolved
+    # only by the existing owner-scoped foreground service and the server's
+    # explicit allowed-model set, never from a direct request or a button.
+    fallback_options = {}
+    if settings.enable_model_fallback:
+        prepared = resolve_admitted_foreground_policy(
+            admission, allowed_models=settings.allowed_fallback_models,
+        )
+        if prepared.enabled:
+            candidates, descriptors = build_admitted_foreground_routes(
+                admission, prepared,
+                endpoint_url=session.endpoint_url, model=session.model,
+                headers=getattr(session, "headers", None),
+                selected_endpoint_id=getattr(session, "endpoint_id", None),
+            )
+            if (
+                not candidates or len(candidates) != len(descriptors)
+                or candidates[0][:2] != (session.endpoint_url, session.model)
+                or any(
+                    not isinstance(item, (tuple, list)) or len(item) != 3
+                    or type(item[0]) is not str or not item[0].strip()
+                    or type(item[1]) is not str
+                    or item[1] not in settings.allowed_fallback_models
+                    or not isinstance(item[2], dict)
+                    for item in candidates[1:]
+                )
+            ):
+                raise AdmissionDenied(409, "Invalid admitted fallback route selection")
+            if len(candidates) > 1:
+                fallback_options = {
+                    "fallbacks": candidates[1:],
+                    "route_descriptors": descriptors,
+                    "fallback_statuses": prepared.eligible_statuses,
+                    "fallback_on_empty": prepared.fallback_on_empty,
+                    "defer_context_shaping": True,
+                }
+
     resolution = None
     if continuation:
         # Context preprocessing is asynchronous. Workspace selection must
@@ -516,6 +575,7 @@ async def stream_composed_text_turn(
         uploaded_files=[],
         active_document=active_document,
         approval_store=store,
+        **fallback_options,
         **({
             "exact_approval": resolution.exact,
             "external_untrusted_context_seen": resolution.tainted,

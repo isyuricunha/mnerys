@@ -365,3 +365,29 @@ uses only throwaway pytest workspaces and synthetic models, with the
 inherited Agent Loop and dispatcher. No filesystem work against the real
 workspace, remote credentials, durable event replay or Web parity has
 been validated.
+
+## Opt-in fallback in the same admitted Agent Loop
+
+The direct composer now accepts a trusted `enable_model_fallback` flag
+and a server-selected `allowed_fallback_models` set. It uses the existing
+owner-scoped foreground model policy and existing Agent Loop candidate
+routing; the primary remains the model in the admitted session. User
+preferences must also enable the fallback. Without both opt-ins, the
+direct route stays strict. Every fallback candidate is checked against
+the explicit adapter allowlist. Provider headers remain internal to
+the model runtime and are never included in filtered typed events.
+
+The inherited Loop performs per-model context shaping and respects
+eligible HTTP status failures, the configured empty-output fallback
+policy, and the rule that visible first-provider output prevents a
+silent retry on another model. Cancellation closes the same async generator,
+without creating a second model execution process.
+
+The typed Gateway consumer **does not yet include a safe typed model
+route/fallback attribution event**. Unknown legacy provider frames are
+still intentionally dropped, not forwarded with raw provider diagnostics.
+[Direct tests](../../tests/test_mnerys_gateway_direct_fallback.py)
+verify a synthetic real-Loop fallback to an allowed model, blocked and
+noneligible routes, account scoping, partial-output pinning and cleanup.
+No real provider was used, and Web-versus-direct event parity remains
+unverified.

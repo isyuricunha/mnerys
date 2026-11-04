@@ -18,7 +18,7 @@ These checks prove an internal executable boundary, **not** a fully independent 
 
 ## Remaining M2.1 completion gates
 
-1. **One admitted turn composer — PARTIAL, acceptance OPEN.** A single-call, **text-input** direct composer is implemented and tested, remaining non-persisting by default with an opt-in trusted text persistence profile. Tools remain disabled by default; a server-selected native surface now traverses the original inventory, policy, authority, contract and execution services. The production Web stream now validates its five terminal saves and both stopped-partial saves through the admitted Gateway, and prevents duplicates within the same completed stream. The inherited writers remain unchanged. The direct composer now offers opt-in persistence for an admitted, tools-disabled text turn: the shared context writer saves the user message, and the existing admitted assistant saver writes the completed reply before the typed completion acknowledgement. Failure to write the reply returns a generic persistence failure. This is a sequential pair of legacy writes, not a fenced or atomic whole-turn transaction. An optional server-owned interrupted writer now retains only filtered visible partials after failure, cancellation or early close, using the existing admitted stopped-response writer. Completion frames are withheld until the assistant write succeeds; ambiguous failures are never blindly retried. Expand this existing application operation to the actual Web feature set — owner-bound tool inventory/contract, active document/email, uploads, model fallback, full UI-bound approval continuation and message/response persistence — without duplicating logic. Do not allow a remote caller to deserialize a RequestAuthority, policy, principal or bridge. Today, [the Web route](../../routes/chat_routes.py) still orchestrates production features before it calls Gateway execution.
+1. **One admitted turn composer — PARTIAL, acceptance OPEN.** A single-call, **text-input** direct composer is implemented and tested, remaining non-persisting by default with an opt-in trusted text persistence profile. Tools remain disabled by default; a server-selected native surface now traverses the original inventory, policy, authority, contract and execution services. The production Web stream now validates its five terminal saves and both stopped-partial saves through the admitted Gateway, and prevents duplicates within the same completed stream. The inherited writers remain unchanged. The direct composer now offers opt-in persistence for an admitted, tools-disabled text turn: the shared context writer saves the user message, and the existing admitted assistant saver writes the completed reply before the typed completion acknowledgement. Failure to write the reply returns a generic persistence failure. This is a sequential pair of legacy writes, not a fenced or atomic whole-turn transaction. An optional server-owned interrupted writer now retains only filtered visible partials after failure, cancellation or early close, using the existing admitted stopped-response writer. Completion frames are withheld until the assistant write succeeds; ambiguous failures are never blindly retried. Expand this existing application operation to the actual Web feature set — owner-bound tool inventory/contract, active document/email, uploads, full Web parity for model fallback, full UI-bound approval continuation and message/response persistence — without duplicating logic. Do not allow a remote caller to deserialize a RequestAuthority, policy, principal or bridge. Today, [the Web route](../../routes/chat_routes.py) still orchestrates production features before it calls Gateway execution.
 2. **Transport-neutral turn result and lifecycle — PARTIAL, acceptance OPEN.** The direct no-tools text composer returns [filtered, typed process-local events and an in-memory outcome](M2_1_TYPED_TURN_EVENTS.md). The Agent Core emits native completion, post-gate answer text, safe final metrics and sanitized failures in that restricted mode; provider ingress and tool/approval/other events still arrive as SSE. Production Web remains on its unchanged legacy SSE path. Native tool start/progress/output metadata and sealed approval observations are implemented behind a separate admitted runtime option. Extend the remaining Core event families and full client tool/approval rendering, preserve exact-run stop/finish/reconnect semantics, response persistence/partial saves and approval continuity, then move serialization exclusively to adapters. Durable replay and cross-process transactional fencing belong to later [M2 storage work](SESSION_REVISION_MIGRATION.md); do **not** claim them as part of this in-process gate.
 3. **Web compatibility and direct-client parity — OPEN.** Route the existing Web chat path through the single composer, then add no-HTTP full-turn tests and Web-versus-direct parity for browser/bearer admission, tools, Plan/Compare, incognito, attachment/document inputs, approval continuations, model fallback, interruption and error persistence. At least one controlled **real model** turn and full CI are required before accepting the cutover; synthetic model fixtures alone are insufficient.
 4. **Evidence and scope audit — OPEN.** Audit the final diff against the [session-writer inventory](SESSION_WRITER_INVENTORY.md) and [M1 contract regression baseline](M1_CONTRACT_TEST_BASELINE.md), validate that no new tool grants, user/session writes, remote entry points or secret-bearing examples slipped in, and update the roadmap. Deployment is a separate approved step with backup and rollback checks.
@@ -236,3 +236,41 @@ Web cutover. In-place content changes and filesystem races after validation
 remain subject to the inherited tool/resolver's existing checks. No
 session or event persistence semantics changed, and the M2.1 exit gate
 remains open.
+
+### Opt-in direct foreground model fallback — November 4, 2026
+
+The [direct turn composer](../../src/gateway_turn_composer.py) can now
+use the existing [owner-scoped foreground fallback policy](../../src/gateway_foreground_routes.py)
+in the **same inherited Agent Loop**. This remains disabled by default
+for direct Python callers. A trusted server adapter may opt in only with an
+explicit nonempty, bounded set of **allowed fallback model names**; the
+authenticated owner must separately have enabled the foreground fallback
+preference. A direct turn never accepts a fallback list, endpoint, provider
+header, model or route descriptor from untrusted request content.
+
+The loaded session remains the primary model, endpoint and headers.
+The existing resolver produces ordered candidates and safe, aligned
+descriptors with the user's owner-scoped endpoint identities. The composer
+checks the alternative model IDs against the adapter's allowed set,
+and gives the resulting list to the already existing Agent Loop's
+`fallbacks`, `route_descriptors`, `fallback_statuses`,
+`fallback_on_empty` and `defer_context_shaping` options. The Loop
+already applies per-candidate context/model budgets and chooses the first
+eligible successful provider; no parallel executor or retry implementation
+was added.
+
+[Direct acceptance tests](../../tests/test_mnerys_gateway_direct_fallback.py)
+include owner/bearer/single-user preference resolution, no-consent strict
+mode, blocked/disallowed models, malformed server settings and early
+account denials. A synthetic, no-network provider invocation exercises
+HTTP 503 failover through the real Agent Loop and retained per-candidate
+context. Ineligible status responses, visible first-provider output and
+early stream close all retain the original fallback and cleanup rules.
+
+This slice adds **no model usage cost** to the default direct profile,
+no new provider credentials, no conversation writes, and no automatic
+fallback on visible partial output. The typed direct consumer deliberately
+omits legacy `fallback`/provider-route metadata, which still needs a
+safe, typed form for client attribution before Web parity is claimed.
+The production Web route, real-provider acceptance, persisted answering
+route attribution, durable replay and complete M2.1 cutover remain open.

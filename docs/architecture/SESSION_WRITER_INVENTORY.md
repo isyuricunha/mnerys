@@ -229,3 +229,21 @@ identity, admin policy and effect tracking continue to govern execution.
 use temporary directories only and include denial of a public non-admin
 write. Full Web/Gateway parity, race-safe filesystem effects and durable
 whole-turn settlement remain open.
+
+## M2.1 direct model fallback persistence boundary
+
+The direct composer now optionally delegates ordered owner-scoped fallback
+routes to the **original Agent Loop** via the existing Gateway foreground
+policy and resolver. No new conversation writer, response retry writer,
+database table or fallback-specific save path was introduced. The direct
+tools-disabled text persistence profile still uses the sequential admitted
+user and assistant writers; it has no atomic whole-turn transaction or
+durable cross-process retry receipt. The actual answering provider's model
+and endpoint attribution are not yet settled by a complete direct/Web
+parity harness.
+
+The default direct profile remains strict and requires no additional
+provider. Opting in requires both a trusted nonempty model allowlist and
+the admitted owner's foreground fallback preference. Synthetic no-network
+acceptance lives in
+[direct fallback tests](../../tests/test_mnerys_gateway_direct_fallback.py).
