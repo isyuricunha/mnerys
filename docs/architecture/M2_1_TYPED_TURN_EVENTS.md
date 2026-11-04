@@ -17,7 +17,7 @@ This does **not** create another Agent Loop, an HTTP endpoint, a remote authoriz
 
 [TurnEvent](../../src/gateway_turn_events.py) is a frozen typed envelope: `sequence` (1-based, local to this stream), `type` (a permitted event name) and filtered `payload`. It does not contain a server-issued `turn_id`, a durable revision or a replay cursor.
 
-[TurnOutcome](../../src/gateway_turn_events.py) is an evolving **in-memory** result snapshot with `state` (`pending`, `running`, `awaiting_approval`, `completed`, `failed` or `cancelled`), user-visible `content` on completion, last local `sequence` and a generic `failure_code`. It is not an acknowledgement of database persistence or a cross-process transaction.
+[TurnOutcome](../../src/gateway_turn_events.py) is an evolving **in-memory** result snapshot with `state` (`pending`, `running`, `awaiting_approval`, `completed`, `failed` or `cancelled`), user-visible `content` on completion, last local `sequence` and a generic `failure_code`. In the default profile it is not an acknowledgement of database persistence; with trusted text persistence, completion is emitted only after the legacy assistant saver succeeds. Neither mode is a cross-process transaction.
 
 [TypedTurnDelivery](../../src/gateway_turn_events.py) couples the async event iterator and its result snapshot.
 
@@ -86,7 +86,7 @@ synthetic; no production database or network service is used. Tests also cover
 browser/bearer/single-user identity, cross-owner rejection before inventory,
 unsupported surfaces, account denials and unchanged default no-tools behavior.
 
-This operation still does not persist user/assistant messages. Enabled tools
+The default operation still does not persist user/assistant messages. An explicitly trusted, tools-disabled direct text profile can now persist the user input through the existing context writer and the completed assistant answer through the admitted legacy saver. A failed assistant write becomes a generic terminal failure; cancellation and provider failures do not save an assistant partial. This is not an atomic transaction, durable receipt, or production Web cutover. Enabled tools
 retain their original authorized effects and storage; do not mistake missing
 conversation writes for a read-only guarantee. Native approval requests and controls can now traverse this same composer.
 Attachment/document context, workspace/browser-bound approval continuation,
@@ -203,7 +203,7 @@ Frames can arrive fragmented or combined; legacy CRLF and comments are handled, 
 ## Security and compatibility constraints
 
 - Admission, ownership and tool policy are still enforced by the composer and admitted execution boundary **before** model/tool access; client-supplied metadata does not create authority.
-- The direct text composer defaults to **all tools disabled** and has **no conversation writes**. The server-offered profile supports native tool execution with the same dispatcher; MCP, attachment/document context and workspace/document-bound approval continuations remain unsupported here. Full tool result rendering and client approval UX still require the complete Gateway composition contract.
+- The direct text composer defaults to **all tools disabled** and **no conversation writes**, with a separately configured text-only persistence profile using the inherited writers. The server-offered profile supports native tool execution with the same dispatcher; MCP, attachment/document context and workspace/document-bound approval continuations remain unsupported here. Full tool result rendering and client approval UX still require the complete Gateway composition contract.
 - The Web transport, SSE bytes, run IDs, stop/finish/reconnect identity and legacy response writer remain unchanged. Do not wire this transitional subset into the production Web route as a substitute for its complete event set.
 - The typed `sequence` is **not** a restart-safe event-store sequence. No resume-by-sequence, durable idempotence, revision fencing, or multi-client API is implemented.
 - The Agent Core emits native **completion** objects, while its evidence/completion gate now emits native **filtered answer text, final safe metrics and sanitized failure** objects in the opted-in direct mode. Provider ingress and other event families remain SSE; native tool/approval metadata is separately opt-in; some provider usage events still use legacy SSE. All eleven original DONE sites preserve byte-identical default Web SSE. Future work must move *all* permitted event families to native emission and isolate SSE serialization in Web adapters.
@@ -229,3 +229,21 @@ not been classified; hosted CI and live-model/Web parity remain required.
 [Typed event tests](../../tests/test_mnerys_gateway_turn_events.py) cover native/legacy text, metrics, failures and terminal ordering, result snapshots, redaction, duplicates, interruptions and size limits. [Real Agent Core tests](../../tests/test_mnerys_agent_core_native_terminal.py) prove native outputs originate after the actual completion gate, preserve the teacher restrictions and keep default Web-compatible SSE bytes. The provider responses are synthetic; no live-model proof is claimed. The [direct composer tests](../../tests/test_mnerys_gateway_turn_composer.py) verify ownership before context I/O and the no-HTTP Agent Loop handoff, including typed success/failure/cancellation.
 
 The [M2.1 exit gate](M2_1_EXIT_GATE.md) remains **OPEN** for a full-featured admitted composer, native typed events and finalization/persistence, Web/direct parity, real model execution and full hosted CI. This limited converter is an incremental acceptance proof, not a release or deploy approval.
+
+## Opt-in legacy-backed text conversation writes
+
+The [direct persistence adapter](../../src/gateway_text_persistence.py) wraps
+the existing typed event stream and owner-admitted assistant writer. The
+shared context service appends only a validated text user message when
+explicitly configured by a trusted server caller. A completed assistant answer
+is saved before its `turn.completed` notification; no duplicate terminal
+frame can create another message in the same iterator. Persistence exceptions
+become generic `turn.failed` events without exposing exception messages.
+An interrupted stream or provider failure leaves the user message but does
+not persist an assistant partial in this restricted profile.
+
+The default and tool/approval-enabled direct profiles retain their previous
+non-persisting behavior. There is no atomic whole-turn transaction, durable
+run identifier, replay receipt, or independently tested SQL backend. The
+acceptance tests are in
+[`test_mnerys_gateway_text_persistence.py`](../../tests/test_mnerys_gateway_text_persistence.py).

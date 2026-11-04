@@ -47,6 +47,7 @@ async def assemble_chat_context(
     context_resolution=None,
     on_user_message_persisted: Callable[[], None] | None = None,
     ports: ChatContextPorts | None = None,
+    require_text_user_content: bool = False,
 ) -> ChatContext:
     """Build the full context (preface + messages) for an LLM call.
 
@@ -74,6 +75,11 @@ async def assemble_chat_context(
         auto_opened_docs=auto_opened_docs,
         allow_tool_preprocessing=allow_tool_preprocessing,
     )
+
+    # The direct persisted text profile must not append a multimodal user
+    # record before discovering that its format is unsupported.
+    if require_text_user_content and not isinstance(preprocessed.user_content, str):
+        raise ValueError("Persisted direct turns require text-only preprocessing")
 
     # Add user message to history. Nobody/incognito uses a request-local
     # transcript store instead of session history so stale saved chats cannot

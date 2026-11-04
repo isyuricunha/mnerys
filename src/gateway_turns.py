@@ -58,6 +58,7 @@ from src.gateway_turn_composer import (
     TrustedTextTurnSettings,
     stream_composed_text_turn,
 )
+from src.gateway_text_persistence import TrustedTextPersistence, persist_completed_text_events
 from src.gateway_context_ports import ChatContextPorts
 from src.tool_execution import AgentExecutionBridge
 from src.gateway_turn_runtime_state import (
@@ -295,6 +296,7 @@ class GatewayTurns:
         chat_processor: Any,
         settings: TrustedTextTurnSettings,
         approval_store: ToolApprovalStore | None = None,
+        persistence: TrustedTextPersistence | None = None,
     ) -> TypedTurnDelivery:
         """Offer typed process-local events from the safe direct composer.
 
@@ -302,8 +304,8 @@ class GatewayTurns:
         this is neither a remote API nor a durable replayable event stream.
         """
         outcome = TurnOutcome()
-        stream = self.stream_composed_text_turn(
-            admission, session,
+        stream = stream_composed_text_turn(
+            admission, session, self._turns,
             context_owner=context_owner,
             request=request,
             ports=ports,
@@ -311,15 +313,19 @@ class GatewayTurns:
             chat_processor=chat_processor,
             settings=settings,
             approval_store=approval_store,
+            persistence=persistence,
             native_terminal_events=not (
                 isinstance(settings, TrustedTextTurnSettings) and bool(settings.offered_tools)
             ),
             native_tool_events=True,
         )
-        return TypedTurnDelivery(
-            events=translate_legacy_turn_events(stream, outcome),
-            outcome=outcome,
-        )
+        events = translate_legacy_turn_events(stream, outcome)
+        if persistence is not None:
+            events = persist_completed_text_events(
+                events, outcome, admission=admission, session=session,
+                context_owner=context_owner, persistence=persistence,
+            )
+        return TypedTurnDelivery(events=events, outcome=outcome)
 
     async def stream_composed_text_turn(
         self,

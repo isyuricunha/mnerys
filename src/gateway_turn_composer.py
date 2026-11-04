@@ -38,6 +38,7 @@ from src.gateway_routed_contract import resolve_admitted_routed_contract
 from src.gateway_agent_execution import stream_admitted_agent_turn
 from src.tool_policy import known_tool_names, build_effective_tool_policy
 from src.turn_service import TurnService
+from src.gateway_text_persistence import TrustedTextPersistence, require_trusted_text_persistence
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,7 @@ async def stream_composed_text_turn(
     native_terminal_events: bool = False,
     native_tool_events: bool = False,
     approval_store: ToolApprovalStore | None = None,
+    persistence: TrustedTextPersistence | None = None,
 ) -> AsyncGenerator[str | CoreNativeEvent, None]:
     """Compose a text-input Agent turn without conversation persistence.
 
@@ -143,6 +145,10 @@ async def stream_composed_text_turn(
     ):
         raise AdmissionDenied(403, "Invalid trusted adapter tool surface")
     tools_enabled = bool(settings.offered_tools)
+    if persistence is not None:
+        require_trusted_text_persistence(persistence)
+        if tools_enabled or continuation:
+            raise AdmissionDenied(403, "Persisted direct turns require plain text without tools or approvals")
     if tools_enabled and native_terminal_events:
         raise AdmissionDenied(403, "Native terminal mode requires a tools-disabled turn")
     if ports is None or any(not callable(getattr(ports, name, None)) for name in _PORT_METHODS):
@@ -304,7 +310,9 @@ async def stream_composed_text_turn(
         no_memory=True,
         agent_mode=True,
         allow_tool_preprocessing=False,
-        persist_user_message=False,
+        persist_user_message=persistence is not None,
+        interaction_mode="agent" if persistence is not None else None,
+        require_text_user_content=persistence is not None,
     )
     if not isinstance(context.messages, list):
         raise AdmissionDenied(403, "Invalid composed model context")
@@ -317,11 +325,11 @@ async def stream_composed_text_turn(
     # Restore only the sealed originating input for a non-persisted turn.
     # An already stored copy is not appended again. The control choice is
     # never user text and never enters authority construction.
-    if not continuation or not any(
+    if (persistence is None and not continuation) or (continuation and not any(
         isinstance(item, dict) and item.get("role") == "user"
         and item.get("content") == context.preprocessed.user_content
         for item in model_messages
-    ):
+    )):
         model_messages.append({"role": "user", "content": context.preprocessed.user_content})
 
     authority = authority_for_admitted_turn(
