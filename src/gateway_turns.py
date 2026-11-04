@@ -43,6 +43,12 @@ from src.gateway_post_session_routing import (
     promote_admitted_document_edit_route,
 )
 from src.gateway_agent_execution import stream_admitted_agent_turn
+from src.gateway_turn_composer import (
+    TextTurnRequest,
+    TrustedTextTurnSettings,
+    stream_composed_text_turn,
+)
+from src.gateway_context_ports import ChatContextPorts
 from src.tool_execution import AgentExecutionBridge
 from src.gateway_turn_runtime_state import (
     AdmittedRuntimeUIState,
@@ -210,6 +216,31 @@ class GatewayTurns:
             internal_tool_request=internal_tool_request,
             store=store,
         )
+
+    async def stream_composed_text_turn(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        request: TextTurnRequest,
+        ports: ChatContextPorts,
+        chat_handler: Any,
+        chat_processor: Any,
+        settings: TrustedTextTurnSettings,
+    ) -> AsyncGenerator[str, None]:
+        """Compose a read-only Agent turn without using a Web route."""
+        async with aclosing(stream_composed_text_turn(
+            admission, session, self._turns,
+            context_owner=context_owner,
+            request=request,
+            ports=ports,
+            chat_handler=chat_handler,
+            chat_processor=chat_processor,
+            settings=settings,
+        )) as stream:
+            async for chunk in stream:
+                yield chunk
 
     async def stream_admitted_agent(
         self,

@@ -430,6 +430,24 @@ TurnRequest/TurnEvent protocol, a durable event store or a public remote API.
 See the [M2.1 exit gate](M2_1_EXIT_GATE.md) and
 [execution acceptance tests](../../tests/test_mnerys_gateway_agent_execution.py).
 
+## M2.1 incremental implementation: direct text-turn composition
+
+**Implemented as a limited, in-process application path only.** The
+[turn composer](../../src/gateway_turn_composer.py) now orchestrates
+owner-admitted context assembly via [injected I/O ports](M2_CONTEXT_SERVICE_PORTS.md),
+server policy and restricted request authority, then the existing
+Agent Loop in one call. It accepts only an untrusted text message plus
+server-owned dependencies; the initial direct mode denies all native/MCP tools
+and performs no conversation persistence. User text is added only to the
+request-local model prompt, not shared session history.
+
+[Direct composer tests](../../tests/test_mnerys_gateway_turn_composer.py)
+verify lifecycle and pre-I/O rejection. Real Web chat remains on its current
+fully featured compatibility path, which calls admitted Agent execution but
+does not yet use the direct composer. Tool-enabled composition, approval
+continuity, attachment/document input, durable writes and typed turn
+events are pending. See the [M2.1 exit gate](M2_1_EXIT_GATE.md).
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

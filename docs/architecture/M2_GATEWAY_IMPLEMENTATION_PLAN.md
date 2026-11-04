@@ -631,6 +631,43 @@ acceptance. The exact remaining M2.1 gates are tracked in the
 [bounded exit checklist](M2_1_EXIT_GATE.md); complete turn composition,
 transport-neutral events and Web-versus-direct acceptance remain OPEN.
 
+**Twenty-fifth incremental slice — one-call direct text-turn composer:**
+[GatewayTurns.stream_composed_text_turn](../../src/gateway_turns.py) now
+invokes a [single transport-neutral composer](../../src/gateway_turn_composer.py)
+that verifies issued admission and the loaded session/owner; rejects an
+account-level Agent veto **before context I/O**; calls the actual
+[shared context algorithm](../../src/gateway_chat_context.py) through
+injected [trusted ports](M2_CONTEXT_SERVICE_PORTS.md); builds the final
+account/delegated/global policy and a sealed RequestAuthority; and streams
+the inherited Agent Loop through the previously admitted execution boundary.
+This is the first **one-call context → policy → authority → execution**
+composition path from Python without FastAPI or the Web route.
+
+**Deliberate limits:** This first direct path accepts only text; all tools,
+including MCP, remain blocked. It does not persist either the user or model
+response, so it cannot leave an orphaned chat entry while Web remains the
+only complete turn-finalization writer. Since the shared context builder's
+non-persisting continuation mode assumes the user turn is already in stored
+history, the composer appends the preprocessed text **only to a copied
+invocation prompt**, never to the cached session. Model execution remains
+synthetic in tests and output remains inherited SSE frames. The production
+Web route still handles its full context, tool inventory, attachments,
+approvals, fallback and response saving before/after its admitted execution
+call. The direct composer is **not yet a Web replacement or a public remote
+API**; those are explicit pending acceptance gates.
+
+[Composer integration tests](../../tests/test_mnerys_gateway_turn_composer.py)
+cover complete direct in-process composition with browser/bearer/single-user
+admissions, a model-loop stub, ownership and privilege vetoes before
+port calls, immutable/non-persisted prompt handling, model policy deny-all,
+and early close/error/cancellation. Existing run, owner, HTTP and context
+regressions passed: **758 focused**, **185 routing**, **159 authority**,
+**160 peripheral**, **1,129 contract compatibility** and
+**148 extra schema/tool-edit** tests (overlapping groups). Hosted CI and
+live model/preview acceptance have not run for this local commit.
+The [M2.1 exit gate](M2_1_EXIT_GATE.md) marks the first composer
+**PARTIAL**, with feature parity/persistence and typed events still open.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes
