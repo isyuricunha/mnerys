@@ -42,6 +42,9 @@ from src.gateway_routed_contract import resolve_admitted_routed_contract
 from src.gateway_agent_execution import stream_admitted_agent_turn
 from src.tool_policy import known_tool_names, build_effective_tool_policy
 from src.turn_service import TurnService
+from src.gateway_document_context import (
+    load_admitted_active_document, require_sealed_document_snapshot,
+)
 from src.gateway_text_persistence import (
     TrustedTextPersistence, require_trusted_text_persistence,
     snapshot_session_receipts, require_new_session_receipt,
@@ -77,6 +80,9 @@ class TrustedTextTurnSettings:
     # Trusted adapter setting, checked against the loaded session cwd.
     # Never deserialize a client-supplied workspace into this field.
     workspace: str | None = None
+    # Explicit server-selected active editor context. The selected ID is
+    # always owner/session-verified against the existing SQL document store.
+    active_document_id: str | None = None
 
 
 def _admitted_session_workspace(session: Any, configured: str | None) -> str | None:
@@ -184,7 +190,8 @@ async def stream_composed_text_turn(
     tools_enabled = bool(settings.offered_tools)
     if persistence is not None:
         require_trusted_text_persistence(persistence)
-        if tools_enabled or continuation or settings.workspace is not None:
+        if (tools_enabled or continuation or settings.workspace is not None
+                or settings.active_document_id is not None):
             raise AdmissionDenied(403, "Persisted direct turns require plain text without tools or approvals")
     if tools_enabled and native_terminal_events:
         raise AdmissionDenied(403, "Native terminal mode requires a tools-disabled turn")
@@ -196,6 +203,7 @@ async def stream_composed_text_turn(
         raise AdmissionDenied(403, "Trusted approval store is required")
     pending = None
     decision = None
+    document_bound = False
     if continuation:
         pending, decision = inspect_admitted_tool_approval(
             admission, request.approval_id, request.decision,
@@ -210,14 +218,38 @@ async def stream_composed_text_turn(
             yield 'data: ' + json.dumps({"type": "final_response", "content": "The action was denied."}) + '\n\n'
             yield completed_core_event() if native_terminal_events else 'data: [DONE]\n\n'
             return
+
+    # A deny choice is always safe to close. Any attempt to run or read a
+    # document/workspace must pass account restrictions before filesystem or
+    # database I/O, including when the client resumes a sealed approval.
+    limits = execution_limits_for_admission(
+        admission, settings.privileges, browser_tools=frozenset(),
+    )
+    if not limits.allow_agent:
+        raise AdmissionDenied(403, "Agent turns are not allowed for this account")
+
+    if continuation:
         workspace = _admitted_session_workspace(session, settings.workspace)
-        # This direct profile has no active-document/browser adapter.
+        # Only sealed owned-document edits are admitted; browser/filesystem
+        # approval resources remain unsupported.
+        document_bound = bool(
+            pending.document_id or pending.document_digest
+            or pending.document_version is not None
+        )
+        if document_bound:
+            if pending.tool_name not in {
+                "edit_document", "update_document", "suggest_document",
+            }:
+                raise AdmissionDenied(409, "Document approval uses an unsupported operation")
+        elif pending.tool_name in {
+            "edit_document", "update_document", "suggest_document",
+        }:
+            raise AdmissionDenied(409, "Document approval has no sealed resource")
         # Retain unsupported cards rather than consuming a grant we cannot run.
         if (
             pending.tool_name not in settings.offered_tools
             or pending.workspace != (workspace or "")
-            or pending.document_id or pending.document_version is not None
-            or pending.document_digest or pending.resource_operation is not None
+            or pending.resource_operation is not None
             or pending.process_operation is not None or pending.browser_operation is not None
             or pending.backend_operation is None
             or not isinstance(pending.backend_operation.resource, NativeBackendResource)
@@ -239,13 +271,16 @@ async def stream_composed_text_turn(
     )):
         raise AdmissionDenied(403, "Invalid selected model for composed turn")
 
-    # Reject an account that cannot use Agent before calling I/O-capable
-    # preprocessing ports. Delegated-token restrictions remain enforced.
-    limits = execution_limits_for_admission(
-        admission, settings.privileges, browser_tools=frozenset(),
+    # Reading documents is I/O. Admission and account permission must be
+    # settled first; the pending card is never consumed by this lookup.
+    active_document = (
+        load_admitted_active_document(
+            owner=owner, session_id=session_id,
+            document_id=settings.active_document_id,
+        ) if settings.active_document_id is not None else None
     )
-    if not limits.allow_agent:
-        raise AdmissionDenied(403, "Agent turns are not allowed for this account")
+    if document_bound:
+        require_sealed_document_snapshot(pending, active_document)
 
     # The server's adapter surface can only remove tools. Build every
     # subsequent selection from the same original policy and dispatcher.
@@ -291,7 +326,8 @@ async def stream_composed_text_turn(
                             disabled_tools=frozenset(inventory.disabled_tools | denied))
         classified = classify_admitted_turn_capabilities(
             admission, session, context_owner=owner, message=message,
-            use_turn_contract=True, active_document=False, workspace_bound=bool(workspace),
+            use_turn_contract=True, active_document=active_document is not None,
+            workspace_bound=bool(workspace),
             image_attachment=False, explicit_browser_intent=False,
             external_discovery_intent=False, private_browser_warm=False,
             contextual_browser_followup_lookup=lambda: False,
@@ -301,7 +337,8 @@ async def stream_composed_text_turn(
             message=message, capabilities=classified.capabilities,
             active_capabilities=classified.active_capabilities,
             warm_tools=frozenset(), recent_web_tool_lookup=lambda: None,
-            active_document=False, contextual_browser_followup=False,
+            active_document=active_document is not None,
+            contextual_browser_followup=False,
             contextual_web_followup=False, active_email_review=False,
             corrected_browser_target=False,
         )
@@ -383,6 +420,7 @@ async def stream_composed_text_turn(
         history=getattr(session, "history", []) or [],
         policy=policy,
         capabilities=capabilities,
+        active_document=active_document is not None,
         internal_tool_request=False,
         exact_approval=ExactToolApproval(pending) if pending is not None else None,
     )
@@ -404,6 +442,19 @@ async def stream_composed_text_turn(
             # The sealed first action is dispatched by the existing approval
             # branch. A lexical read requirement must not run it a second time.
             contract = replace(contract, required_read_operation=None)
+
+    # The context ports are asynchronous, so recheck the SQL document and
+    # sealed resource identity before a one-use approval is consumed or a
+    # selected active document is passed into the model.
+    if active_document is not None:
+        current_document = load_admitted_active_document(
+            owner=owner, session_id=session_id,
+            document_id=active_document.id,
+        )
+        if current_document != active_document:
+            raise AdmissionDenied(409, "Active document changed during preparation")
+        if pending is not None and pending.document_id:
+            require_sealed_document_snapshot(pending, current_document)
 
     resolution = None
     if continuation:
@@ -438,6 +489,7 @@ async def stream_composed_text_turn(
         max_tokens=settings.max_tokens,
         context_length=context.context_length,
         uploaded_files=[],
+        active_document=active_document,
         approval_store=store,
         **({
             "exact_approval": resolution.exact,

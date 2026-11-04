@@ -396,3 +396,27 @@ async def test_denial_can_retire_workspace_card_even_after_context_is_lost(
     ]
     assert store.peek(pending.approval_id) is None
     assert not ports.operations and not session.messages
+
+
+@pytest.mark.asyncio
+async def test_account_denial_precedes_workspace_filesystem_resolution(
+    monkeypatch, tmp_path,
+):
+    import src.gateway_turn_composer as composer
+
+    workspace, admission, session, ports, options, store, pending = workspace_pending(
+        monkeypatch, tmp_path,
+    )
+    options["settings"] = replace(
+        options["settings"],
+        privileges={"can_use_agent": False},
+    )
+
+    def forbidden_workspace_io(*args, **kwargs):
+        pytest.fail("Account denial must happen before workspace resolution")
+
+    monkeypatch.setattr(composer, "_admitted_session_workspace", forbidden_workspace_io)
+    with pytest.raises(AdmissionDenied):
+        await collect(admission, session, options)
+    assert store.peek(pending.approval_id) is pending
+    assert not ports.operations

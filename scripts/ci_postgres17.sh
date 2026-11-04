@@ -69,4 +69,6 @@ docker exec "$name" psql -U mnerys_test -d postgres -v ON_ERROR_STOP=1 -q \
 # configured primary database. The suite verifies role, database, loopback
 # host and server major version before creating any tables.
 export MNERYS_M21_PG_TEST_DSN="postgresql+psycopg2://mnerys_m21_test:${secret}@127.0.0.1:${port}/mnerys_m21_isolated"
-python -m pytest -q tests/test_mnerys_gateway_text_sqlite_integration.py
+python -m pytest -q \
+  tests/test_mnerys_gateway_text_sqlite_integration.py \
+  tests/test_mnerys_gateway_document_approvals.py

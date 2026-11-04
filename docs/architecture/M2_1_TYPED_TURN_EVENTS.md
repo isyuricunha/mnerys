@@ -305,12 +305,37 @@ constructing a grant from approval-button input. The typed stream reports the
 same `approval.decided` and tool lifecycle events, and the inherited
 dispatcher claims the first effect at most once.
 
-This does not enable workspace filesystem mutations or active-document
-approvals; cards carrying document/FS/process/browser resource bindings still
-fail closed and remain unconsumed. The current account/owner/tool policy,
+This does not enable workspace filesystem mutations. A separate, restricted
+active-document profile now supports owner/session/version/digest-checked
+edit/update/suggest approvals; cards with filesystem/process/browser resource
+bindings still fail closed and remain unconsumed. The current account/owner/tool policy,
 workspace path and pending approval are rechecked before consumption.
 [Isolated tests](../../tests/test_mnerys_gateway_workspace_approvals.py)
 cover the native Agent Loop round trip, real dispatcher handoff, negative
 workspace changes, symlink retargeting, cancellations and policy revocations.
 This is process-local functionality, not a durable approval record or a
 Web-versus-direct acceptance claim.
+
+## Admitted active-document turn profile
+
+A trusted server caller may select one active document by ID. Before context
+assembly, the Gateway resolves it from the existing SQL store using the
+authenticated owner, exact current session and its current database owner,
+active state, archive status, version and content digest. The frozen document snapshot is forwarded to the
+same Agent Loop and its existing untrusted-document prompt handling.
+The default text profile remains without conversation writes.
+
+For a previously sealed native `edit_document`, `update_document` or
+`suggest_document` approval, the direct composer also requires the
+previously bound `BoundOwnedOperation` and unchanged SQL document identity
+before and after asynchronous context preparation. It never invents an
+approval from a selected editor tab or a button choice; it forwards the
+existing exact approval and original request authority. Document-denial
+controls remain available even if the editor has been closed.
+
+[SQLite/PostgreSQL 17 acceptance](../../tests/test_mnerys_gateway_document_approvals.py)
+covers sealed document IDs, version/digest conflicts, cross-user/session
+denial, archiving/removal, account restrictions, and a real inherited
+dispatcher handoff with no production effect. Filesystem/process/browser
+resource approvals and implicit cross-session rebinding remain unsupported;
+full Web editor and response-persistence parity is still open.

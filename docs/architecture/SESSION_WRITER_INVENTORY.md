@@ -188,3 +188,27 @@ version before creating tables. Its dedicated CI role/database are isolated
 from migration tests. These are **legacy unversioned writer tests**, separate
 from the previously tested fenced-writer prototypes. No production connection,
 migration, concurrency guarantee, or restore was performed.
+
+## M2.1 active-document read boundary (disposable SQL acceptance)
+
+[The trusted document context resolver](../../src/gateway_document_context.py)
+performs *read-only* SQLAlchemy lookup of one selected document. The existing
+`documents` table and `Document.version_count` remain unchanged. The
+direct context profile requires exact document owner/session and current
+session-row owner, active/not archived state, and an unchanged content digest. It does not perform the implicit
+cross-chat document rebind supported by the older Web editor.
+
+For a sealed approval, this preflight is checked twice around asynchronous
+context preparation, before consuming the one-use card. The inherited
+`BoundOwnedOperation.validate` and document tool's expected version/digest
+checks remain responsible for the execution-time identity and conflict
+decision. Neither the Gateway lookup nor the approval consumption is atomic
+with a document write, so a concurrent change may still require the
+dispatcher to reject the attempted effect.
+
+[Disposable SQLite/PostgreSQL 17 tests](../../tests/test_mnerys_gateway_document_approvals.py)
+exercise the existing SQL schema, owner isolation, version/content changes,
+archive/deletion, and the real dispatcher with a mocked final effect.
+No production document mutation, schema migration, or backup is part of this
+slice. Cross-session Web editor parity and all-writer storage fencing remain
+open.
