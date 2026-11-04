@@ -318,6 +318,7 @@ class GatewayTurns:
                 isinstance(settings, TrustedTextTurnSettings) and bool(settings.offered_tools)
             ),
             native_tool_events=True,
+            native_route_events=True,
         )
         events = translate_legacy_turn_events(stream, outcome)
         if persistence is not None:

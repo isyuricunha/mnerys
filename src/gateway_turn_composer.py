@@ -160,6 +160,7 @@ async def stream_composed_text_turn(
     settings: TrustedTextTurnSettings,
     native_terminal_events: bool = False,
     native_tool_events: bool = False,
+    native_route_events: bool = False,
     approval_store: ToolApprovalStore | None = None,
     persistence: TrustedTextPersistence | None = None,
 ) -> AsyncGenerator[str | CoreNativeEvent, None]:
@@ -191,6 +192,8 @@ async def stream_composed_text_turn(
         raise AdmissionDenied(403, "Invalid trusted turn settings")
     if type(native_tool_events) is not bool:
         raise AdmissionDenied(403, "Invalid trusted tool event mode")
+    if type(native_route_events) is not bool:
+        raise AdmissionDenied(403, "Invalid trusted model route observation mode")
     if type(native_terminal_events) is not bool:
         raise AdmissionDenied(403, "Invalid trusted terminal event mode")
     if (
@@ -640,6 +643,7 @@ async def stream_composed_text_turn(
         } if resolution is not None else {"external_untrusted_context_seen": retired_taint}),
         native_terminal_events=native_terminal_events,
         native_tool_events=native_tool_events,
+        native_route_events=native_route_events,
     )) as stream:
         async for chunk in stream:
             yield chunk

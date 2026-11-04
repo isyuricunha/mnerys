@@ -36,7 +36,7 @@ from urllib.parse import urlparse
 from src.agent_tool_events import native_tool_events_enabled
 from src.agent_core_events import (
     CoreTerminalEvent, CoreTextEvent, CoreMetricsEvent, CoreFailureEvent,
-    CoreToolEvent, CoreApprovalEvent,
+    CoreToolEvent, CoreApprovalEvent, CoreModelRouteEvent,
     completed_core_event,
 )
 
@@ -80,7 +80,7 @@ def with_teacher_takeover(func):
                         failed = True
                         yield chunk
                         continue
-                    if isinstance(chunk, (CoreTextEvent, CoreMetricsEvent, CoreToolEvent, CoreApprovalEvent)):
+                    if isinstance(chunk, (CoreTextEvent, CoreMetricsEvent, CoreToolEvent, CoreApprovalEvent, CoreModelRouteEvent)):
                         yield chunk
                         continue
                     if chunk.strip() == 'data: [DONE]':
@@ -101,7 +101,7 @@ def with_teacher_takeover(func):
                                 if chunk.type != "turn.completed":
                                     raise TypeError("Unsupported native teacher terminal")
                                 continue
-                            if isinstance(chunk, (CoreToolEvent, CoreApprovalEvent)):
+                            if isinstance(chunk, (CoreToolEvent, CoreApprovalEvent, CoreModelRouteEvent)):
                                 yield chunk
                                 continue
                             if chunk.strip() == 'data: [DONE]':

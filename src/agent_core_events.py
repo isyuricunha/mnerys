@@ -1,8 +1,9 @@
 """Immutable in-process Agent Core observations, never authorization grants.
 
 Native text/terminal mode remains restricted to tools-disabled direct turns.
-Separately opted-in admitted runtimes can emit filtered tool metadata and
-sealed approval references. These are not durable, replayable event records.
+Separately opted-in admitted runtimes can emit filtered tool metadata, sealed
+approval references and source-owned model route choices. These are not
+durable, replayable event records.
 """
 
 from dataclasses import dataclass
@@ -63,8 +64,45 @@ class CoreApprovalEvent:
     decision: Literal["approve", "approve_task", "deny"] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class CoreModelRouteEvent:
+    """A real fallback choice observed inside the inherited candidate selector.
+
+    Not a provider alias, credential, execution grant, or final save receipt.
+    The Core emits this only after a fallback candidate commits real output.
+    """
+
+    type: Literal["model.route.selected"] = "model.route.selected"
+    selected_model: str = ""
+    answering_model: str = ""
+    candidate_index: int = 0
+    round: int = 0
+
+
 CoreNativeEvent = (CoreTerminalEvent | CoreTextEvent | CoreMetricsEvent
-                   | CoreFailureEvent | CoreToolEvent | CoreApprovalEvent)
+                   | CoreFailureEvent | CoreToolEvent | CoreApprovalEvent
+                   | CoreModelRouteEvent)
+
+
+def core_model_route_event(
+    selected_model: str, answering_model: str, candidate_index: int, round: int,
+) -> CoreModelRouteEvent:
+    """Validate source-owned candidate facts before creating native metadata."""
+    if (
+        type(selected_model) is not str or not selected_model.strip()
+        or len(selected_model) > 256
+        or type(answering_model) is not str or not answering_model.strip()
+        or len(answering_model) > 256
+        or type(candidate_index) is not int or candidate_index <= 0
+        or type(round) is not int or not 0 < round <= 100000
+    ):
+        raise ValueError("Invalid source-owned model fallback selection")
+    return CoreModelRouteEvent(
+        selected_model=selected_model,
+        answering_model=answering_model,
+        candidate_index=candidate_index,
+        round=round,
+    )
 
 
 def core_metrics_event(data: dict) -> CoreMetricsEvent:

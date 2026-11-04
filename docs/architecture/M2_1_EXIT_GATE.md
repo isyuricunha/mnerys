@@ -269,9 +269,7 @@ early stream close all retain the original fallback and cleanup rules.
 
 This slice adds **no model usage cost** to the default direct profile,
 no new provider credentials, no conversation writes, and no automatic
-fallback on visible partial output. The typed direct consumer deliberately
-omits legacy `fallback`/provider-route metadata, which still needs a
-safe, typed form for client attribution before Web parity is claimed.
+fallback on visible partial output. The typed direct consumer now receives a source-owned `model.route.selected` observation when the inherited candidate selector commits substantive fallback output. This is not a durable final-answer attribution receipt and exposes neither provider diagnostics nor URLs/headers.
 The production Web route, real-provider acceptance, persisted answering
 route attribution, durable replay and complete M2.1 cutover remain open.
 
@@ -313,3 +311,30 @@ This does **not** complete general uploads, images/vision, audio,
 PDF editor auto-creation, binary parsing, attachment-to-tool grants,
 incognito persistence, transactional path fencing or real-provider/Web
 parity. Those remain M2.1 acceptance work.
+
+### Source-owned direct fallback route observations — November 4, 2026
+
+The [original candidate selector](../../src/llm_core.py) now calls a
+synchronous, internal observer **only when** an eligible fallback candidate
+commits its first substantive answer or tool output. The
+[inherited Agent Loop](../../src/agent_loop.py) forwards this as a
+`CoreModelRouteEvent` through the existing completion and teacher wrappers.
+The [typed Gateway adapter](../../src/gateway_turn_events.py) exposes a
+restricted `model.route.selected` event containing only the selected model,
+answering candidate model, candidate index and Agent round.
+
+This observation is **not** reconstructed from provider-authored `fallback`
+SSE. The model selector drops any provider-supplied `fallback` control frames;
+it still preserves its original Web SSE fallback message when it actually
+switches candidates. Default Web streaming and standard strict turns retain
+their existing behavior. The native observation adds no tool permissions,
+extra model calls or new execution engine.
+
+[Isolated route tests](../../tests/test_mnerys_gateway_model_routes.py)
+and [real-Loop direct fallback tests](../../tests/test_mnerys_gateway_direct_fallback.py)
+cover eligible HTTP 503 fallback, noneligible errors, partial-output pinning,
+forged control frames, redaction, native event ordering, duplicate terminals
+and early close. Candidate selection is not a final response-save receipt
+or proof of a provider's self-reported alias. Real provider acceptance,
+durable model attribution, remote transport and complete M2.1 Web cutover
+remain open. The M2.1 exit gate is still **PARTIAL**.

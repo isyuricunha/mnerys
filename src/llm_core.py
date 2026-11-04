@@ -4457,6 +4457,11 @@ async def stream_llm_with_fallback(candidates, messages, **kwargs):
         None,
     )
     candidate_route_descriptors = kwargs.pop("candidate_route_descriptors", None)
+    # Internal, synchronous observation hook: only the candidate-selection
+    # owner can assert a real failover, never an upstream SSE body.
+    on_fallback_selected = kwargs.pop("on_fallback_selected", None)
+    if on_fallback_selected is not None and not callable(on_fallback_selected):
+        raise TypeError("Invalid internal fallback observation hook")
     retry_degenerate_stream_once = bool(
         kwargs.pop("retry_degenerate_stream_once", False)
     )
@@ -4616,6 +4621,11 @@ async def stream_llm_with_fallback(candidates, messages, **kwargs):
 
                 delta = event_data.get("delta")
                 event_type = event_data.get("type")
+                if event_type == "fallback":
+                    # This is an internal candidate-selection control event,
+                    # never provider-authored data. Only the wrapper below may
+                    # issue it after an actual fallback commits real output.
+                    continue
                 substantive = (
                     isinstance(delta, str) and bool(delta.strip())
                 ) or (
@@ -4631,6 +4641,8 @@ async def stream_llm_with_fallback(candidates, messages, **kwargs):
                     # model's name (e.g. a Bedrock/Claude endpoint that 400s every
                     # request but appears fine because another model silently answered).
                     if i > 0:
+                        if on_fallback_selected is not None:
+                            on_fallback_selected(i, primary_model, model)
                         primary_reason = (
                             failures[0]["reason"]
                             if failures

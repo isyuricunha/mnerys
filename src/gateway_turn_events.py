@@ -19,15 +19,13 @@ from typing import Any, Literal
 
 from src.agent_core_events import (
     CoreTerminalEvent, CoreTextEvent, CoreMetricsEvent, CoreFailureEvent, CoreNativeEvent,
-    CoreToolEvent, CoreApprovalEvent,
+    CoreToolEvent, CoreApprovalEvent, CoreModelRouteEvent,
 )
 
 
 TurnState = Literal["pending", "running", "awaiting_approval", "completed", "failed", "cancelled"]
 
 _MAX_LEGACY_FRAME_CHARS = 1_048_576
-
-
 @dataclass(frozen=True, slots=True)
 class TurnEvent:
     """A filtered, process-local event (seq is not a replay cursor)."""
@@ -103,10 +101,11 @@ async def translate_legacy_turn_events(
 ) -> AsyncIterator[TurnEvent]:
     """Translate safe legacy SSE signals and terminate a process-local turn.
 
-    Treat provider text as untrusted. Only visible message text, sanitized
-    numeric usage and generic terminal outcomes are available to this first
-    direct-text consumer. Tool arguments/results, hidden reasoning, SSE ids,
-    provider diagnostics and unknown payloads never enter typed events.
+    Treat provider text as untrusted. Visible answer text, native tool and
+    approval metadata, source-owned model route selections, sanitized usage
+    and generic terminal outcomes are the only admitted typed families.
+    Tool arguments/results, hidden reasoning, SSE IDs, provider diagnostics
+    and unknown payloads never enter typed events.
 
     Closing this iterator explicitly closes the inherited Agent Loop before
     its bridge and contract contextvars are reset.
@@ -130,6 +129,32 @@ async def translate_legacy_turn_events(
     try:
         async with aclosing(frames) as source:
             async for chunk in source:
+                if isinstance(chunk, CoreModelRouteEvent):
+                    if buffer.strip() or pending_cr:
+                        raise ValueError("Incomplete legacy frame before admitted route event")
+                    if outcome.state in ("completed", "failed", "awaiting_approval"):
+                        continue
+                    if (
+                        chunk.type != "model.route.selected"
+                        or type(chunk.selected_model) is not str
+                        or not chunk.selected_model.strip()
+                        or len(chunk.selected_model) > 256
+                        or type(chunk.answering_model) is not str
+                        or not chunk.answering_model.strip()
+                        or len(chunk.answering_model) > 256
+                        or type(chunk.candidate_index) is not int
+                        or chunk.candidate_index <= 0
+                        or type(chunk.round) is not int
+                        or not 0 < chunk.round <= 100000
+                    ):
+                        raise ValueError("Invalid admitted model route observation")
+                    yield event("model.route.selected", {
+                        "selected_model": chunk.selected_model,
+                        "answering_model": chunk.answering_model,
+                        "candidate_index": chunk.candidate_index,
+                        "round": chunk.round,
+                    })
+                    continue
                 if isinstance(chunk, (CoreToolEvent, CoreApprovalEvent)):
                     if buffer.strip() or pending_cr:
                         raise ValueError("Incomplete legacy frame before native Core event")

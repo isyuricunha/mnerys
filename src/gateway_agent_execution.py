@@ -54,6 +54,7 @@ async def stream_admitted_agent_turn(
     turn_contract: Any,
     native_terminal_events: bool = False,
     native_tool_events: bool = False,
+    native_route_events: bool = False,
     approval_store: ToolApprovalStore | None = None,
     **runtime_options: Any,
 ) -> AsyncGenerator[str | CoreNativeEvent, None]:
@@ -104,6 +105,8 @@ async def stream_admitted_agent_turn(
         raise AdmissionDenied(403, "Invalid trusted approval store")
     if type(native_tool_events) is not bool:
         raise AdmissionDenied(403, "Invalid trusted native tool routing flag")
+    if type(native_route_events) is not bool:
+        raise AdmissionDenied(403, "Invalid trusted native model route flag")
     if type(native_terminal_events) is not bool:
         raise AdmissionDenied(403, "Invalid trusted native terminal routing flag")
     if native_terminal_events and (
@@ -139,6 +142,8 @@ async def stream_admitted_agent_turn(
         options["approval_store"] = approval_store
     if native_tool_events:
         options["native_tool_events"] = True
+    if native_route_events:
+        options["native_route_events"] = True
     if native_terminal_events:
         # An explicit, admitted, no-tools Python consumer opts into Core
         # terminal objects; legacy Web receives the same original SSE bytes.

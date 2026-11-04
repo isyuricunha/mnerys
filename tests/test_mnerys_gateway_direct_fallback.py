@@ -285,6 +285,17 @@ async def test_legacy_provider_fallback_runs_inside_same_existing_agent_loop(
     ]
     assert delivery.outcome.state == "completed"
     assert delivery.outcome.content == "Fallback answered."
+    routes = [event for event in events if event.type == "model.route.selected"]
+    assert len(routes) == 1
+    assert routes[0].payload == {
+        "selected_model": "fixture-model",
+        "answering_model": "backup-model",
+        "candidate_index": 1,
+        "round": 1,
+    }
+    assert routes[0].sequence < next(
+        event.sequence for event in events if event.type == "message.delta"
+    )
     assert "PRIVATE_BACKUP_FIXTURE" not in repr(events)
     assert not session.messages
 
@@ -316,6 +327,7 @@ async def test_ineligible_provider_error_does_not_try_backup(monkeypatch):
     assert actual_routes == ["fixture-model"]
     assert delivery.outcome.state == "failed"
     assert events[-1].type == "turn.failed"
+    assert not any(item.type == "model.route.selected" for item in events)
     assert "synthetic refusal" not in repr(events)
     assert not session.messages
 
@@ -348,6 +360,7 @@ async def test_visible_output_never_retries_on_another_provider(monkeypatch):
     assert actual_routes == ["fixture-model"]
     assert delivery.outcome.state == "failed"
     assert events[-1].type == "turn.failed"
+    assert not any(item.type == "model.route.selected" for item in events)
     assert "PRIVATE_BACKUP_FIXTURE" not in repr(events)
     assert not session.messages
 

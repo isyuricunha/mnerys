@@ -22,7 +22,9 @@ import time
 import logging
 import hashlib
 from src.web_recovery import WebRecoveryBudget
-from src.agent_core_events import CoreNativeEvent, completed_core_event
+from src.agent_core_events import (
+    CoreNativeEvent, completed_core_event, core_model_route_event,
+)
 from src.agent_tool_events import (
     tool_event_frame, native_tool_events_enabled, approval_requested_event,
 )
@@ -21076,6 +21078,7 @@ async def stream_agent_loop(
     request_authority=MISSING_AUTHORITY,
     context_resolution=None,
     native_terminal_events: bool = False,
+    native_route_events: bool = False,
 ) -> AsyncGenerator[str | CoreNativeEvent, None]:
     """Streaming agent loop generator.
 
@@ -21090,6 +21093,8 @@ async def stream_agent_loop(
 
     if type(native_terminal_events) is not bool:
         raise TypeError("Invalid trusted Agent Core terminal event flag")
+    if type(native_route_events) is not bool:
+        raise TypeError("Invalid trusted Agent Core model route event flag")
 
     # Caller and credential denials remain absolute across contract routing.
     disabled_tools = set(disabled_tools or ())
@@ -22165,6 +22170,18 @@ async def stream_agent_loop(
                 )
             return f'data: {json.dumps({"type": "agent_terminal", "data": terminal_metadata})}\n\n'
 
+        direct_model_route_events = []
+
+        def _direct_fallback_selected(index, selected, answering):
+            if (
+                type(index) is int and index > 0
+                and selected == model
+                and any(item[1] == answering for item in (fallbacks or []))
+            ):
+                direct_model_route_events.append(
+                    core_model_route_event(selected, answering, index, 1)
+                )
+
         try:
             async for chunk in stream_llm_with_fallback(
                 [(endpoint_url, model, headers)] + list(fallbacks or []),
@@ -22182,7 +22199,13 @@ async def stream_agent_loop(
                 fallback_on_empty=fallback_on_empty,
                 candidate_request_factory=_direct_candidate_request,
                 candidate_route_descriptors=route_descriptors,
+                on_fallback_selected=(
+                    _direct_fallback_selected if native_route_events else None
+                ),
             ):
+                for route_event in direct_model_route_events:
+                    yield route_event
+                direct_model_route_events.clear()
                 if chunk.startswith("data: ") and not chunk.startswith("data: [DONE]"):
                     try:
                         data = json.loads(chunk[6:])
@@ -26887,6 +26910,18 @@ async def stream_agent_loop(
                     ),
                 ),
             }) + "\n\n"
+        round_model_route_events = []
+
+        def _round_fallback_selected(index, selected, answering):
+            if (
+                type(index) is int and 0 < index < len(_candidates)
+                and selected == _candidates[0][1]
+                and answering == _candidates[index][1]
+            ):
+                round_model_route_events.append(
+                    core_model_route_event(selected, answering, index, round_num)
+                )
+
         async for chunk in stream_llm_with_fallback(
             _candidates,
             messages,
@@ -26906,7 +26941,13 @@ async def stream_agent_loop(
             candidate_capability_recovery_factory=_candidate_capability_recovery,
             candidate_route_descriptors=_candidate_route_descriptors,
             retry_degenerate_stream_once=_terminal_completion_contract,
+            on_fallback_selected=(
+                _round_fallback_selected if native_route_events else None
+            ),
         ):
+            for route_event in round_model_route_events:
+                yield route_event
+            round_model_route_events.clear()
             if not _round_first_event_logged:
                 _round_first_event_logged = True
                 logger.info(

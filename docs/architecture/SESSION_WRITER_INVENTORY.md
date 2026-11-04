@@ -265,3 +265,15 @@ through its original owner-scoped code; this does not create a new
 message-write or exactly-once guarantee. See
 [direct attachment acceptance](../../tests/test_mnerys_gateway_direct_attachments.py).
 General multimodal upload/storage parity remains open.
+
+## M2.1 typed fallback route observation (no new writes)
+
+The source-owned `CoreModelRouteEvent` reports a committed fallback choice
+within the process-local typed turn stream. It originates inside the
+original model candidate selector and includes no provider credentials,
+URL, diagnostic, document content or persisted receipt.
+
+The existing Web fallback SSE, session writers and message persistence are
+unchanged. No new turn table, event log, retry writer, transactional save
+or durable per-round answering-model attribution was introduced. Refer to
+the [typed-event contract](M2_1_TYPED_TURN_EVENTS.md#native-source-owned-model-route-selection).
