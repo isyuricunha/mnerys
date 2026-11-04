@@ -4,17 +4,25 @@ One operation assembles shared context, owner-scoped policy, authority and,
 for an explicitly server-offered native tool surface, the inherited inventory
 and immutable routed contract. Tools remain disabled by default. Conversation
 messages are never persisted here; enabled tools retain their own existing
-authorization and effects. Attachments, active UI resources, approval
-continuations and production Web cutover remain outside this direct profile.
+authorization and effects. Native approval controls reuse the sealed store;
+attachments, active UI resources and production Web cutover remain outside
+this direct profile.
 This is not a remote client entry point.
 """
 
 from collections.abc import Mapping
 from contextlib import aclosing
 from dataclasses import dataclass, replace
+import json
 from typing import Any, AsyncGenerator
 
-from src.agent_core_events import CoreNativeEvent
+from src.agent_core_events import CoreNativeEvent, completed_core_event
+from src.gateway_approval_decisions import (
+    ToolApprovalDecision, inspect_admitted_tool_approval, consume_admitted_tool_approval,
+)
+from src.tool_approvals import ExactToolApproval, ToolApprovalStore, tool_approval_store
+from src.agent_runtime.resources import NativeBackendResource
+from src.agent_runtime.authority import ExactOperation
 from src.gateway_admission import AdmittedSession, AdmissionDenied, require_admitted_session
 from src.gateway_chat_context import assemble_chat_context
 from src.gateway_context_admission import owner_for_admitted_context
@@ -40,6 +48,14 @@ class TextTurnRequest:
 
 
 @dataclass(frozen=True)
+class ToolApprovalTurnRequest:
+    """An untrusted control-plane choice, never a new user message/grant."""
+
+    approval_id: str
+    decision: str
+
+
+@dataclass(frozen=True)
 class TrustedTextTurnSettings:
     """Server-selected settings; never deserialize from a client request."""
 
@@ -61,24 +77,35 @@ _PORT_METHODS = (
 )
 
 
+def _approval_decision_frame(resolution: ToolApprovalDecision, native: bool) -> str | CoreNativeEvent:
+    """Format an already-consumed fact; never expose the sealed operation."""
+    if native:
+        return resolution.event
+    return "data: " + json.dumps({
+        "type": "approval_decided", "approval_id": resolution.pending.approval_id,
+        "decision": resolution.decision,
+    }) + "\n\n"
+
+
 async def stream_composed_text_turn(
     admission: AdmittedSession,
     session: Any,
     turns: TurnService,
     *,
     context_owner: str | None,
-    request: TextTurnRequest,
+    request: TextTurnRequest | ToolApprovalTurnRequest,
     ports: ChatContextPorts,
     chat_handler: Any,
     chat_processor: Any,
     settings: TrustedTextTurnSettings,
     native_terminal_events: bool = False,
     native_tool_events: bool = False,
+    approval_store: ToolApprovalStore | None = None,
 ) -> AsyncGenerator[str | CoreNativeEvent, None]:
     """Compose a text-input Agent turn without conversation persistence.
 
-    Production turn persistence and approval continuity remain on the
-    inherited Web path until the full M2.1 composer is acceptance-tested.
+    Production persistence and UI-bound approval continuations remain on the
+    inherited Web path; native controls require a supported sealed context.
     This function must never be directly exposed to a remote caller.
     """
     session_id = require_admitted_session(admission)
@@ -87,7 +114,14 @@ async def stream_composed_text_turn(
         raise AdmissionDenied(403, "Composer context owner does not match admission")
     if not isinstance(turns, TurnService):
         raise AdmissionDenied(403, "Invalid server agent runtime")
-    if not isinstance(request, TextTurnRequest) or not isinstance(request.message, str) or not request.message.strip():
+    continuation = isinstance(request, ToolApprovalTurnRequest)
+    if continuation:
+        if (
+            type(request.approval_id) is not str or not request.approval_id
+            or len(request.approval_id) > 256 or type(request.decision) is not str
+        ):
+            raise AdmissionDenied(403, "Invalid direct approval control")
+    elif not isinstance(request, TextTurnRequest) or not isinstance(request.message, str) or not request.message.strip():
         raise AdmissionDenied(403, "Invalid direct text turn")
     if not isinstance(settings, TrustedTextTurnSettings):
         raise AdmissionDenied(403, "Invalid trusted turn settings")
@@ -114,6 +148,51 @@ async def stream_composed_text_turn(
     if ports is None or any(not callable(getattr(ports, name, None)) for name in _PORT_METHODS):
         raise AdmissionDenied(403, "Trusted chat context ports are required")
 
+    store = tool_approval_store if approval_store is None else approval_store
+    if not isinstance(store, ToolApprovalStore):
+        raise AdmissionDenied(403, "Trusted approval store is required")
+    pending = None
+    decision = None
+    if continuation:
+        pending, decision = inspect_admitted_tool_approval(
+            admission, request.approval_id, request.decision,
+            plan_mode=False, internal_tool_request=False, store=store,
+        )
+        if decision == "deny":
+            resolution = consume_admitted_tool_approval(
+                admission, request.approval_id, decision,
+                plan_mode=False, internal_tool_request=False, store=store,
+            )
+            yield _approval_decision_frame(resolution, native_tool_events)
+            yield 'data: ' + json.dumps({"type": "final_response", "content": "The action was denied."}) + '\n\n'
+            yield completed_core_event() if native_terminal_events else 'data: [DONE]\n\n'
+            return
+        # This direct profile has no workspace/active-document/browser adapter.
+        # Retain unsupported cards rather than consuming a grant we cannot run.
+        if (
+            pending.tool_name not in settings.offered_tools
+            or pending.workspace or pending.document_id or pending.document_version is not None
+            or pending.document_digest or pending.resource_operation is not None
+            or pending.process_operation is not None or pending.browser_operation is not None
+            or pending.backend_operation is None
+            or not isinstance(pending.backend_operation.resource, NativeBackendResource)
+        ):
+            raise AdmissionDenied(409, "Approval requires an unsupported direct-turn context")
+        proof = ExactToolApproval(pending)
+        if not proof.matches(owner=owner, session_id=session_id,
+                             tool_name=pending.tool_name, content=pending.content, workspace=None):
+            raise AdmissionDenied(409, "Approval action no longer matches its sealed record")
+        message = pending.continuation_query or pending.request_text
+        if not isinstance(message, str) or not message.strip():
+            raise AdmissionDenied(409, "Approval has no originating turn context")
+    else:
+        message = request.message
+
+    if any(type(value) is not str or not value.strip() for value in (
+        getattr(session, "endpoint_url", None), getattr(session, "model", None),
+    )):
+        raise AdmissionDenied(403, "Invalid selected model for composed turn")
+
     # Reject an account that cannot use Agent before calling I/O-capable
     # preprocessing ports. Delegated-token restrictions remain enforced.
     limits = execution_limits_for_admission(
@@ -131,7 +210,7 @@ async def stream_composed_text_turn(
         privileges=settings.privileges,
         global_disabled_tools=list(settings.global_disabled_tools),
         browser_tools=frozenset(),
-        last_user_message=request.message,
+        last_user_message=message,
         chat_mode="agent",
         auto_escalated=False,
         workspace_agent_intent=False,
@@ -149,7 +228,7 @@ async def stream_composed_text_turn(
         inventory = prepare_admitted_tool_inventory(
             admission, session, context_owner=owner,
             base_policy=policy, base_disabled_tools=policy.all_disabled_names(),
-            message=request.message, plan_mode=False,
+            message=message, plan_mode=False,
             native_workspace_contract=False,
         )
         inventory_names = frozenset(schema["function"]["name"] for schema in inventory.schemas)
@@ -159,13 +238,13 @@ async def stream_composed_text_turn(
         denied = inventory_names - settings.offered_tools
         policy = build_effective_tool_policy(
             disabled_tools=(inventory.policy.all_disabled_names() | denied),
-            last_user_message=request.message,
+            last_user_message=message,
         )
         # Reuse the owner-bound services; schema selection is not authority.
         inventory = replace(inventory, policy=policy,
                             disabled_tools=frozenset(inventory.disabled_tools | denied))
         classified = classify_admitted_turn_capabilities(
-            admission, session, context_owner=owner, message=request.message,
+            admission, session, context_owner=owner, message=message,
             use_turn_contract=True, active_document=False, workspace_bound=False,
             image_attachment=False, explicit_browser_intent=False,
             external_discovery_intent=False, private_browser_warm=False,
@@ -173,7 +252,7 @@ async def stream_composed_text_turn(
         )
         selection = select_admitted_tool_intent(
             admission, session, context_owner=owner, inventory=inventory,
-            message=request.message, capabilities=classified.capabilities,
+            message=message, capabilities=classified.capabilities,
             active_capabilities=classified.active_capabilities,
             warm_tools=frozenset(), recent_web_tool_lookup=lambda: None,
             active_document=False, contextual_browser_followup=False,
@@ -187,12 +266,37 @@ async def stream_composed_text_turn(
     else:
         policy = replace(policy, block_all_tool_calls=True, disable_mcp=True)
 
+    if pending is not None:
+        if policy.blocks(pending.tool_name):
+            raise AdmissionDenied(403, "The approved tool is blocked by current policy")
+        # Reuse the original authority snapshot, never derive grants from the
+        # button label or the restored retrieval query.
+        original_authority = authority_for_admitted_turn(
+            admission, message, workspace=None, history=[], policy=policy,
+            internal_tool_request=False, exact_approval=ExactToolApproval(pending),
+        )
+        try:
+            operation = ExactOperation.normalize(pending.tool_name, pending.content)
+        except (ValueError, TypeError) as exc:
+            raise AdmissionDenied(409, "The sealed action has invalid arguments") from exc
+        if original_authority.restricted(operation):
+            raise AdmissionDenied(403, "The originating authority still blocks this action")
+        selection = replace(
+            selection,
+            selected_tools=frozenset(pending.selected_tools) & settings.offered_tools,
+            required_tools=frozenset({pending.tool_name}),
+            active_capabilities=frozenset(),
+        )
+    retired_taint = False if continuation else store.retire_for_session(
+        owner=owner, session_id=session_id,
+    )
+
     # The real shared context algorithm is used unchanged with the injected
     # trusted ports. Do not append an orphaned user message while the response
     # finalization/persistence service is still owned by Web.
     context = await assemble_chat_context(
         session, owner, chat_handler, chat_processor,
-        message=request.message,
+        message=message,
         session_id=session_id,
         ports=ports,
         use_web=False,
@@ -204,23 +308,30 @@ async def stream_composed_text_turn(
     )
     if not isinstance(context.messages, list):
         raise AdmissionDenied(403, "Invalid composed model context")
-    # In the inherited context builder, persist_user_message=False is used
-    # for approval continuations whose user input is already in history.
-    # This direct, intentionally non-persisting path is a *new* turn: append
-    # the trusted preprocessed text to this invocation only, not to storage.
+    # Context composition never writes conversation messages here. New user
+    # input is appended only to the invocation; a resumed control restores
+    # the originating context without appending the approval choice.
     if not isinstance(context.preprocessed.user_content, str):
         raise AdmissionDenied(403, "Direct composer supports text messages only")
-    model_messages = [*context.messages, {
-        "role": "user", "content": context.preprocessed.user_content,
-    }]
+    model_messages = list(context.messages)
+    # Restore only the sealed originating input for a non-persisted turn.
+    # An already stored copy is not appended again. The control choice is
+    # never user text and never enters authority construction.
+    if not continuation or not any(
+        isinstance(item, dict) and item.get("role") == "user"
+        and item.get("content") == context.preprocessed.user_content
+        for item in model_messages
+    ):
+        model_messages.append({"role": "user", "content": context.preprocessed.user_content})
 
     authority = authority_for_admitted_turn(
-        admission, request.message,
+        admission, message,
         workspace=None,
         history=getattr(session, "history", []) or [],
         policy=policy,
         capabilities=capabilities,
         internal_tool_request=False,
+        exact_approval=ExactToolApproval(pending) if pending is not None else None,
     )
 
     if tools_enabled:
@@ -232,10 +343,27 @@ async def stream_composed_text_turn(
             required_capabilities=selection.active_capabilities,
             selected_tools=selection.selected_tools,
             warm_tools=selection.warm_tools,
-            message=request.message,
+            message=message,
             history=getattr(session, "history", []) or [],
         )
         authority, contract = routed.authority, routed.contract
+        if pending is not None:
+            # The sealed first action is dispatched by the existing approval
+            # branch. A lexical read requirement must not run it a second time.
+            contract = replace(contract, required_read_operation=None)
+
+    resolution = None
+    if continuation:
+        # All fallible context preparation completed. The store rechecks
+        # expiry/owner/session and consumes exactly once, immediately before
+        # yielding the decision and handing off to the existing Agent Loop.
+        resolution = consume_admitted_tool_approval(
+            admission, request.approval_id, decision,
+            plan_mode=False, internal_tool_request=False, store=store,
+        )
+        if resolution.pending is not pending:
+            raise AdmissionDenied(409, "Approval changed while preparing its continuation")
+        yield _approval_decision_frame(resolution, native_tool_events)
 
     async with aclosing(stream_admitted_agent_turn(
         admission, session, turns,
@@ -252,6 +380,12 @@ async def stream_composed_text_turn(
         max_tokens=settings.max_tokens,
         context_length=context.context_length,
         uploaded_files=[],
+        approval_store=store,
+        **({
+            "exact_approval": resolution.exact,
+            "external_untrusted_context_seen": resolution.tainted,
+            "relevant_tools": set(pending.selected_tools) & settings.offered_tools,
+        } if resolution is not None else {"external_untrusted_context_seen": retired_taint}),
         native_terminal_events=native_terminal_events,
         native_tool_events=native_tool_events,
     )) as stream:

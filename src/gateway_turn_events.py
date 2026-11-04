@@ -23,7 +23,7 @@ from src.agent_core_events import (
 )
 
 
-TurnState = Literal["pending", "running", "completed", "failed", "cancelled"]
+TurnState = Literal["pending", "running", "awaiting_approval", "completed", "failed", "cancelled"]
 
 _MAX_LEGACY_FRAME_CHARS = 1_048_576
 
@@ -121,6 +121,7 @@ async def translate_legacy_turn_events(
     pending_cr = False
     deltas: list[str] = []
     final_response: str | None = None
+    awaiting_approval: str | None = None
 
     def event(kind: str, payload: dict[str, Any]) -> TurnEvent:
         outcome.last_sequence += 1
@@ -132,7 +133,7 @@ async def translate_legacy_turn_events(
                 if isinstance(chunk, (CoreToolEvent, CoreApprovalEvent)):
                     if buffer.strip() or pending_cr:
                         raise ValueError("Incomplete legacy frame before native Core event")
-                    if outcome.state in ("completed", "failed"):
+                    if outcome.state in ("completed", "failed", "awaiting_approval"):
                         continue
                     if isinstance(chunk, CoreToolEvent):
                         if chunk.type not in {
@@ -160,6 +161,10 @@ async def translate_legacy_turn_events(
                             })
                         ):
                             raise ValueError("Invalid native Core approval event")
+                        if chunk.type == "approval.requested":
+                            awaiting_approval = chunk.approval_id
+                        elif awaiting_approval == chunk.approval_id:
+                            awaiting_approval = None
                         payload = {"approval_id": chunk.approval_id}
                         if chunk.decision is not None:
                             payload["decision"] = chunk.decision
@@ -168,7 +173,7 @@ async def translate_legacy_turn_events(
                 if isinstance(chunk, (CoreTextEvent, CoreMetricsEvent, CoreFailureEvent)):
                     if buffer.strip() or pending_cr:
                         raise ValueError("Incomplete legacy frame before native Core event")
-                    if outcome.state in ("completed", "failed"):
+                    if outcome.state in ("completed", "failed", "awaiting_approval"):
                         continue
                     if isinstance(chunk, CoreTextEvent):
                         if type(chunk.text) is not str:
@@ -209,7 +214,7 @@ async def translate_legacy_turn_events(
                     # direct turns: no SSE decode is needed for this terminal.
                     if chunk.type != "turn.completed":
                         raise ValueError("Invalid Agent Core terminal signal")
-                    if outcome.state in ("completed", "failed"):
+                    if outcome.state in ("completed", "failed", "awaiting_approval"):
                         continue
                     if buffer.strip() or pending_cr:
                         raise ValueError("Incomplete legacy frame before Core terminal")
@@ -217,9 +222,12 @@ async def translate_legacy_turn_events(
                         final_response if final_response is not None
                         else "".join(deltas)
                     )
-                    outcome.state = "completed"
+                    outcome.state = "awaiting_approval" if awaiting_approval else "completed"
                     yield event("message.final", {"text": outcome.content})
-                    yield event("turn.completed", {})
+                    yield event(
+                        "turn.awaiting_approval" if awaiting_approval else "turn.completed",
+                        {"approval_id": awaiting_approval} if awaiting_approval else {},
+                    )
                     continue
                 if not isinstance(chunk, str):
                     raise ValueError("Invalid inherited stream chunk")
@@ -237,7 +245,7 @@ async def translate_legacy_turn_events(
                     event_name, raw = _frame_fields(frame)
                     if not raw and event_name != "error":
                         continue
-                    if outcome.state in ("completed", "failed"):
+                    if outcome.state in ("completed", "failed", "awaiting_approval"):
                         # Some providers emit DONE twice or an error after DONE.
                         continue
                     if event_name == "error":
@@ -257,9 +265,12 @@ async def translate_legacy_turn_events(
                             final_response if final_response is not None
                             else "".join(deltas)
                         )
-                        outcome.state = "completed"
+                        outcome.state = "awaiting_approval" if awaiting_approval else "completed"
                         yield event("message.final", {"text": outcome.content})
-                        yield event("turn.completed", {})
+                        yield event(
+                            "turn.awaiting_approval" if awaiting_approval else "turn.completed",
+                            {"approval_id": awaiting_approval} if awaiting_approval else {},
+                        )
                         continue
                     try:
                         data = json.loads(raw)

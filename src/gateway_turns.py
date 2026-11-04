@@ -54,7 +54,7 @@ from src.gateway_assistant_persistence import (
     save_admitted_interrupted_assistant_response,
 )
 from src.gateway_turn_composer import (
-    TextTurnRequest,
+    TextTurnRequest, ToolApprovalTurnRequest,
     TrustedTextTurnSettings,
     stream_composed_text_turn,
 )
@@ -289,11 +289,12 @@ class GatewayTurns:
         session: Any,
         *,
         context_owner: str | None,
-        request: TextTurnRequest,
+        request: TextTurnRequest | ToolApprovalTurnRequest,
         ports: ChatContextPorts,
         chat_handler: Any,
         chat_processor: Any,
         settings: TrustedTextTurnSettings,
+        approval_store: ToolApprovalStore | None = None,
     ) -> TypedTurnDelivery:
         """Offer typed process-local events from the safe direct composer.
 
@@ -309,6 +310,7 @@ class GatewayTurns:
             chat_handler=chat_handler,
             chat_processor=chat_processor,
             settings=settings,
+            approval_store=approval_store,
             native_terminal_events=not (
                 isinstance(settings, TrustedTextTurnSettings) and bool(settings.offered_tools)
             ),
@@ -325,11 +327,12 @@ class GatewayTurns:
         session: Any,
         *,
         context_owner: str | None,
-        request: TextTurnRequest,
+        request: TextTurnRequest | ToolApprovalTurnRequest,
         ports: ChatContextPorts,
         chat_handler: Any,
         chat_processor: Any,
         settings: TrustedTextTurnSettings,
+        approval_store: ToolApprovalStore | None = None,
         native_terminal_events: bool = False,
         native_tool_events: bool = False,
     ) -> AsyncGenerator[str | CoreNativeEvent, None]:
@@ -342,6 +345,7 @@ class GatewayTurns:
             chat_handler=chat_handler,
             chat_processor=chat_processor,
             settings=settings,
+            approval_store=approval_store,
             native_terminal_events=native_terminal_events,
             native_tool_events=native_tool_events,
         )) as stream:

@@ -21,6 +21,7 @@ from src.gateway_context_admission import owner_for_admitted_context
 from src.gateway_execution_policy import execution_limits_for_admission
 from src.tool_execution import AgentExecutionBridge
 from src.tool_policy import ToolPolicy
+from src.tool_approvals import ToolApprovalStore
 from src.turn_service import TurnService
 
 
@@ -53,6 +54,7 @@ async def stream_admitted_agent_turn(
     turn_contract: Any,
     native_terminal_events: bool = False,
     native_tool_events: bool = False,
+    approval_store: ToolApprovalStore | None = None,
     **runtime_options: Any,
 ) -> AsyncGenerator[str | CoreNativeEvent, None]:
     """Execute the inherited Agent Loop only for a matching admitted turn.
@@ -98,6 +100,8 @@ async def stream_admitted_agent_turn(
         raise AdmissionDenied(403, "Agent request authority does not match admission")
     if _PROTECTED_AGENT_FIELDS.intersection(runtime_options):
         raise AdmissionDenied(403, "Protected agent execution field cannot be overridden")
+    if approval_store is not None and not isinstance(approval_store, ToolApprovalStore):
+        raise AdmissionDenied(403, "Invalid trusted approval store")
     if type(native_tool_events) is not bool:
         raise AdmissionDenied(403, "Invalid trusted native tool routing flag")
     if type(native_terminal_events) is not bool:
@@ -131,6 +135,8 @@ async def stream_admitted_agent_turn(
     )
 
     options = dict(runtime_options)
+    if approval_store is not None:
+        options["approval_store"] = approval_store
     if native_tool_events:
         options["native_tool_events"] = True
     if native_terminal_events:

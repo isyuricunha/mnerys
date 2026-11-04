@@ -8,6 +8,8 @@ are display copies, never authority.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import json
 import os
@@ -640,3 +642,24 @@ class ToolApprovalStore:
 
 
 tool_approval_store = ToolApprovalStore()
+
+
+_active_store: ContextVar[ToolApprovalStore | None] = ContextVar("turn_approval_store", default=None)
+
+
+@contextmanager
+def bind_tool_approval_store(store: ToolApprovalStore | None):
+    """Bind one trusted store until inner runtime cleanup completes."""
+    if store is not None and not isinstance(store, ToolApprovalStore):
+        raise TypeError("Invalid trusted approval store")
+    token = _active_store.set(store)
+    try:
+        yield
+    finally:
+        _active_store.reset(token)
+
+
+def active_tool_approval_store(default: ToolApprovalStore) -> ToolApprovalStore:
+    """Use the bound store, preserving inherited default/fixture adapters."""
+    store = _active_store.get()
+    return default if store is None else store

@@ -17,7 +17,7 @@ This does **not** create another Agent Loop, an HTTP endpoint, a remote authoriz
 
 [TurnEvent](../../src/gateway_turn_events.py) is a frozen typed envelope: `sequence` (1-based, local to this stream), `type` (a permitted event name) and filtered `payload`. It does not contain a server-issued `turn_id`, a durable revision or a replay cursor.
 
-[TurnOutcome](../../src/gateway_turn_events.py) is an evolving **in-memory** result snapshot with `state` (`pending`, `running`, `completed`, `failed` or `cancelled`), user-visible `content` on completion, last local `sequence` and a generic `failure_code`. It is not an acknowledgement of database persistence or a cross-process transaction.
+[TurnOutcome](../../src/gateway_turn_events.py) is an evolving **in-memory** result snapshot with `state` (`pending`, `running`, `awaiting_approval`, `completed`, `failed` or `cancelled`), user-visible `content` on completion, last local `sequence` and a generic `failure_code`. It is not an acknowledgement of database persistence or a cross-process transaction.
 
 [TypedTurnDelivery](../../src/gateway_turn_events.py) couples the async event iterator and its result snapshot.
 
@@ -88,12 +88,83 @@ unsupported surfaces, account denials and unchanged default no-tools behavior.
 
 This operation still does not persist user/assistant messages. Enabled tools
 retain their original authorized effects and storage; do not mistake missing
-conversation writes for a read-only guarantee. Approval requests can be
-observed, but approval continuation through this composer, attachment/document
-context, workspace selection, model fallback and full Web parity remain open.
+conversation writes for a read-only guarantee. Native approval requests and controls can now traverse this same composer.
+Attachment/document context, workspace/browser-bound approval continuation,
+model fallback and full Web parity remain open.
 The native-terminal tools-disabled guard is unchanged. Reverting this code does
 not require a schema/data rollback, but it does not undo any authorized tool
 effect already performed by a caller. No preview rollout is part of this change.
+
+### Native approval controls and pause state
+
+`ToolApprovalTurnRequest` contains only an opaque approval reference and a
+choice (`approve`, `approve_task`, or `deny`). It has no message, credentials,
+action arguments or authority fields. The same composer checks the admitted
+owner/session and interactive principal through the existing decision service.
+API-token principals cannot submit these controls.
+
+The new inspection boundary validates a pending decision without consuming it.
+Supported native approvals must retain their sealed digest, backend identity,
+originating authority and current tool surface. Workspace, filesystem/process,
+browser and active-document contexts unsupported by this profile are rejected
+without consuming the card. Current account, owner, global and guide-only
+denials remain absolute.
+
+Context preparation restores the originating request for model context only;
+it never appends the approval choice as user text or derives new grants from
+it. An already stored copy of the originating message is not duplicated. The
+composer reuses the sealed authority snapshot and selected-tool set, narrowed
+by the current server surface. The exact first action replaces the lexical
+required-read operation, preventing the same approved read from being
+scheduled a second time.
+
+After successful preparation, the existing store repeats expiry/ownership
+checks and consumes the decision once. `approval.decided` precedes the original
+Agent Loop's exact-action branch; the unchanged dispatcher still validates and
+claims the sealed operation. Denial consumes the card and completes without
+context I/O, a model call or tool execution, even if Agent access was revoked.
+A context error/cancellation before consumption preserves a live pending card.
+Cancellation or runtime failure after consumption never automatically reissues
+it; replay is rejected, even when cancellation preceded the first effect.
+
+`TurnService` binds the trusted approval store until inner runtime cleanup,
+using the inherited singleton for default Web callers. Native creation and
+continuation therefore use the same store, including teacher children; parallel
+turns cannot inherit each other's binding. Ordinary new text turns retire any
+superseded pending card and preserve its external-context security taint.
+
+A native `approval.requested` followed by DONE now produces
+`turn.awaiting_approval` and an in-memory `awaiting_approval` outcome, rather
+than claiming task completion. The terminal payload contains only the opaque
+reference. Duplicate DONE/late events remain suppressed. This is an additive
+process-local state; consumers of this transitional interface must handle it.
+The production Web SSE protocol is unchanged.
+
+The inherited wire scopes are preserved (`approve` selects chat-session scope;
+`approve_task` selects task scope). The direct profile still does not persist
+resolved chat grants or user/assistant messages, so it does not promise a
+chat-session bypass across future independent turns or server restarts.
+Consumption and external effects are not an atomic transaction or durable
+exactly-once receipt. No database migration or preview deployment is included.
+
+[Composed approval tests](../../tests/test_mnerys_gateway_composed_approvals.py)
+cover real request → pending approval → resume through the inherited Loop and
+dispatcher, with synthetic model responses and a mocked native producer only.
+They verify one effect, original authority preservation, denial, replay,
+foreign/expired/tampered cards, concurrent attempts, unsupported context,
+context failure, cancellation, and approval-store isolation/cleanup. No live
+provider or production storage is used.
+
+### Local validation for native approval continuation
+
+The latest focused Mnerys/required-read run passed 1,217 tests (27 skipped).
+The final approval-control suite passed 32 tests, and the broader inherited
+approval/authority/contract/completion regression passed 196 tests. The
+AST/runtime regression passed 715 tests (2 skipped, plus 6 passing subtests);
+groups overlap. The legacy exhausted-round approval regression and 23 Node checks also
+passed. Full hosted CI and live-model/production acceptance remain outstanding;
+the previously documented process, certificate and browser limitations still
+prevent treating the broad local suite as approved.
 
 ### Local validation for the composed profile
 
@@ -122,6 +193,7 @@ hosted CI, and no security assertion or production dependency was weakened.
 | Native `CoreTerminalEvent(type="turn.completed")` in restricted direct mode; legacy `data: [DONE]` otherwise | `message.final`, then `turn.completed` | Both map to the same terminal ordering; duplicate terminals never emit another result. The native signal is not decoded from SSE. |
 | Native `CoreFailureEvent` emitted from the Core completion gate after inherited provider/agent errors; legacy error SSE otherwise | `turn.failed` | Generic failure category and validated HTTP status only; never expose provider details or action receipts. Late DONE cannot override failure. |
 | Native `CoreToolEvent` / `CoreApprovalEvent` | Same lifecycle type | Metadata-only observations and opaque sealed approval references; never raw tool arguments or results. |
+| Native approval request still pending at DONE | `turn.awaiting_approval` | Preserve the opaque reference and waiting outcome; do not report task completion. |
 | EOF without a completion/error marker | `turn.failed` | `incomplete_stream` rather than a false success. |
 | Generator close or `CancelledError` while running | Outcome becomes `cancelled` | Preserve cancellation propagation; Python async generator closing cannot yield a final cancellation event. |
 | SSE heartbeats, IDs, unknown/tool/approval/reasoning frames | No typed event | Do not interpret raw IDs as durable cursors or expose unfiltered arguments, receipts, hidden reasoning or arbitrary payloads. |
@@ -131,7 +203,7 @@ Frames can arrive fragmented or combined; legacy CRLF and comments are handled, 
 ## Security and compatibility constraints
 
 - Admission, ownership and tool policy are still enforced by the composer and admitted execution boundary **before** model/tool access; client-supplied metadata does not create authority.
-- The direct text composer defaults to **all tools disabled** and has **no conversation writes**. The server-offered profile supports native tool execution with the same dispatcher; MCP, attachment/document context and approval continuations remain unsupported here. Full tool result rendering and client approval UX still require the complete Gateway composition contract.
+- The direct text composer defaults to **all tools disabled** and has **no conversation writes**. The server-offered profile supports native tool execution with the same dispatcher; MCP, attachment/document context and workspace/document-bound approval continuations remain unsupported here. Full tool result rendering and client approval UX still require the complete Gateway composition contract.
 - The Web transport, SSE bytes, run IDs, stop/finish/reconnect identity and legacy response writer remain unchanged. Do not wire this transitional subset into the production Web route as a substitute for its complete event set.
 - The typed `sequence` is **not** a restart-safe event-store sequence. No resume-by-sequence, durable idempotence, revision fencing, or multi-client API is implemented.
 - The Agent Core emits native **completion** objects, while its evidence/completion gate now emits native **filtered answer text, final safe metrics and sanitized failure** objects in the opted-in direct mode. Provider ingress and other event families remain SSE; native tool/approval metadata is separately opt-in; some provider usage events still use legacy SSE. All eleven original DONE sites preserve byte-identical default Web SSE. Future work must move *all* permitted event families to native emission and isolate SSE serialization in Web adapters.

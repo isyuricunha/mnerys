@@ -83,7 +83,7 @@ from src.tool_capabilities import (
 from src.tool_approvals import (
     ExactToolApproval,
     document_content_digest,
-    tool_approval_store,
+    tool_approval_store, active_tool_approval_store,
 )
 from src.tool_types import ToolBlock
 from src.tool_parsing import iter_email_addresses, strip_angle_tags
@@ -33358,7 +33358,7 @@ async def stream_agent_loop(
                     )
                     approval_selected_tools.add(block.tool_type)
                     approval_selected_tools.difference_update(disabled_tools)
-                    pending_approval = tool_approval_store.create(
+                    pending_approval = active_tool_approval_store(tool_approval_store).create(
                         owner=owner,
                         session_id=session_id,
                         origin_run_id=run_security.run_id,

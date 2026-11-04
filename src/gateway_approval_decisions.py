@@ -49,6 +49,38 @@ def consume_admitted_tool_approval(
     owns the atomic destructive consumption; the Gateway never reconstructs a
     sealed action or treats an approval as new model/tool authorization.
     """
+    pending, normalized_decision = inspect_admitted_tool_approval(
+        admission, approval_id, decision, plan_mode=plan_mode,
+        internal_tool_request=internal_tool_request, store=store,
+    )
+    session_id = require_admitted_session(admission)
+    owner = admission.principal.owner_id
+
+    exact = store.consume(
+        approval_id,
+        decision=normalized_decision,
+        owner=owner,
+        session_id=session_id,
+    )
+    if normalized_decision in {"approve", "approve_task"} and exact is None:
+        raise AdmissionDenied(409, "This tool approval could not be consumed.")
+    return ToolApprovalDecision(normalized_decision, pending, exact)
+
+
+def inspect_admitted_tool_approval(
+    admission: AdmittedSession,
+    approval_id: Any,
+    decision: Any,
+    *,
+    plan_mode: bool,
+    internal_tool_request: bool,
+    store: ToolApprovalStore,
+) -> tuple[PendingToolApproval, str]:
+    """Validate a pending decision without consuming it or issuing a grant.
+
+    Consumption repeats these checks after asynchronous turn preparation.
+    The returned record must never be deserialized from client input.
+    """
     session_id = require_admitted_session(admission)
     if type(plan_mode) is not bool or type(internal_tool_request) is not bool:
         raise AdmissionDenied(403, "Invalid server tool approval context")
@@ -75,12 +107,4 @@ def consume_admitted_tool_approval(
             409, "Tool approvals cannot be consumed while plan mode is active."
         )
 
-    exact = store.consume(
-        approval_id,
-        decision=normalized_decision,
-        owner=owner,
-        session_id=session_id,
-    )
-    if normalized_decision in {"approve", "approve_task"} and exact is None:
-        raise AdmissionDenied(409, "This tool approval could not be consumed.")
-    return ToolApprovalDecision(normalized_decision, pending, exact)
+    return pending, normalized_decision

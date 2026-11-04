@@ -19,6 +19,7 @@ from typing import AsyncGenerator, AsyncIterator, Optional
 from src import agent_runs
 from src.agent_core_events import CoreNativeEvent
 from src.agent_tool_events import bind_native_tool_events
+from src.tool_approvals import bind_tool_approval_store
 from src.agent_loop import stream_agent_loop
 from src.tool_execution import bind_execution_bridge
 from src.turn_contract import bind_turn_contract
@@ -48,7 +49,9 @@ class TurnService:
         Tool dispatch still enforces the server-created request authority.
         """
         native_tools = kwargs.pop("native_tool_events", False)
-        with bind_native_tool_events(native_tools), bind_turn_contract(kwargs.get("turn_contract")):
+        approval_store = kwargs.pop("approval_store", None)
+        with (bind_tool_approval_store(approval_store), bind_native_tool_events(native_tools),
+              bind_turn_contract(kwargs.get("turn_contract"))):
             # Close the inner generator BEFORE restoring its security context.
             # A caller may close the outer stream immediately after a chunk.
             bridge_binding = (
