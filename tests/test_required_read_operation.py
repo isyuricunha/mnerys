@@ -147,6 +147,10 @@ def run_terminal_branch(monkeypatch, native_calls, result, operation=None, *, ma
         round_endpoint_ids=[], round_endpoint_labels=[], _last_route_request_messages=[],
         _last_route_context_length=4096, real_input_tokens=20, real_output_tokens=5,
         has_real_usage=True, time_to_first_token=0.1, _t0=time.time(),
+        # This test executes an AST-extracted branch, not the enclosing
+        # stream_agent_loop function. Supply its server-owned default and
+        # Core terminal helper so the isolated scope matches production.
+        native_terminal_events=False, completed_core_event=al.completed_core_event,
         json=json, time=time,
     )
     wrapper = ast.parse("async def run():\n    yield 'unexpected synthesis'\n").body[0]
