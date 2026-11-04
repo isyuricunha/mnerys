@@ -34,7 +34,7 @@ def test_persist_message_drops_write_when_parent_session_is_gone(monkeypatch):
 
 
 def test_persist_message_still_writes_when_parent_session_exists(monkeypatch):
-    parent = SimpleNamespace(message_count=0, last_accessed=None, last_message_at=None)
+    parent = SimpleNamespace(owner=None, message_count=0, last_accessed=None, last_message_at=None)
     session_local, db = _session_local(parent)
     monkeypatch.setattr(SM, "SessionLocal", session_local)
 

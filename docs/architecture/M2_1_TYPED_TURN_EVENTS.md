@@ -273,3 +273,22 @@ cover early-close history continuation, provider and incomplete-stream failures,
 reasoning exclusion, write errors, late owner changes, duplicate terminals and
 final-event ordering. The production Web serializer and writer paths are not
 migrated by this feature.
+
+## Persisted direct text confirmation (SQLite acceptance)
+
+The opt-in typed direct-completion profile no longer trusts a legacy
+assistant writer merely returning without an exception. It checks that the
+same managed session gained exactly one new role-matched message and
+a fresh `_db_id` from the inherited post-commit writer. The context
+builder invokes the corresponding user-write check before doing further
+context retrieval or model invocation. A missing receipt becomes a
+sanitized `turn.failed` (`persistence_error`) event; no final completion
+is acknowledged. A blocked or deleted session cannot create a false
+successful turn.
+
+These checks are covered by a disposable SQLite database using the
+original SQLAlchemy models and SessionManager, plus synthetic model output.
+The default direct profile, existing production Web SSE path, and
+tool/approval continuation semantics remain unchanged. No durable
+cross-process completion receipt, SQL-backed event log or transaction fence
+has been implemented.

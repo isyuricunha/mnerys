@@ -155,3 +155,30 @@ fenced turn receipt. A failed assistant write may leave a user-only message;
 a failed partial write may have committed before raising. Cross-process replay,
 exact-once retries, and production SQLite/PostgreSQL validation remain open.
 The acceptance suite uses synthetic model events and in-memory writers only.
+
+## M2.1 tested receipt and cached-owner compatibility guard
+
+[Disposable SQLite integration tests](../../tests/test_mnerys_gateway_text_sqlite_integration.py)
+exercise the inherited SQLAlchemy `sessions` / `chat_messages` tables and
+the real SessionManager plus original assistant/partial writers, not a
+mock-only append. A failed INSERT previously returned `False` from
+`_persist_message` and rolled back the in-memory append without raising.
+The direct persisted-text profile now checks for a fresh message `_db_id`
+in the same session transcript after user and assistant writes. A missing
+receipt cannot produce a successful direct-turn completion. This check does
+not re-query the database or make the two message writes atomic.
+
+The inherited SessionManager also checks the cached session owner against
+the SQL row owner before appending a new message. If an ownership transfer
+has already committed, stale cached sessions cannot append under the new
+owner; failed writes leave the in-memory transcript consistent. Existing
+unit fixtures now explicitly include the parent row's owner. These
+checks do not stop races after the owner read, deleted/recreated sessions
+with the same ID, or unguarded writers elsewhere. An incarnation/revision
+fence still requires the coordinated migration described in
+[SESSION_REVISION_MIGRATION.md](SESSION_REVISION_MIGRATION.md).
+
+The verification database is a temporary local SQLite file. Disposable
+PostgreSQL 17 validation of these inherited, unversioned writers is still
+pending, distinct from the previously verified fenced-writer prototype
+tests. No production connection, migration, or restore was performed.

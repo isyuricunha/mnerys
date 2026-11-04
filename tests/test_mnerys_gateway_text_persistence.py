@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import replace
+from core.models import ChatMessage
 
 import pytest
 
@@ -28,6 +29,10 @@ class PersistPorts(FakePorts):
         session.messages.append({
             "role": "user", "content": preprocessed.user_content,
         })
+        session.history.append(ChatMessage(
+            "user", preprocessed.user_content,
+            metadata={"_db_id": f"fixture-user-{len(session.history) + 1}"},
+        ))
 
 
 def persisted_fixture():
@@ -42,6 +47,10 @@ def persisted_fixture():
         assert session_id == session.id
         saved.append((response, metrics, metadata))
         current.messages.append({"role": "assistant", "content": response})
+        current.history.append(ChatMessage(
+            "assistant", response,
+            metadata={"_db_id": f"fixture-assistant-{len(current.history) + 1}"},
+        ))
 
     session_manager = object()
     kwargs["persistence"] = TrustedTextPersistence(session_manager, saver)
@@ -247,6 +256,10 @@ def with_partial_writer(session, kwargs):
             "role": "assistant", "content": content,
             "metadata": metadata.copy(),
         })
+        current.history.append(ChatMessage(
+            "assistant", content,
+            metadata={**metadata, "_db_id": f"fixture-partial-{len(current.history) + 1}"},
+        ))
 
     kwargs["persistence"] = replace(
         kwargs["persistence"], interrupted_writer=writer,

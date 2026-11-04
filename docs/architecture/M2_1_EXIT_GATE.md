@@ -72,3 +72,33 @@ covers these states and continuing a *new* turn from the saved stopped
 partial. It is not replay of the previous run and does not implement durable
 idempotency or restart-safe resumes. All M2.1 parity, real-model, SQL-backend
 and atomic turn storage acceptance gates remain open.
+
+### Disposable SQLite writer acceptance — November 4, 2026
+
+The [SQLite integration suite](../../tests/test_mnerys_gateway_text_sqlite_integration.py)
+now uses a separate temporary SQLite database with the inherited SQLAlchemy
+`Session` and `ChatMessage` tables, the real `SessionManager._persist_message`
+implementation, and the original assistant/partial save functions. The
+test redirects only the legacy timestamp update and optional SFT trace hook
+to isolated test behavior. It verifies durable message rows and counters,
+both terminal and stopped saves, deleted sessions, and deterministic insert
+rejection. No configured Mnerys database is opened.
+
+The initial test exposed a **silent write failure**: the legacy manager can
+return `False` without raising, allowing a completed event for an unwritten
+message. The opt-in direct composer now requires a fresh post-commit
+`_db_id` on its newly appended user record before starting the model, and
+requires a new assistant record receipt before emitting completion or
+acknowledging a stopped partial. Unconfirmed user writes yield a generic
+`persistence_error` without running the model. This is a process-local
+compatibility check, not an independent transaction read or durable receipt.
+
+A separate test exposed stale in-memory session ownership after database
+ownership transfer. The inherited `SessionManager._persist_message` now
+compares the cached owner with the current SQL owner before insertion and
+fails closed on mismatch; the cache reverts the append. This narrows a
+specific stale-session window but **does not protect against an owner transfer
+racing between that check and commit**. Revision/incarnation fencing remains
+inactive. SQLite is verified with a disposable file; this slice has **not
+been run against disposable PostgreSQL 17**. No production DB migration,
+Web cutover, or release approval is implied.

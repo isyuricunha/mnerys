@@ -215,3 +215,26 @@ def test_same_id_different_instance_cannot_write_via_global_manager(store, monke
     assert stale.message_count == 1
     assert cached.history == []
     assert durable(store) == ([], 0)
+
+
+@pytest.mark.parametrize("entrypoint", ["session", "manager"])
+def test_stale_cached_owner_cannot_append_after_database_owner_change(
+    store, entrypoint,
+):
+    manager, cached, factory, _engine = store
+    with factory.begin() as db:
+        row = db.get(database.Session, cached.id)
+        row.owner = "new-owner"
+    msg = ChatMessage("assistant", "must not cross owner boundary", metadata={})
+    if entrypoint == "session":
+        cached.add_message(msg)
+    else:
+        manager.add_message(cached.id, msg)
+    assert cached.history == []
+    assert cached.message_count == 0
+    assert "_db_id" not in msg.metadata
+    rows, count = durable(store)
+    assert rows == []
+    assert count == 0
+    with factory() as db:
+        assert db.get(database.Session, cached.id).owner == "new-owner"

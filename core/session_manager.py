@@ -276,6 +276,17 @@ class SessionManager:
                 logger.warning("Dropping message for deleted session %s", session_id)
                 return False
 
+            # A loaded session may outlive an ownership transfer. Never append
+            # using a stale in-memory owner after the database owner changed.
+            # This is a compatibility guard, not a cross-process revision fence.
+            cached_session = self.sessions.get(session_id)
+            if (
+                cached_session is not None
+                and getattr(cached_session, "owner", None) != db_session.owner
+            ):
+                logger.warning("Dropping message for a session with changed ownership")
+                return False
+
             missing_upload_id = reserve_message_upload_references(
                 getattr(self, "upload_handler", None),
                 getattr(db_session, "owner", None),

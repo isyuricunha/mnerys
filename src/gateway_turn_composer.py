@@ -38,7 +38,10 @@ from src.gateway_routed_contract import resolve_admitted_routed_contract
 from src.gateway_agent_execution import stream_admitted_agent_turn
 from src.tool_policy import known_tool_names, build_effective_tool_policy
 from src.turn_service import TurnService
-from src.gateway_text_persistence import TrustedTextPersistence, require_trusted_text_persistence
+from src.gateway_text_persistence import (
+    TrustedTextPersistence, require_trusted_text_persistence,
+    snapshot_session_receipts, require_new_session_receipt,
+)
 
 
 @dataclass(frozen=True)
@@ -300,6 +303,7 @@ async def stream_composed_text_turn(
     # The real shared context algorithm is used unchanged with the injected
     # trusted ports. Do not append an orphaned user message while the response
     # finalization/persistence service is still owned by Web.
+    user_write_cursor = snapshot_session_receipts(session) if persistence is not None else None
     context = await assemble_chat_context(
         session, owner, chat_handler, chat_processor,
         message=message,
@@ -313,6 +317,10 @@ async def stream_composed_text_turn(
         persist_user_message=persistence is not None,
         interaction_mode="agent" if persistence is not None else None,
         require_text_user_content=persistence is not None,
+        on_user_message_persisted=(
+            (lambda: require_new_session_receipt(session, user_write_cursor, "user"))
+            if user_write_cursor is not None else None
+        ),
     )
     if not isinstance(context.messages, list):
         raise AdmissionDenied(403, "Invalid composed model context")

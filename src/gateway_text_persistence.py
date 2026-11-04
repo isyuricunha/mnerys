@@ -28,6 +28,54 @@ class TrustedTextPersistence:
     interrupted_writer: Callable[..., Any] | None = None
 
 
+class LegacyWriteNotConfirmed(RuntimeError):
+    """A trusted legacy writer did not produce a fresh database receipt."""
+
+
+def snapshot_session_receipts(session: Any) -> tuple[list, int, frozenset[str]]:
+    """Observe the actual managed Session transcript before one legacy append."""
+    history = getattr(session, "history", None)
+    if not isinstance(history, list):
+        raise AdmissionDenied(403, "A managed session history is required")
+    existing_ids: set[str] = set()
+    for message in history:
+        metadata = getattr(message, "metadata", None)
+        if isinstance(metadata, dict):
+            receipt = metadata.get("_db_id")
+            if type(receipt) is str and receipt:
+                existing_ids.add(receipt)
+    return history, len(history), frozenset(existing_ids)
+
+
+def require_new_session_receipt(
+    session: Any,
+    cursor: tuple[list, int, frozenset[str]],
+    role: str,
+) -> None:
+    """Reject silent failures of the inherited SessionManager append.
+
+    The legacy manager sets the fresh database ID in message metadata only
+    after commit. This is a process-local compatibility check, not a durable
+    generation fence or verification against an independent database read.
+    """
+    history, previous_length, old_receipts = cursor
+    if (
+        getattr(session, "history", None) is not history
+        or len(history) != previous_length + 1
+    ):
+        raise LegacyWriteNotConfirmed("Legacy message append was not committed")
+    message = history[-1]
+    metadata = getattr(message, "metadata", None)
+    receipt = metadata.get("_db_id") if isinstance(metadata, dict) else None
+    if (
+        getattr(message, "role", None) != role
+        or type(receipt) is not str
+        or not receipt.strip()
+        or receipt in old_receipts
+    ):
+        raise LegacyWriteNotConfirmed("Legacy message append lacks a new database receipt")
+
+
 def require_trusted_text_persistence(value: Any) -> TrustedTextPersistence:
     if (
         not isinstance(value, TrustedTextPersistence)
@@ -77,6 +125,7 @@ async def persist_completed_text_events(
         content = "".join(visible_deltas)
         if not content.strip():
             return
+        cursor = snapshot_session_receipts(session)
         # Mark before the call: a failing writer may already have committed
         # its side effect. Never repeat an ambiguous append.
         partial_attempted = True
@@ -87,6 +136,7 @@ async def persist_completed_text_events(
             context_owner=context_owner,
             writer=writer.interrupted_writer,
         )
+        require_new_session_receipt(session, cursor, "assistant")
 
     def persistence_failure() -> TurnEvent:
         nonlocal last_visible_sequence
@@ -124,11 +174,13 @@ async def persist_completed_text_events(
                     # a second save or fall back to an interrupted append.
                     final_attempted = True
                     try:
+                        cursor = snapshot_session_receipts(session)
                         save_admitted_assistant_response(
                             admission, session, writer.session_manager,
                             session.id, outcome.content, last_metrics,
                             context_owner=context_owner, saver=writer.saver,
                         )
+                        require_new_session_receipt(session, cursor, "assistant")
                     except Exception:
                         terminal_seen = True
                         yield persistence_failure()
@@ -159,6 +211,12 @@ async def persist_completed_text_events(
                     return
                 last_visible_sequence = event.sequence
                 yield event
+    except LegacyWriteNotConfirmed:
+        # A failed user append happens before the model can run. Unlike a
+        # provider exception, the inherited writer failure has a known,
+        # sanitized persistence terminal; do not expose its details.
+        terminal_seen = True
+        yield persistence_failure()
     finally:
         # Closing/cancelling an async generator cannot yield another event.
         # Reuse the admitted interrupted writer synchronously, preserving the
