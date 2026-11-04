@@ -350,6 +350,28 @@ new agent engine, durable event store or database change was added. See the
 [M2.1 incremental evidence](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
 [preflight safety and parity tests](../../tests/test_mnerys_gateway_initial_agent_routing.py).
 
+## M2.1 incremental implementation: admitted session-dependent routing
+
+**Implemented as an internal turn-bound mode decision, not an execution
+permission.** After session ownership and model reconciliation, the
+[Gateway facade](../../src/gateway_turns.py) now invokes an
+[admitted session routing service](../../src/gateway_post_session_routing.py)
+for persisted compact-mode ownership, successful private-browser state,
+referential Web/browser continuations and confined workspace-path promotion.
+The Web compatibility adapter supplies lazy, server-side history and
+workspace checks, and still owns the actual request-scoped path confinement.
+A second admitted call after owner/session-checked visible-document lookup
+preserves the original document-edit Chat-to-Agent promotion. These results
+carry no tool grants and are subject to the original policy, turn authority
+and dispatcher.
+
+The Web adapter still resolves the active model, browser/workspace state and
+document identity and performs legacy context/model/streaming work. A complete
+Gateway transport, independent Agent Core, durable storage and cross-client
+acceptance are not implemented by this slice. See the
+[M2.1 verification record](M2_GATEWAY_IMPLEMENTATION_PLAN.md) and
+[routing parity/negative tests](../../tests/test_mnerys_gateway_post_session_routing.py).
+
 ## Event schema — proposal
 
 Required envelope: schema_version, turn_id, seq, type, created_at, payload.

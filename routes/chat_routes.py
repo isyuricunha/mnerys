@@ -70,7 +70,6 @@ from routes.chat_helpers import (
     _allowed_models_for_request,
     _enforce_chat_privileges,
 )
-from src.action_intents import ToolIntent
 from src.image_model_ids import looks_like_image_generation_model
 from src.tool_policy import (
     WEB_ACCESS_TOOL_NAMES,
@@ -2762,54 +2761,53 @@ def setup_chat_routes(
                 getattr(sess, "model", ""),
                 _effective_tool_schema_mode,
             )
-            _clean_v3_private_browser_warm = bool(
-                _clean_v3_route_requested and _has_recent_private_browser_success(sess)
+            # Only now is the resolved model and session owner authoritative.
+            # The Gateway preserves the original contextual mode ordering;
+            # Web provides server-owned history/path lookups, not grants.
+            _post_session_route = gateway_turns.reconcile_post_session_route(
+                _admitted_session, sess,
+                context_owner=owner,
+                message=message,
+                chat_mode=chat_mode,
+                auto_escalated=auto_escalated,
+                tool_intent=_tool_intent,
+                workspace_agent_intent=_workspace_agent_intent,
+                workspace=workspace,
+                allow_bash=allow_bash,
+                explicit_browser_intent=_explicit_browser_intent,
+                clean_route_requested=_clean_v3_route_requested,
+                recent_private_browser_success_lookup=lambda: _has_recent_private_browser_success(sess),
+                contextual_web_followup_lookup=lambda: _is_contextual_web_followup(message, sess),
+                contextual_browser_followup_lookup=lambda: _is_contextual_browser_followup(message, sess),
+                workspace_from_message_lookup=lambda: _resolve_workspace_from_message_path(
+                    request, message,
+                ),
             )
+            chat_mode = _post_session_route.chat_mode
+            auto_escalated = _post_session_route.auto_escalated
+            _tool_intent = _post_session_route.tool_intent
+            _workspace_agent_intent = _post_session_route.workspace_agent_intent
+            workspace = _post_session_route.workspace
+            allow_bash = _post_session_route.allow_bash
+            _explicit_browser_intent = _post_session_route.explicit_browser_intent
+            _clean_v3_private_browser_warm = _post_session_route.private_browser_warm
+            _contextual_browser_turn_followup = _post_session_route.contextual_browser_followup
             logger.info(
                 "clean v3 private-browser capability: route=%s warm=%s",
                 _clean_v3_route_requested,
                 _clean_v3_private_browser_warm,
             )
-            if _clean_v3_private_browser_warm:
-                _explicit_browser_intent = True
-            if chat_mode == "chat" and _clean_v3_route_requested:
-                chat_mode = "agent"
-                auto_escalated = True
-                logger.info("chat→agent route ownership: clean v3 persisted endpoint")
-            if (
-                chat_mode == "chat"
-                and isinstance(message, str)
-                and (not _tool_intent or not _tool_intent.needs_tools)
-                and _is_contextual_web_followup(message, sess)
-            ):
-                _tool_intent = ToolIntent(True, "web", "contextual web lookup follow-up")
-                chat_mode = "agent"
-                auto_escalated = True
-                _workspace_agent_intent = False
-                logger.info(
-                    "chat→agent auto-escalation: category=%s reason=%s",
-                    _tool_intent.category,
-                    _tool_intent.reason,
-                )
-            _contextual_browser_turn_followup = bool(
-                isinstance(message, str)
-                and _is_contextual_browser_followup(message, sess)
-            )
-            if _contextual_browser_turn_followup:
-                _explicit_browser_intent = True
-                if chat_mode == "chat":
-                    chat_mode = "agent"
-                    auto_escalated = True
-                    _workspace_agent_intent = False
+            for _route_event in _post_session_route.escalation_events:
+                if _route_event == "clean_route":
+                    logger.info("chat→agent route ownership: clean v3 persisted endpoint")
+                elif _route_event == "contextual_web":
+                    logger.info(
+                        "chat→agent auto-escalation: category=%s reason=%s",
+                        _tool_intent.category, _tool_intent.reason,
+                    )
+                elif _route_event == "contextual_browser":
                     logger.info("chat→agent auto-escalation: contextual browser/form follow-up")
-            if not workspace and isinstance(message, str):
-                _auto_workspace, _ = _resolve_workspace_from_message_path(request, message)
-                if _auto_workspace:
-                    workspace = _auto_workspace
-                    chat_mode = "agent"
-                    auto_escalated = True
-                    _workspace_agent_intent = True
-                    allow_bash = "true"
+                elif _route_event == "workspace_path":
                     logger.info("chat→agent auto-escalation: explicit path workspace=%s", workspace)
         except SessionNotFoundError as e:
             raise HTTPException(404, str(e))
@@ -3046,18 +3044,20 @@ def setup_chat_routes(
         finally:
             _doc_db.close()
 
-        if (
-            active_doc
-            and chat_mode == "chat"
-            and isinstance(message, str)
-            and re.search(
-                r"\b(?:make|sound|rewrite|revise|rework|edit|update|change|polish|professional|fun|formal|casual|shorter|longer|friendlier|warmer|clearer)\b",
-                message,
-                re.IGNORECASE,
-            )
-        ):
-            chat_mode = "agent"
-            auto_escalated = True
+        # Active-document ownership and visible-editor state have been
+        # resolved above. Promotion still requires the admitted session;
+        # it never grants document-writing authority.
+        _document_edit_route = gateway_turns.promote_document_edit_route(
+            _admitted_session, sess,
+            context_owner=ctx.user,
+            message=message,
+            chat_mode=chat_mode,
+            auto_escalated=auto_escalated,
+            active_document=bool(active_doc),
+        )
+        chat_mode = _document_edit_route.chat_mode
+        auto_escalated = _document_edit_route.auto_escalated
+        if _document_edit_route.edit_requested:
             logger.info(
                 "chat→agent auto-escalation: active document edit request doc_id=%s",
                 getattr(active_doc, "id", ""),

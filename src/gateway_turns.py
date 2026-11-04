@@ -8,6 +8,7 @@ Web adapters from calling the unrestricted legacy run manager directly.
 from typing import Any, AsyncGenerator, Callable, Iterable, Optional
 
 from src.agent_runtime.authority import RequestAuthority
+from src.action_intents import ToolIntent
 from src.gateway_admission import AdmittedSession, require_admitted_session
 from src.gateway_foreground_routes import (
     AdmittedForegroundPolicy,
@@ -33,6 +34,12 @@ from src.gateway_routed_contract import (
 from src.gateway_tool_inventory import (
     AdmittedToolInventory,
     prepare_admitted_tool_inventory,
+)
+from src.gateway_post_session_routing import (
+    AdmittedPostSessionRoute,
+    AdmittedDocumentEditRoute,
+    reconcile_admitted_post_session_route,
+    promote_admitted_document_edit_route,
 )
 from src.gateway_initial_agent_routing import (
     InitialAgentRoute,
@@ -317,6 +324,66 @@ class GatewayTurns:
             explicit_web_intent=explicit_web_intent,
             explicit_private_browser_intent=explicit_private_browser_intent,
             native_workspace_inputs=native_workspace_inputs,
+        )
+
+    def reconcile_post_session_route(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        message: Any,
+        chat_mode: str,
+        auto_escalated: bool,
+        tool_intent: ToolIntent | None,
+        workspace_agent_intent: bool,
+        workspace: str | None,
+        allow_bash: Any,
+        explicit_browser_intent: bool,
+        clean_route_requested: bool,
+        recent_private_browser_success_lookup: Callable[[], bool],
+        contextual_web_followup_lookup: Callable[[], bool],
+        contextual_browser_followup_lookup: Callable[[], bool],
+        workspace_from_message_lookup: Callable[[], tuple[str | None, Any]],
+    ) -> AdmittedPostSessionRoute:
+        """Resolve typed history/workspace mode changes after admission."""
+        return reconcile_admitted_post_session_route(
+            admission, session,
+            context_owner=context_owner,
+            message=message,
+            chat_mode=chat_mode,
+            auto_escalated=auto_escalated,
+            tool_intent=tool_intent,
+            workspace_agent_intent=workspace_agent_intent,
+            workspace=workspace,
+            allow_bash=allow_bash,
+            explicit_browser_intent=explicit_browser_intent,
+            clean_route_requested=clean_route_requested,
+            recent_private_browser_success_lookup=recent_private_browser_success_lookup,
+            contextual_web_followup_lookup=contextual_web_followup_lookup,
+            contextual_browser_followup_lookup=contextual_browser_followup_lookup,
+            workspace_from_message_lookup=workspace_from_message_lookup,
+        )
+
+    def promote_document_edit_route(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        message: Any,
+        chat_mode: str,
+        auto_escalated: bool,
+        active_document: bool,
+    ) -> AdmittedDocumentEditRoute:
+        """Promote only an owner-checked visible document editing request."""
+        return promote_admitted_document_edit_route(
+            admission, session,
+            context_owner=context_owner,
+            message=message,
+            chat_mode=chat_mode,
+            auto_escalated=auto_escalated,
+            active_document=active_document,
         )
 
     def reconcile_web_intent(

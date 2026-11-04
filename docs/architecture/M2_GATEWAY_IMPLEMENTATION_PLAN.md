@@ -488,6 +488,45 @@ isolated local runner. Those three tests remain enabled and must run in
 GitHub CI's explicit bubblewrap setup; local bypass is not accepted as proof.
 Full hosted CI must be checked separately after the corrective push.
 
+**Twenty-first incremental slice — admitted post-session and document mode routing:**
+the inherited Web route now delegates session-dependent Chat-to-Agent
+promotion through [GatewayTurns.reconcile_post_session_route and
+promote_document_edit_route](../../src/gateway_turns.py) to one
+[owner-admitted routing service](../../src/gateway_post_session_routing.py).
+The service verifies the issued admission, loaded session and context owner
+**before accessing trusted history or workspace callbacks**. It preserves the
+original ordering and short-circuit behavior for a persisted compact-model
+route, its successful private-browser history, referential public-Web lookup,
+typed browser/form continuation and the inherited explicit workspace-path
+auto-escalation. That path is still resolved and confined by the *existing Web
+server-side path resolver*, never by a client-provided trust flag. The
+server-resolved intent, workspace binding and legacy `allow_bash="true"`
+compatibility toggle remain **routing hints only**, not execution grants.
+
+After the Web adapter has resolved and owner/session-checked the visible
+document, the same Gateway boundary also applies the inherited edit-intent
+grammar to choose Agent mode for a document revision. The adapter retains
+document database lookup, scope checks, optional session rebinding and
+audit logging; no document permission or write is minted by this route.
+The original account/global final policy, immutable execution contract and
+hardened dispatcher remain authoritative. Initial URL/browser classification,
+request workspace resolution, full model/agent invocation, persistence and
+SSE rendering remain inherited. The standalone authenticated Gateway,
+durable events and CLI/TUI adapters are still planned.
+
+[New equivalence and denial tests](../../tests/test_mnerys_gateway_post_session_routing.py)
+cover ordering, optional callback laziness, explicit and contextual Web/browser
+follow-ups, workspace presence and restoration, document editing, and
+bearer/browser/single-user admissions. Cross-owner/forged sessions and
+malformed evidence are rejected before callback execution. The local
+focused regression group now includes the two previous CI failure areas for
+session hydration and
+workspace writer containment, plus visible-document context. Tests passed **577 focused**, **185 routing**,
+**159 authority**, **160 peripheral**, **1,129 contract-compatibility** and
+**148 external-schema/API-token/edit** cases (suites overlap).
+Hosted CI and live preview behavior have not been verified for this local
+commit; no DB or deploy change is included.
+
 **Exit proof:** a single real Web turn can be started, observed and stopped through the new application service with identical effective tool/security behavior. No public remote API yet.
 
 ### M2.2 — Design, migrate and verify durable session writes
