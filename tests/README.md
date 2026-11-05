@@ -92,6 +92,8 @@ fast lane; the test stays runnable directly, e.g.:
 ./venv/bin/python -m pytest -m slow
 ```
 
+The [native Git hooks](../docs/development/GIT_HOOKS.md) reuse these checks locally: lightweight staged syntax/whitespace checks on commit, and the four existing CI pytest shards plus maintained Python/Node gates on push. They do not replace GitHub's runner-specific browser, bubblewrap, security or container checks.
+
 ## Parallel shards (`--shard N/M`)
 
 CI no longer runs the whole suite as one workload. The `python-tests` job is a

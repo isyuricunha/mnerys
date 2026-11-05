@@ -15,6 +15,7 @@ This index is the entry point for **current Mnerys documentation**. Documents in
 
 ## Operations and security
 
+- [Native Git hooks and local validation](development/GIT_HOOKS.md) — fast staged checks before commit and the existing CI test commands before push, with no additional hook manager.
 - [Native preview deployment](deployment/NATIVE_PREVIEW.md) — native systemd services, validation and rollback.
 - [Release automation](deployment/RELEASE_AUTOMATION.md) — CI-gated semantic-release, initial 0.1.0, notes and GHCR version tags.
 - [Release notes](releases/README.md) — reviewed initial notes and publication status.
