@@ -41,6 +41,8 @@ class TypedTurnStream:
     run_id: str
     events: AsyncIterator[TypedRunEvent]
     outcome: TurnOutcome
+    # Server-derived from the same original run buffer, never client input.
+    prior_saved_receipt: bool = False
 
 
 class TurnService:
@@ -114,11 +116,15 @@ class TurnService:
         )
         if run is None or not isinstance(run.outcome, TurnOutcome):
             return None
+        prior_saved = agent_runs.typed_saved_receipt_precedes_cursor(
+            session_id, expected_run_id, after_cursor,
+        )
         return TypedTurnStream(
             run_id=run.run_id, outcome=run.outcome,
             events=agent_runs.subscribe(
                 session_id, run, after_cursor=after_cursor, typed=True,
             ),
+            prior_saved_receipt=prior_saved,
         )
 
     def resume_active(self, session_id: str) -> Optional[TurnStream]:

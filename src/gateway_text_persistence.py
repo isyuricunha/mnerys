@@ -9,6 +9,7 @@ durable receipt, cross-run idempotence or Web cutover is claimed.
 from collections.abc import AsyncIterator, Callable
 from contextlib import aclosing
 from dataclasses import dataclass
+import re
 from typing import Any
 
 from src.gateway_admission import AdmittedSession, AdmissionDenied
@@ -26,6 +27,9 @@ class TrustedTextPersistence:
     session_manager: Any
     saver: Callable[..., Any]
     interrupted_writer: Callable[..., Any] | None = None
+    # Only the trusted text-to-Web compatibility adapter selects this.
+    # The receipt remains the inherited writer's post-commit message ID.
+    emit_message_saved_events: bool = False
 
 
 class LegacyWriteNotConfirmed(RuntimeError):
@@ -51,7 +55,7 @@ def require_new_session_receipt(
     session: Any,
     cursor: tuple[list, int, frozenset[str]],
     role: str,
-) -> None:
+) -> str:
     """Reject silent failures of the inherited SessionManager append.
 
     The legacy manager sets the fresh database ID in message metadata only
@@ -74,6 +78,7 @@ def require_new_session_receipt(
         or receipt in old_receipts
     ):
         raise LegacyWriteNotConfirmed("Legacy message append lacks a new database receipt")
+    return receipt
 
 
 def require_trusted_text_persistence(value: Any) -> TrustedTextPersistence:
@@ -81,6 +86,7 @@ def require_trusted_text_persistence(value: Any) -> TrustedTextPersistence:
         not isinstance(value, TrustedTextPersistence)
         or value.session_manager is None
         or not callable(value.saver)
+        or type(value.emit_message_saved_events) is not bool
         or (
             value.interrupted_writer is not None
             and not callable(value.interrupted_writer)
@@ -180,17 +186,48 @@ async def persist_completed_text_events(
                             session.id, outcome.content, last_metrics,
                             context_owner=context_owner, saver=writer.saver,
                         )
-                        require_new_session_receipt(session, cursor, "assistant")
+                        saved_message_id = require_new_session_receipt(
+                            session, cursor, "assistant",
+                        )
+                        if writer.emit_message_saved_events and (
+                            len(saved_message_id) > 128
+                            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]*", saved_message_id) is None
+                        ):
+                            raise LegacyWriteNotConfirmed("Unsupported assistant receipt")
                     except Exception:
                         terminal_seen = True
                         yield persistence_failure()
                         return
                     terminal_seen = True
-                    if buffered_final is not None:
-                        last_visible_sequence = buffered_final.sequence
-                        yield buffered_final
-                    last_visible_sequence = event.sequence
-                    yield event
+                    if writer.emit_message_saved_events:
+                        # Publish the confirmed receipt before the canonical
+                        # final text; Web compatibility must never display
+                        # an uncommitted final answer as saved.
+                        last_visible_sequence = (
+                            buffered_final.sequence
+                            if buffered_final is not None else event.sequence
+                        )
+                        yield TurnEvent(
+                            last_visible_sequence, "message.saved",
+                            {"id": saved_message_id},
+                        )
+                        if buffered_final is not None:
+                            last_visible_sequence += 1
+                            yield TurnEvent(
+                                last_visible_sequence,
+                                buffered_final.type, buffered_final.payload,
+                            )
+                        last_visible_sequence += 1
+                        outcome.last_sequence = last_visible_sequence
+                        yield TurnEvent(
+                            last_visible_sequence, event.type, event.payload,
+                        )
+                    else:
+                        if buffered_final is not None:
+                            last_visible_sequence = buffered_final.sequence
+                            yield buffered_final
+                        last_visible_sequence = event.sequence
+                        yield event
                     return
                 elif event.type == "turn.failed":
                     terminal_seen = True

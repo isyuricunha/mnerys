@@ -6,6 +6,7 @@ Web adapters from calling the unrestricted legacy run manager directly.
 """
 
 from contextlib import aclosing
+from dataclasses import replace
 from typing import Any, AsyncGenerator, Callable, Iterable, Optional
 
 from src.agent_runtime.authority import RequestAuthority
@@ -59,7 +60,11 @@ from src.gateway_turn_composer import (
     TrustedTextTurnSettings,
     stream_composed_text_turn,
 )
-from src.gateway_text_persistence import TrustedTextPersistence, persist_completed_text_events
+from src.gateway_text_persistence import (
+    TrustedTextPersistence, persist_completed_text_events,
+    require_trusted_text_persistence,
+)
+from src.gateway_web_compat_events import serialize_plain_text_web_sse
 from src.gateway_context_ports import ChatContextPorts
 from src.tool_execution import AgentExecutionBridge
 from src.gateway_turn_runtime_state import (
@@ -328,6 +333,51 @@ class GatewayTurns:
                 context_owner=context_owner, persistence=persistence,
             )
         return TypedTurnDelivery(events=events, outcome=outcome)
+
+    def preview_composed_plain_text_web_sse(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        request: TextTurnRequest,
+        ports: ChatContextPorts,
+        chat_handler: Any,
+        chat_processor: Any,
+        settings: TrustedTextTurnSettings,
+        persistence: TrustedTextPersistence,
+    ) -> AsyncGenerator[str, None]:
+        """No-HTTP strict-text Web parity; NOT the production chat adapter.
+
+        This preview uses exactly the same composer and original assistant
+        writer. Rich media, tool/UI approvals, workspace edits and
+        non-persisting responses have no safe Web compatibility contract yet.
+        """
+        session_id = require_admitted_session(admission)
+        owner = owner_for_admitted_context(admission, session, session_id)
+        if owner != context_owner:
+            raise AdmissionDenied(403, "Web compatibility owner mismatch")
+        if (
+            not isinstance(request, TextTurnRequest)
+            or not isinstance(request.message, str)
+            or not request.message.strip()
+            or request.attachment_ids != ()
+            or not isinstance(settings, TrustedTextTurnSettings)
+            or settings.offered_tools or settings.workspace is not None
+            or settings.active_document_id is not None
+        ):
+            raise AdmissionDenied(403, "Unsupported plain-text Web compatibility turn")
+        writer = require_trusted_text_persistence(persistence)
+        delivery = self.open_composed_text_events(
+            admission, session,
+            context_owner=context_owner,
+            request=request, ports=ports,
+            chat_handler=chat_handler,
+            chat_processor=chat_processor,
+            settings=settings,
+            persistence=replace(writer, emit_message_saved_events=True),
+        )
+        return serialize_plain_text_web_sse(delivery.events)
 
     def open_composed_detached_text_events(
         self,

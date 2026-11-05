@@ -176,6 +176,27 @@ def get_matching_run(
     return run if run and run.run_id == expected_run_id and run.mode == mode else None
 
 
+def typed_saved_receipt_precedes_cursor(
+    session_id: str, expected_run_id: str, after_cursor: str | None,
+) -> bool:
+    """Prove a receipt was emitted *before* this cursor by the exact run.
+
+    This checks only the original in-memory typed buffer. It does not query
+    SQL or create a durable write confirmation.
+    """
+    run = get_matching_run(session_id, expected_run_id, mode="typed")
+    if run is None:
+        return False
+    start = _replay_start(run, after_cursor)
+    return any(
+        type(item) is TurnEvent and item.type == "message.saved"
+        and isinstance(item.payload, dict)
+        and type(item.payload.get("id")) is str
+        and bool(item.payload["id"])
+        for item in run.buffer[:start]
+    )
+
+
 async def _drain(
     session_id: str, run: _Run, agen: AsyncGenerator[str | TurnEvent, None],
                  prev_task: Optional[asyncio.Task] = None) -> None:

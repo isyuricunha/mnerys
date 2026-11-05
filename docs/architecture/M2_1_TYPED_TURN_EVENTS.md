@@ -458,3 +458,30 @@ providers and disposable session data. The buffer and cursor are
 **not durable** or a promise of replay after restart; the Web endpoint
 has not switched to typed delivery, and no independently authenticated
 CLI, TUI or Telegram adapter is ready.
+
+## Filtered plain-text adapter to inherited Web SSE
+
+The strict [Web compatibility serializer](../../src/gateway_web_compat_events.py)
+maps only admitted text, message receipt, sanitized failure, numeric usage
+and Core-owned model route observations to browser-understood SSE frames.
+A trusted Gateway preview function selects the **same composed typed turn**
+and the existing assistant writer; it never creates a second Agent Loop.
+
+For this preview, the original writer confirms an assistant `_db_id` before
+the optional `message.saved` event is emitted. The confirmed receipt comes
+before the canonical `message.final`; `turn.completed` still follows the
+writer. The default typed event profile is unchanged. SSE frames are JSON
+encoded, so untrusted text cannot insert `event:` or `id:` directives.
+Unknown tool/approval/editor events are rejected, not guessed into a
+button or document edit card. Errors remain generic, without sensitive
+provider or writer diagnostics.
+
+The original run-scoped replay cursors may be serialized as SSE IDs for
+trusted detached typed subscriptions, but no new replay store or remote
+transport exists. A late replay that starts after the saved-message event
+must obtain `prior_saved_receipt` from the exact original run buffer:
+replayed terminal frames without a previously emitted receipt fail closed. A replay cursor is not a database receipt, and a resumed
+reader may have already acknowledged the saved receipt in an earlier page.
+See the [no-HTTP acceptance tests](../../tests/test_mnerys_gateway_web_compat_events.py).
+The existing Web endpoint remains unchanged; broad UI and real-provider
+parity are still pending.

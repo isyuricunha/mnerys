@@ -379,3 +379,44 @@ a restart, provide cross-worker cursors, durable turn identity,
 transactional persistence or remote authentication. The production Web
 route remains on its original SSE/Agent path. Real-model and Web-versus-
 direct parity acceptance remain required to close M2.1.
+
+### Read-only plain-text Web SSE compatibility preview — November 4, 2026
+
+A new [filtered Web compatibility adapter](../../src/gateway_web_compat_events.py)
+serializes the already-typed, in-process Gateway events into the existing
+browser's **strict plain-text** SSE vocabulary: `delta`, `final_response`,
+`message_saved`, `metrics`, vetted Core-originated `fallback` and `[DONE]`.
+It is **not invoked by the production Web routes** and does not recreate
+authorization, tool dispatch, model execution, persistence or replay.
+
+The trusted [Gateway facade](../../src/gateway_turns.py) exposes
+`preview_composed_plain_text_web_sse` only for server-issued/owner-admitted,
+**persisted, tools-disabled, attachment-free, no-workspace, no-active-editor**
+text requests. A server-only `emit_message_saved_events` option in the
+existing [legacy-backed persistence adapter](../../src/gateway_text_persistence.py)
+emits the original assistant's fresh `_db_id` **after** its admitted writer
+confirms the append and **before** `message.final` and `turn.completed`.
+Default typed turns retain their original event sequence/shape. No
+alternative writer or second database write was introduced.
+
+The SSE serializer accepts only bounded text, approved numeric token usage,
+validated message IDs and model IDs, sanitized error codes and monotonically
+ordered typed events. Unsupported tool, approval and document events **fail
+closed** instead of constructing incomplete browser action cards. Provider
+diagnostics and forged model aliases are never forwarded. The in-process
+detached replay mode can retain the existing exact run-scoped cursor with
+no new event registry. For a late resume after the saved-message frame,
+the original run manager itself verifies that the exact buffered run had
+already emitted a receipt before the requested cursor; a cursor or
+client assertion alone cannot establish one. No save acknowledgement is
+exposed on a failed or unconfirmed assistant write.
+
+[No-HTTP compatibility acceptance](../../tests/test_mnerys_gateway_web_compat_events.py)
+covers the actual composer, original writer, identical browser-visible
+plain text frames, missing/invalid/duplicate receipts, provider failure,
+incomplete streams, forged fallback metadata, injected SSE delimiters,
+unsafe tool/approval payloads and same-run cursor replay. This is the
+**first constrained text serialization compatibility slice**, not
+Web-versus-direct full-feature parity or proof that an HTTP client can
+switch without regression. Rich tool UI, Plan/Compare, incognito, media,
+documents, approvals, live-model acceptance and Web cutover remain open.

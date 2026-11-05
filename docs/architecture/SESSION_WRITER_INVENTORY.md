@@ -296,3 +296,23 @@ Existing SSE delivery and native Web adapter behavior remain unchanged.
 See [detached lifecycle tests](../../tests/test_mnerys_gateway_detached_typed_lifecycle.py).
 No atomic user/assistant transaction, generation fence, cross-process
 replay, real-model acceptance or production Web cutover was added.
+
+## Plain-text browser compatibility uses original assistant save
+
+The new strict-text SSE preview adds **no message writer**. The already
+admitted `save_admitted_assistant_response` call remains the only assistant
+writer for the opt-in persisted direct turn. Its existing fresh-session
+`_db_id` confirmation may now be echoed as a server-filtered
+`message.saved` typed event before `message.final`, but only when a trusted
+adapter explicitly enables this presentation option. The default typed
+stream and the Web route's own writer/receipt remain unchanged.
+
+For a late replay, the same original run manager checks whether the
+buffered run emitted that receipt before the exact resume cursor.
+This is evidence of a previously emitted frame, not another database read.
+The confirmation is still a process-local, post-commit in-memory receipt
+check. It is not a transactional turn fence, an independent SQL read,
+cross-process idempotency or a durability guarantee for detached replay.
+Failure to confirm saves produces a generic error without either the
+receipt event or a completed SSE frame. See
+[plain-text Web SSE tests](../../tests/test_mnerys_gateway_web_compat_events.py).
