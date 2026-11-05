@@ -420,3 +420,43 @@ unsafe tool/approval payloads and same-run cursor replay. This is the
 Web-versus-direct full-feature parity or proof that an HTTP client can
 switch without regression. Rich tool UI, Plan/Compare, incognito, media,
 documents, approvals, live-model acceptance and Web cutover remain open.
+
+### Sanitized native-tool timeline for Web compatibility — November 4, 2026
+
+The [existing no-HTTP Web serializer](../../src/gateway_web_compat_events.py)
+now has a **separately opted-in, non-persisting status-only** tool profile.
+The [admitted Gateway facade](../../src/gateway_turns.py) exposes
+`preview_composed_tool_status_web_sse` for a server-issued, owner-bound,
+**single `manage_notes` native surface** with no workspace, active document,
+attachments or message persistence. The actual model/tool lifecycle still
+runs through the same inherited Agent Loop, dispatcher, inventory, account
+policy and request authority; this module is presentation, not another
+tool executor or an execution grant.
+
+Filtered Core `tool.started`, `tool.progress`, `tool.completed`,
+`tool.failed` and `tool.blocked` observations are projected to the
+browser's familiar `tool_start`, `tool_progress` and `tool_output` frames.
+The status preview requires matching start/terminal events for exactly
+one active tool. Commands, argument JSON, tool outputs, stdout/stderr,
+URLs, document metadata and UI-effect keys are **never serialized**.
+A blocked/failed action is never represented with a successful exit code.
+This display is limited to the already supported Web tool timeline,
+**not** complete native tool result parity.
+
+A consumed, sealed native `approval.decided` may produce the browser's
+`tool_approval_resolved` notification without the approval ID or any
+new authority. Crucially, `approval.requested`, `tool.awaiting_approval`
+and `turn.awaiting_approval` **fail closed**: an opaque pending ID is not
+an owner-checked Web approval card, and the preview cannot fabricate
+review buttons or continue an effect. The existing Web approval surface
+and all of its persisted card metadata remain unchanged.
+
+[No-HTTP tool timeline acceptance](../../tests/test_mnerys_gateway_web_tool_status.py)
+covers the original composed tool authority and synthetic Agent Loop,
+matching sanitized UI frames, failure/blocked status, one-use denial,
+new sealed pending review, invalid tool names/frames, mismatched rounds,
+concurrent/unfinished tool steps, and owner/adapter scoping. The tool
+preview does not persist chats and has **not** been connected to the
+production Web endpoint. Safe rendering of full approval cards, editor
+side-effects, rich tool output and lifecycle/persistence parity remain
+open M2.1 acceptance work.

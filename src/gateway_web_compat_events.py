@@ -26,6 +26,11 @@ _SAFE_FAILURE_CODES = frozenset({
     "provider_error", "agent_terminal", "incomplete_stream",
     "stream_exception", "persistence_error",
 })
+_TOOL_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]{0,127}")
+_APPROVAL_ID = re.compile(r"[A-Za-z0-9_-]{43}")
+# A named, audited initial status surface. These are timeline annotations,
+# not a route to tool execution or UI-side effects.
+_TOOL_STATUS_PREVIEW = frozenset({"manage_notes"})
 
 
 def _data_frame(payload: dict) -> str:
@@ -108,6 +113,84 @@ def serialize_plain_text_turn_event(event: TurnEvent) -> tuple[str, bool]:
     raise ValueError("Typed event has no approved plain-text Web representation")
 
 
+def _tool_status_frame(
+    event: TurnEvent,
+    *,
+    permitted: frozenset[str],
+    active: tuple[str, int | None] | None,
+) -> tuple[str, tuple[str, int | None] | None]:
+    """Browser-compatible status without arguments, results or UI actions."""
+    kind, data = event.type, event.payload
+    if type(data) is not dict or set(data) != {"tool", "round", "exit_code"}:
+        raise ValueError("Invalid native tool status metadata")
+    tool = data["tool"]
+    round_number = data["round"]
+    exit_code = data["exit_code"]
+    if (
+        type(tool) is not str or not _TOOL_NAME.fullmatch(tool)
+        or tool not in permitted or tool not in _TOOL_STATUS_PREVIEW
+        or (round_number is not None and
+            (type(round_number) is not int or not 0 <= round_number <= 100000))
+        or (exit_code is not None and
+            (type(exit_code) is not int or not -255 <= exit_code <= 255))
+    ):
+        raise ValueError("Tool is not admitted for the preview timeline")
+    if kind == "tool.awaiting_approval":
+        # An opaque ID cannot become an actionable Web review card.
+        raise ValueError("Unsupported tool status for Web approval rendering")
+    identity = (tool, round_number)
+    if kind == "tool.started":
+        if active is not None or exit_code is not None:
+            raise ValueError("Overlapping or invalid tool start")
+        return _data_frame({"type": "tool_start", "tool": tool, "command": ""}), identity
+    if active != identity:
+        raise ValueError("Tool status does not match its started action")
+    if kind == "tool.progress":
+        if exit_code is not None:
+            raise ValueError("Invalid progress exit code")
+        return _data_frame({
+            "type": "tool_progress", "tool": tool,
+            "message": "Tool is running",
+        }), active
+    if kind not in {"tool.completed", "tool.failed", "tool.blocked"}:
+        raise ValueError("Unsupported tool status type")
+    if kind == "tool.completed":
+        if exit_code not in {None, 0}:
+            raise ValueError("Completed tool has a failure exit code")
+        status = 0
+    elif kind == "tool.failed":
+        if exit_code == 0:
+            raise ValueError("Failed tool has a success exit code")
+        status = exit_code if exit_code is not None else 1
+    else:
+        # Never show an unexecuted/blocked tool as a successful effect.
+        status = 1
+    return _data_frame({
+        "type": "tool_output", "tool": tool,
+        "command": "", "output": "", "exit_code": status,
+    }), None
+
+
+def _approval_decision_frame(event: TurnEvent) -> str:
+    """Only a consumed Core decision may remove an existing Web review card.
+
+    This produces no approval button and cannot execute or grant anything.
+    """
+    data = event.payload
+    if (
+        type(data) is not dict
+        or set(data) != {"approval_id", "decision"}
+        or type(data["approval_id"]) is not str
+        or _APPROVAL_ID.fullmatch(data["approval_id"]) is None
+        or type(data["decision"]) is not str
+        or data["decision"] not in {"approve", "approve_task", "deny"}
+    ):
+        raise ValueError("Invalid consumed Core approval decision")
+    return _data_frame({
+        "type": "tool_approval_resolved", "decision": data["decision"],
+    })
+
+
 def _event_identity(
     item: TurnEvent | TypedRunEvent,
 ) -> tuple[TurnEvent, str | None]:
@@ -138,6 +221,7 @@ async def serialize_plain_text_web_sse(
     require_saved_receipt: bool = True,
     replay: bool = False,
     prior_saved_receipt: bool = False,
+    tool_status_preview: frozenset[str] = frozenset(),
 ) -> AsyncIterator[str]:
     """Serialize an approved text-only stream; never authorize a tool turn.
 
@@ -150,6 +234,8 @@ async def serialize_plain_text_web_sse(
         or type(replay) is not bool
         or type(prior_saved_receipt) is not bool
         or (prior_saved_receipt and not replay)
+        or type(tool_status_preview) is not frozenset
+        or not tool_status_preview <= _TOOL_STATUS_PREVIEW
     ):
         raise TypeError("Invalid Web compatibility serialization options")
     previous = 0
@@ -157,6 +243,7 @@ async def serialize_plain_text_web_sse(
     run_id: str | None = None
     receipt_seen = prior_saved_receipt
     terminal_seen = False
+    active_tool: tuple[str, int | None] | None = None
     async with aclosing(events) as source:
         async for item in source:
             event, cursor = _event_identity(item)
@@ -176,6 +263,23 @@ async def serialize_plain_text_web_sse(
             if not previous and not has_cursor and event.sequence != 1:
                 raise ValueError("Direct typed stream started out of order")
             previous = event.sequence
+            if event.type.startswith("tool.") or event.type.startswith("approval."):
+                if not tool_status_preview:
+                    raise ValueError("Tool timeline was not admitted")
+                if event.type.startswith("tool."):
+                    frame, active_tool = _tool_status_frame(
+                        event, permitted=tool_status_preview, active=active_tool,
+                    )
+                elif event.type == "approval.decided" and active_tool is None:
+                    frame = _approval_decision_frame(event)
+                else:
+                    # Pending approvals need a sealed owner-scoped UI card,
+                    # not merely an opaque ID or a fabricated button.
+                    raise ValueError("Pending or unresolved approval cannot be rendered")
+                if cursor is not None:
+                    frame = "id: " + cursor + "\n" + frame
+                yield frame
+                continue
             if event.type == "message.saved":
                 if receipt_seen:
                     raise ValueError("Duplicate saved message receipt")
@@ -192,6 +296,8 @@ async def serialize_plain_text_web_sse(
                 raise ValueError("Completed Web turn has no confirmed assistant receipt")
             # A replay may omit an already acknowledged receipt only when
             # the original run registry proved it preceded this cursor.
+            if event.type in {"message.final", "turn.completed", "turn.failed"} and active_tool is not None:
+                raise ValueError("Tool timeline ended without a terminal tool status")
             frame, terminal = serialize_plain_text_turn_event(event)
             if cursor is not None:
                 frame = "id: " + cursor + "\n" + frame

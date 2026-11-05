@@ -485,3 +485,25 @@ reader may have already acknowledged the saved receipt in an earlier page.
 See the [no-HTTP acceptance tests](../../tests/test_mnerys_gateway_web_compat_events.py).
 The existing Web endpoint remains unchanged; broad UI and real-provider
 parity are still pending.
+
+## Web preview of native tool status without executable UI grants
+
+For the first bounded native surface, the no-HTTP Web compatibility layer
+accepts the original Core's **sanitized tool timeline metadata** for one
+server-offered `manage_notes` tool. The projected browser events contain
+only the safe tool name, empty command/output and a generic progress or
+validated success/failure marker. They do not expose tool arguments,
+results, model-provided text, filesystem resources, private stdout,
+document actions or `ui_event`. A matching start is required before each
+progress/completion; overlapping or incomplete tool sequences fail closed.
+
+The only approved control-plane presentation is
+`approval.decided` → `tool_approval_resolved`, after the existing
+sealed approval store has already consumed the decision. There is
+**no** `approval.requested` → browser-card translation in this profile:
+creating a UI action requires the full owner/session-bound sealed card
+contract and separate acceptance. No model/tool permission can be granted
+by the renderer, no tool is retried, and the production Web SSE surface
+is not changed. [No-HTTP tests](../../tests/test_mnerys_gateway_web_tool_status.py)
+verify both positive status rendering and negative authorization/UI
+escalation.

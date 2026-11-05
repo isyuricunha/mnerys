@@ -316,3 +316,16 @@ cross-process idempotency or a durability guarantee for detached replay.
 Failure to confirm saves produces a generic error without either the
 receipt event or a completed SSE frame. See
 [plain-text Web SSE tests](../../tests/test_mnerys_gateway_web_compat_events.py).
+
+## M2.1 tool timeline preview does not write messages
+
+The separately opted-in native tool-status Web preview uses the original
+non-persisting direct composer and existing Agent Loop/dispatcher.
+It serializes filtered status/consumed approval observations only.
+No assistant writer, stopped-partial writer, document/tool event database
+writer or executable Web approval card is introduced. No output is saved
+to a chat by this mode, so a `[DONE]` frame is **not** a persisted-message
+receipt. The preview must not replace the production Web adapter until
+tool result, approval UI and response writer parity are accepted.
+
+See [tool status acceptance](../../tests/test_mnerys_gateway_web_tool_status.py).

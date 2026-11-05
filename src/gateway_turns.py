@@ -379,6 +379,57 @@ class GatewayTurns:
         )
         return serialize_plain_text_web_sse(delivery.events)
 
+    def preview_composed_tool_status_web_sse(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        request: TextTurnRequest | ToolApprovalTurnRequest,
+        ports: ChatContextPorts,
+        chat_handler: Any,
+        chat_processor: Any,
+        settings: TrustedTextTurnSettings,
+        approval_store: ToolApprovalStore | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """No-HTTP, non-persisting tool timeline; NOT production Web or UI.
+
+        This first audited status preview supports one native manage_notes
+        surface. It cannot mint approval cards, embed tool results, authorize
+        actions or acknowledge conversation saves. Any tool requiring a review
+        card must fail closed pending full Web parity.
+        """
+        session_id = require_admitted_session(admission)
+        owner = owner_for_admitted_context(admission, session, session_id)
+        if owner != context_owner:
+            raise AdmissionDenied(403, "Tool preview context owner mismatch")
+        if (
+            not isinstance(request, (TextTurnRequest, ToolApprovalTurnRequest))
+            or (
+                isinstance(request, TextTurnRequest) and
+                (type(request.message) is not str or not request.message.strip()
+                 or request.attachment_ids != ())
+            )
+            or not isinstance(settings, TrustedTextTurnSettings)
+            or settings.offered_tools != frozenset({"manage_notes"})
+            or settings.workspace is not None
+            or settings.active_document_id is not None
+        ):
+            raise AdmissionDenied(403, "Unsupported native tool timeline preview")
+        delivery = self.open_composed_text_events(
+            admission, session,
+            context_owner=context_owner,
+            request=request, ports=ports,
+            chat_handler=chat_handler,
+            chat_processor=chat_processor,
+            settings=settings,
+            approval_store=approval_store,
+        )
+        return serialize_plain_text_web_sse(
+            delivery.events, require_saved_receipt=False,
+            tool_status_preview=frozenset({"manage_notes"}),
+        )
+
     def open_composed_detached_text_events(
         self,
         admission: AdmittedSession,
