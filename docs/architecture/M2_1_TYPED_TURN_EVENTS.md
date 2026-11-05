@@ -610,3 +610,20 @@ and exact-run replay expose the original event exactly once per
 producer; reconnect never re-executes the fallback or writer.
 SSE still has only process-local cursors. See
 [Web fallback acceptance](../../tests/test_mnerys_gateway_web_fallback.py).
+
+## Read-only uploaded text in an admitted Web strict-text run
+
+For an explicitly opted-in HTTP Web chat containing bounded, owner-
+verified UTF-8 attachment IDs, the original composer now defers the
+inherited user append until after both the first upload snapshot
+validation and its second post-preprocessing recheck. The original
+human prompt and upload reference metadata are saved once; extracted
+file text enters only the current model's marked-untrusted prompt
+context, not the trusted saved user message for later turns.
+
+There is no new event family: the existing filtered message deltas,
+confirmed `message.saved`, completed/failed outcome and exact-run
+in-process SSE cursor still apply. Invalid/foreign/modified uploads
+produce no committed user message and never start the model. Replay
+does not reopen the upload, write a duplicate message or rerun the
+provider. See [attachment HTTP tests](../../tests/test_mnerys_gateway_web_text_attachments.py).

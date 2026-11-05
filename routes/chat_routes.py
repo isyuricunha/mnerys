@@ -35,7 +35,9 @@ from src.turn_service import turn_service
 from src.gateway_stream_delivery import should_detach_stream
 from src.gateway_post_response import post_response_extraction_allowed
 from src.gateway_turns import gateway_turns
-from src.gateway_web_text_cutover import eligible_strict_web_text_turn
+from src.gateway_web_text_cutover import (
+    eligible_strict_web_text_turn, parse_strict_web_text_attachment_ids,
+)
 from routes.gateway_text_adapter import (
     start_strict_text_web_response, resume_strict_text_web_response,
 )
@@ -2310,6 +2312,15 @@ def setup_chat_routes(
         incognito = str(form_data.get("incognito", "")).lower() == "true"
         plan_mode = str(form_data.get("plan_mode") or (body or {}).get("plan_mode") or "").lower() == "true"
         chat_mode = str(form_data.get("mode", "")).lower()  # 'chat' or 'agent'
+        # A JSON-only request explicitly selecting the experimental text
+        # profile must still be classified as Chat before post-session
+        # reconciliation. Do not reinterpret other legacy JSON clients.
+        if (
+            not chat_mode and type(body) is dict
+            and body.get("gateway_profile") == "text_v1"
+            and body.get("mode") == "chat"
+        ):
+            chat_mode = "chat"
         client_runtime_context = None
         raw_client_runtime_context = (
             form_data.get("client_runtime_context")
@@ -2427,6 +2438,12 @@ def setup_chat_routes(
             logger.info("chat→agent auto-escalation: explicit private browser workflow")
         active_doc_id = form_data.get("active_doc_id", "").strip()
         active_doc_state = form_data.get("active_doc_state", "").strip().casefold()
+        if (
+            not active_doc_state and type(body) is dict
+            and body.get("gateway_profile") == "text_v1"
+            and body.get("active_doc_state") == "none"
+        ):
+            active_doc_state = "none"
         logger.info(
             "[doc-inject] chat_mode=%s, active_doc_id=%r, active_doc_state=%r",
             chat_mode, active_doc_id, active_doc_state,
@@ -2767,6 +2784,18 @@ def setup_chat_routes(
             frozenset(candidate[1] for candidate in foreground_policy.policy.fallback_candidates)
             if foreground_policy.enabled else frozenset()
         )
+        _strict_web_text_attachment_ids = parse_strict_web_text_attachment_ids(
+            form_data, body, att_ids,
+        )
+        # JSON-only clients must explicitly opt out of RAG and memory as
+        # well. Do not change inherited Web feature parsing for other runs.
+        _strict_no_memory = no_memory or (
+            type(body) is dict and body.get("no_memory") is True
+        )
+        _strict_use_rag = use_rag if use_rag is not None else (
+            "false" if type(body) is dict and body.get("use_rag") is False
+            else None
+        )
         # First real, explicitly opted-in Web/Core cutover path: only plain
         # text without tools, media, memory, RAG, research or editor state.
         # Normal Web sessions keep the inherited path. Admission, writer and
@@ -2777,8 +2806,8 @@ def setup_chat_routes(
             json_values=body,
             message=message,
             chat_mode=chat_mode,
-            no_memory=no_memory,
-            use_rag=use_rag,
+            no_memory=_strict_no_memory,
+            use_rag=_strict_use_rag,
             use_web=use_web,
             allow_web_search=allow_web_search,
             thinking_mode=thinking_mode,
@@ -2791,7 +2820,7 @@ def setup_chat_routes(
             active_doc_state=active_doc_state,
             active_email_uid=active_email_uid,
             selected_note_ids=selected_note_ids,
-            attachments=att_ids,
+            attachments=_strict_web_text_attachment_ids,
             workspace=workspace,
             workspace_rejected=workspace_rejected,
             client_runtime_context=client_runtime_context,
@@ -2814,6 +2843,7 @@ def setup_chat_routes(
                 admission=_admitted_session,
                 session=sess,
                 text=message,
+                attachment_ids=_strict_web_text_attachment_ids,
                 session_manager=session_manager,
                 chat_handler=chat_handler,
                 chat_processor=chat_processor,

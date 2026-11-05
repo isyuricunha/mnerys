@@ -17,6 +17,7 @@ from routes.chat_helpers import LegacyChatContextPorts
 from src.gateway_admission import AdmittedSession, AdmissionDenied
 from src.gateway_context_admission import owner_for_admitted_context
 from src.gateway_text_persistence import TrustedTextPersistence
+from src.gateway_attachment_context import validate_text_attachment_ids
 from src.gateway_turn_composer import TextTurnRequest, TrustedTextTurnSettings
 from src.gateway_turns import GatewayTurns
 from src.gateway_web_compat_events import serialize_plain_text_web_sse
@@ -36,6 +37,7 @@ def start_strict_text_web_response(
     admission: AdmittedSession,
     session: Any,
     text: str,
+    attachment_ids: tuple[str, ...] = (),
     session_manager: Any,
     chat_handler: Any,
     chat_processor: Any,
@@ -52,6 +54,7 @@ def start_strict_text_web_response(
 ) -> StreamingResponse:
     """Run an admitted, persisted, no-tools text turn in the inherited engine."""
     owner = owner_for_admitted_context(admission, session, session.id)
+    validate_text_attachment_ids(attachment_ids)
     if (
         (post_response_runner is not None and not callable(post_response_runner))
         or (after_user_saved is not None and not callable(after_user_saved))
@@ -92,7 +95,7 @@ def start_strict_text_web_response(
     delivery = gateway.open_composed_detached_text_events(
         admission, session,
         context_owner=owner,
-        request=TextTurnRequest(text),
+        request=TextTurnRequest(text, attachment_ids),
         ports=ports,
         chat_handler=chat_handler,
         chat_processor=chat_processor,
@@ -100,6 +103,7 @@ def start_strict_text_web_response(
             privileges=privileges,
             interaction_mode="chat",
             max_rounds=1,
+            persist_verified_text_attachments=bool(attachment_ids),
             enable_model_fallback=enable_model_fallback,
             allowed_fallback_models=allowed_fallback_models,
         ),

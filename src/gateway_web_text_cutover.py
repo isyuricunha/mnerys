@@ -7,19 +7,24 @@ is demonstrated.
 """
 
 from collections.abc import Mapping
+import json
 import re
+
+from src.gateway_admission import AdmissionDenied
+from src.gateway_attachment_context import validate_text_attachment_ids
 
 
 _ALLOWED_INPUT_FIELDS = frozenset({
     "message", "session", "gateway_profile", "mode",
     "no_memory", "use_rag", "use_web", "allow_web_search",
-    "active_doc_state",
+    "active_doc_state", "attachments",
     "thinking_mode",
 })
 # The inherited route does not consume all optional JSON fields as form
 # values. Reject them rather than silently discarding a requested feature.
 _ALLOWED_JSON_INPUT_FIELDS = frozenset({
-    "message", "session", "gateway_profile",
+    "message", "session", "gateway_profile", "attachments",
+    "no_memory", "use_rag", "mode", "active_doc_state",
 })
 
 
@@ -27,6 +32,46 @@ def _off(value: object) -> bool:
     return value is None or value is False or value == "" or (
         type(value) is str and value.strip().casefold() == "false"
     )
+
+
+def parse_strict_web_text_attachment_ids(
+    form_values: Mapping, json_values: Mapping | None, parsed_ids: object,
+) -> tuple[str, ...] | None:
+    """Return exact bounded selectors, never upload content or file paths.
+
+    Legacy parsing may stringify integers or discard malformed JSON. Only
+    clearly submitted and owner-resolvable IDs may select this Gateway
+    profile; invalid selections remain on the original Web path.
+    """
+    if not isinstance(form_values, Mapping) or (
+        json_values is not None and not isinstance(json_values, Mapping)
+    ):
+        return None
+    raw_form = form_values.get("attachments")
+    raw_json = (json_values or {}).get("attachments")
+    if raw_form is not None and raw_json is not None:
+        return None
+    if raw_form is None and raw_json is None:
+        return () if parsed_ids == [] else None
+    if raw_form is not None:
+        if type(raw_form) is not str or len(raw_form) > 8192:
+            return None
+        if hasattr(form_values, "getlist") and len(form_values.getlist("attachments")) != 1:
+            return None
+        try:
+            values = json.loads(raw_form)
+        except (ValueError, TypeError):
+            return None
+    else:
+        values = raw_json
+    if type(values) is not list or not values or type(parsed_ids) is not list:
+        return None
+    if len(values) != len(parsed_ids) or values != parsed_ids:
+        return None
+    try:
+        return validate_text_attachment_ids(tuple(values))
+    except AdmissionDenied:
+        return None
 
 
 def eligible_strict_web_text_turn(
@@ -108,8 +153,16 @@ def eligible_strict_web_text_turn(
         return False
     if active_doc_state != "none":
         return False
+    if type(attachments) is list and not attachments:
+        attachments = ()
+    if type(attachments) is not tuple:
+        return False
+    try:
+        validate_text_attachment_ids(attachments)
+    except AdmissionDenied:
+        return False
     if any((preset_id, active_doc_id, active_email_uid, selected_note_ids,
-            attachments, workspace, workspace_rejected, client_runtime_context)):
+            workspace, workspace_rejected, client_runtime_context)):
         return False
     if (
         type(foreground_fallback_enabled) is not bool

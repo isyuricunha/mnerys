@@ -428,3 +428,26 @@ does not provide durable candidate attempts, provider credential
 audit data, route-level pricing, cross-process run idempotence,
 multi-message transactions, or general Web feature parity.
 See [Web fallback integration tests](../../tests/test_mnerys_gateway_web_fallback.py).
+
+## Verified HTTP text attachment: deferred original user writer
+
+The direct read-only attachment profile previously rejected any
+persistence. The HTTP server can now supply an explicit, restricted
+`persist_verified_text_attachments` flag to that **same** composer.
+For attachments, its shared context builder preprocesses without
+appending a user message, then the original composer compares the
+pre- and post-preprocessing owner-scoped upload snapshots, verifies
+the metadata, and only **then** invokes the *existing*
+`ports.append_user_message`. The writer stores the original human
+question and attachment references, excluding file body text from
+trusted history. The same fresh user _db_id receipt and admitted
+assistant saver from the established typed path still gate all
+success/terminal events.
+
+Malformed/foreign/replaced/oversized input causes no user write.
+An ambiguous user/assistant writer failure is never retried and
+the sequential legacy user/assistant appends are **not atomic**;
+a failure after a confirmed user receipt can leave a user-only
+message, just as in the original text profile. There is no new DB
+table, upload writer, background task or event log. See
+[HTTP attachment regression](../../tests/test_mnerys_gateway_web_text_attachments.py).

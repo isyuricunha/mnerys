@@ -105,6 +105,9 @@ class TrustedTextTurnSettings:
     # The trusted Web adapter may preserve the original plain-chat history
     # marker. Default direct Agent behavior remains unchanged.
     interaction_mode: str = "agent"
+    # The HTTP Web adapter alone may persist a verified text-only upload
+    # after a second owner/hash read, without storing the upload as user prose.
+    persist_verified_text_attachments: bool = False
 
 
 def _admitted_session_workspace(session: Any, configured: str | None) -> str | None:
@@ -237,12 +240,21 @@ async def stream_composed_text_turn(
     ):
         raise AdmissionDenied(403, "Invalid trusted fallback model allowance")
     tools_enabled = bool(settings.offered_tools)
-    if attachment_ids and (tools_enabled or persistence is not None or
-                           settings.workspace is not None or
-                           settings.active_document_id is not None):
-        # This first supported upload profile is reference-only. It must
-        # never mint file grants or silently persist a multimodal message.
-        raise AdmissionDenied(403, "Direct attachments require a read-only text turn")
+    persist_uploaded_text = bool(attachment_ids and persistence is not None)
+    if (
+        type(settings.persist_verified_text_attachments) is not bool
+        or (settings.persist_verified_text_attachments and (
+            not persist_uploaded_text or settings.interaction_mode != "chat"
+        ))
+        or (persist_uploaded_text and not settings.persist_verified_text_attachments)
+    ):
+        raise AdmissionDenied(403, "Unsupported persisted attachment profile")
+    if attachment_ids and (
+        tools_enabled or settings.workspace is not None
+        or settings.active_document_id is not None
+    ):
+        # Text upload context is read-only; it cannot grant file or tool IO.
+        raise AdmissionDenied(403, "Text attachments require a read-only turn")
     if persistence is not None:
         require_trusted_text_persistence(persistence)
         if (tools_enabled or continuation or settings.workspace is not None
@@ -485,7 +497,9 @@ async def stream_composed_text_turn(
         no_memory=True,
         agent_mode=settings.interaction_mode == "agent",
         allow_tool_preprocessing=False,
-        persist_user_message=persistence is not None,
+        # Validate uploaded text *after* asynchronous preprocessing and
+        # before any irreversible user write; ordinary plain text is unchanged.
+        persist_user_message=persistence is not None and not attachment_ids,
         interaction_mode=settings.interaction_mode if persistence is not None else None,
         require_text_user_content=persistence is not None,
         on_user_message_persisted=(
@@ -519,6 +533,25 @@ async def stream_composed_text_turn(
         attachment_text = context.preprocessed.user_content[len(message):].strip()
         if not attachment_text or len(attachment_text) > 65536:
             raise AdmissionDenied(409, "Unsupported direct attachment content")
+
+        if persist_uploaded_text:
+            # Revalidate admission and seal first. Persist only the human
+            # request and owner-checked attachment *references*, not the
+            # untrusted file body as a future trusted user instruction.
+            owner_for_admitted_context(admission, session, session_id)
+            user_write_cursor = snapshot_session_receipts(session)
+            safe_user = replace(
+                context.preprocessed,
+                enhanced_message=message,
+                user_content=message,
+                text_for_context=message,
+            )
+            ports.append_user_message(
+                session, chat_handler, safe_user,
+                incognito=False, interaction_mode="chat", auto_escalated=False,
+            )
+            on_confirmed_user_append()
+
     model_messages = list(context.messages)
     # Restore only the sealed originating input for a non-persisted turn.
     # An already stored copy is not appended again. The control choice is

@@ -715,3 +715,57 @@ all provider modes, real provider acceptance, after-restart replay
 and default Web cutover are not claimed. The saved answer's two model
 IDs are legacy message metadata, **not** a durable per-candidate event
 journal, endpoint audit receipt or exactly-once transaction.
+
+### Verified small text attachments in the opted-in real Web turn — November 5, 2026
+
+The existing, **off-by-default** /api/chat_stream strict Web/Gateway
+profile now supports previously uploaded, UTF-8 **text** files through
+the original upload index, owner-bound manifest and inherited
+ChatHandler preprocessing. The browser sends only attachment IDs, never
+paths or credential-bearing file content. The adapter accepts at most
+four distinct IDs and each file is bounded to 64 KiB; only the already
+approved plain-text/Markdown/CSV/JSON/log extensions and text MIME
+contracts are eligible. A file type not covered by that contract is
+rejected by the same Core validator, not interpreted as tool authority.
+
+The [strict HTTP selector](../../src/gateway_web_text_cutover.py)
+requires an exact JSON array of string IDs in either the existing Web
+form attachment field or the JSON request body (never both). It
+rejects integer-to-string coercions, duplicate selectors, invalid
+IDs, ambiguous/repeated form fields and oversized selections. Invalid
+profiles remain on the existing Web path. No new upload endpoint,
+filesystem grant or tool scope was created.
+
+The [shared composer](../../src/gateway_turn_composer.py) now accepts a
+**separately server-selected** persisted-text-attachment mode,
+restricted to an admitted `chat` profile without any tool, workspace,
+active document or approval continuation. It resolves uploads through
+the [owner-checked file snapshot](../../src/gateway_attachment_context.py)
+before preprocessing, checks canonical upload-root confinement,
+file identity, size, MIME, UTF-8 and checksum, and **rechecks** the
+unchanged snapshot after asynchronous preprocessing. Unlike the
+earlier direct no-persistence profile, it defers the inherited user
+writer until *after* both checks. The original user writer receives
+the human question and original attachment references, but **not**
+the extracted attachment body as a future trusted user message.
+The text body goes to the current model only via a separately marked
+`untrusted_context_message` followed by the original user request.
+Tools remain blocked; uploads do not grant read_file or shell access.
+
+[HTTP/owner/upload acceptance](../../tests/test_mnerys_gateway_web_text_attachments.py)
+covers real ASGI SSE delivery, original ChatHandler preprocessing,
+the inherited user and assistant writer receipts, one-time
+post-response dispatch, exact-run replay, malformed form/JSON
+selectors, foreign owners, file replacement during processing,
+oversized/binary/unsupported/symlink inputs and denial before
+message/model effects. The earlier non-persisting direct attachment
+profile stays unchanged; attaching files to arbitrary direct
+persisted turns remains denied.
+
+**Exit status still PARTIAL:** this is a narrow read-only text-upload
+profile with a required textual question. It does not support
+image/audio/PDF extraction, attachment-only requests, future-turn
+recovery of extracted text, general Web attachment/source UI
+parity, transactional multi-message writes, native remote file
+resources, real-model acceptance, or a default Web cutover. The
+in-process run and upload index are not durable Gateway resources.
