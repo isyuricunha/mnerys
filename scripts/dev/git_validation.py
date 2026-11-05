@@ -2,9 +2,8 @@
 """Native Git hook validation for this repository, without hook managers.
 
 Pre-commit validates staged blobs (not potentially different working-tree
-copies). Pre-push repeats the repository's blocking, locally runnable CI
-syntax/architecture tests and all four pytest shards. CI-only browser,
-sandbox setup and hosted security jobs remain independently authoritative.
+copies). Comprehensive CI-like validation is opt-in via the explicit `full`
+command, not a Git push hook. Hosted GitHub CI still runs independently.
 """
 
 from __future__ import annotations
@@ -168,7 +167,7 @@ def validation_commands(python: str) -> list[list[str]]:
     return checks
 
 
-def validate_push() -> None:
+def validate_full() -> None:
     if git_capture("status", "--porcelain").strip():
         raise ValidationError(
             "Working tree is not clean. Commit or remove untracked changes "
@@ -198,14 +197,14 @@ def validate_push() -> None:
 
 
 def main() -> int:
-    if len(sys.argv) < 2 or sys.argv[1] not in {"pre-commit", "pre-push"}:
-        print("Usage: git_validation.py [pre-commit|pre-push]", file=sys.stderr)
+    if len(sys.argv) < 2 or sys.argv[1] not in {"pre-commit", "full"}:
+        print("Usage: git_validation.py [pre-commit|full]", file=sys.stderr)
         return 2
     try:
         if sys.argv[1] == "pre-commit":
             validate_staged()
         else:
-            validate_push()
+            validate_full()
     except ValidationError as exc:
         print(f"[git-validation] BLOCKED: {exc}", file=sys.stderr, flush=True)
         return 1

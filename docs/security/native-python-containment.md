@@ -37,10 +37,10 @@ disable AppArmor globally or set the global user-namespace restriction to
 zero merely to run the tests.
 
 After an authorized administrator configures the profile, verify a
-read-only `bwrap` namespace probe and run the native `pre-push`
-validation. The latter runs the maintained CI-like four-shard pytest suite,
-Python checks and frontend checks. Hosted CI and its security scanners are
-still independently authoritative.
+read-only `bwrap` namespace probe and run the full CI-like validation
+explicitly with `python3 scripts/dev/git_validation.py full` when needed.
+The four pytest shards no longer run automatically from a Git `pre-push`
+hook. Hosted CI and its security scanners remain independently authoritative.
 
 ## Acceptance
 

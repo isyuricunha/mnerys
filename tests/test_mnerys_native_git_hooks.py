@@ -44,7 +44,7 @@ def fresh_repo(repo: Path) -> Path:
     return repo
 
 
-def test_push_commands_reuse_ci_shards_and_node_contract(module):
+def test_opt_in_full_commands_reuse_ci_shards_and_node_contract(module):
     commands = module.validation_commands("project-python")
     pytest_commands = [
         cmd for cmd in commands if cmd[:3] ==
@@ -99,14 +99,14 @@ def test_staged_javascript_syntax_blocks_invalid_index(
         module.validate_staged()
 
 
-def test_pre_push_refuses_dirty_tree_before_tests(
+def test_opt_in_full_validation_refuses_dirty_tree_before_tests(
     module, monkeypatch, tmp_path,
 ):
     repo = fresh_repo(tmp_path / "repo")
     monkeypatch.setattr(module, "ROOT", repo)
     (repo / "private-work.py").write_text("print('work in progress')\n")
     with pytest.raises(module.ValidationError, match="not clean"):
-        module.validate_push()
+        module.validate_full()
 
 
 def test_exact_native_hook_prevents_invalid_git_commit(tmp_path):
@@ -114,7 +114,7 @@ def test_exact_native_hook_prevents_invalid_git_commit(tmp_path):
     (repo / ".githooks").mkdir()
     (repo / "scripts/dev").mkdir(parents=True)
     shutil.copy2(VALIDATOR, repo / "scripts/dev/git_validation.py")
-    for name in ("pre-commit", "pre-push"):
+    for name in ("pre-commit",):
         destination = repo / ".githooks" / name
         shutil.copy2(HOOKS / name, destination)
         destination.chmod(0o755)
@@ -145,7 +145,8 @@ def test_exact_native_hook_prevents_invalid_git_commit(tmp_path):
 
 
 def test_checked_in_hooks_are_executable_and_have_no_extra_manager():
-    for name in ("pre-commit", "pre-push"):
+    assert not (HOOKS / "pre-push").exists(), "Full CI must never run automatically during push"
+    for name in ("pre-commit",):
         path = HOOKS / name
         assert path.is_file()
         assert path.stat().st_mode & 0o111
