@@ -7,6 +7,7 @@ is demonstrated.
 """
 
 from collections.abc import Mapping
+import re
 
 
 _ALLOWED_INPUT_FIELDS = frozenset({
@@ -60,6 +61,7 @@ def eligible_strict_web_text_turn(
     do_research: bool,
     image_generation_session: bool,
     foreground_fallback_enabled: bool,
+    foreground_fallback_models: frozenset[str] = frozenset(),
     external_untrusted_context_seen: bool,
     internal_tool_request: bool,
     agent_permitted: bool,
@@ -109,9 +111,22 @@ def eligible_strict_web_text_turn(
     if any((preset_id, active_doc_id, active_email_uid, selected_note_ids,
             attachments, workspace, workspace_rejected, client_runtime_context)):
         return False
+    if (
+        type(foreground_fallback_enabled) is not bool
+        or type(foreground_fallback_models) is not frozenset
+        or len(foreground_fallback_models) > 10
+        or any(
+            type(model) is not str
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}", model) is None
+            for model in foreground_fallback_models
+        )
+        or (foreground_fallback_enabled and not foreground_fallback_models)
+        or (not foreground_fallback_enabled and foreground_fallback_models)
+    ):
+        return False
     if any((
         incognito, compare_mode, plan_mode, tool_approval_continuation,
-        do_research, image_generation_session, foreground_fallback_enabled,
+        do_research, image_generation_session,
         external_untrusted_context_seen, internal_tool_request,
     )):
         return False

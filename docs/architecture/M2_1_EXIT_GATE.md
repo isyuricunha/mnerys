@@ -660,3 +660,58 @@ escalation, real-provider parity and all post-response metadata still
 belong to the broader M2.1 acceptance gate. No durable task delivery,
 cross-process idempotency, database migration or preview deployment
 is part of this change.
+
+### Owner-consented foreground fallback in the real strict-text Web route — November 5, 2026
+
+The disabled-by-default /api/chat_stream cutover now accepts a
+server-selected **foreground model fallback** within its existing strict
+plain-text/no-tools profile. This closes one previously inherited-only
+Web/Core model-routing gap without allowing caller-defined provider URLs,
+credentials or model lists. The existing request still needs an operator's
+MNERYS_M21_WEB_TEXT_ROUTING=1 switch and an explicit client
+gateway_profile=text_v1 with no memory, RAG, rich editor or tool features.
+
+After the authenticated Web route resolves the original
+[admitted foreground policy](../../src/gateway_foreground_routes.py)
+and account model allowlist, it passes only a bounded set of
+owner-allowed fallback **model names** to the trusted
+[HTTP binder](../../routes/gateway_text_adapter.py). The
+[Core composer](../../src/gateway_turn_composer.py) then **re-resolves
+the current owner's preference** and the actual endpoint/headers,
+intersecting its candidates with that trusted name set. A revoked or
+ineligible fallback remains disabled. The model selector and retry
+eligibility are unchanged in the existing Agent Loop; the new Web
+adapter neither schedules second effects nor invents retry rules.
+No toggle, fallback endpoint or authorization header is accepted from
+Web request data.
+
+An accepted source-owned native `model.route.selected` signal becomes
+the existing Web `fallback` SSE notification, with requested model,
+answering model, candidate index and round only. The original
+[text persistence wrapper](../../src/gateway_text_persistence.py)
+validates that the Core's selected model matches the admitted session
+model and that the answer model has a bounded, safe identifier, then
+passes exactly `requested_model` and `model` into the **existing**
+assistant saver metadata. This avoids silently attributing a successful
+backup answer to the originally selected model. The same metadata
+reaches the original post-response token accounting/notification handoff.
+Invalid or forged route attribution is rejected before an assistant
+commit. Provider-authored fallback frames cannot create native Core
+observations.
+
+[HTTP and core acceptance](../../tests/test_mnerys_gateway_web_fallback.py)
+covers owner-approved 503→backup recovery through the real inherited
+Agent Loop, allowed-model filtering, explicit HTTP route selection,
+source-owned Web event rendering, saved answering-model attribution,
+exact-run replay with a single assistant receipt/one post-response
+dispatch, owner revocation, non-eligible failure, already-visible
+primary output, malformed model names and unauthorized route metadata.
+Providers, user preferences, embeddings and databases are fixtures.
+
+**Still PARTIAL:** this is restricted to the experimental text-only
+Web/Gateway path, not universal Web model fallback parity. Full rich
+attachment/context metadata, mixed tools, permissions/approval UI,
+all provider modes, real provider acceptance, after-restart replay
+and default Web cutover are not claimed. The saved answer's two model
+IDs are legacy message metadata, **not** a durable per-candidate event
+journal, endpoint audit receipt or exactly-once transaction.

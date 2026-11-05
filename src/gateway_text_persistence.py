@@ -37,7 +37,7 @@ class TrustedTextPersistence:
     # the corresponding existing writer has confirmed its database receipt.
     # No new scheduler or persistence implementation is introduced.
     after_user_saved: Callable[[], None] | None = None
-    after_assistant_saved: Callable[[str, dict[str, int] | None], None] | None = None
+    after_assistant_saved: Callable[[str, dict[str, Any] | None], None] | None = None
 
 
 class LegacyWriteNotConfirmed(RuntimeError):
@@ -124,6 +124,9 @@ async def persist_completed_text_events(
     """
     writer = require_trusted_text_persistence(persistence)
     last_metrics: dict[str, int] | None = None
+    # The only source of actual fallback attribution is a native Core model
+    # route event; provider-authored SSE or HTTP fields cannot mint one.
+    selected_route: dict[str, str] | None = None
     visible_deltas: list[str] = []
     buffered_final: TurnEvent | None = None
     final_attempted = False
@@ -148,7 +151,10 @@ async def persist_completed_text_events(
         save_admitted_interrupted_assistant_response(
             admission, session, writer.session_manager,
             session.id, content,
-            {"stopped": True, "interruption_reason": reason},
+            {
+                "stopped": True, "interruption_reason": reason,
+                **(selected_route or {}),
+            },
             context_owner=context_owner,
             writer=writer.interrupted_writer,
         )
@@ -168,6 +174,20 @@ async def persist_completed_text_events(
     try:
         async with aclosing(events) as source:
             async for event in source:
+                if event.type == "model.route.selected":
+                    selected = event.payload.get("selected_model")
+                    answered = event.payload.get("answering_model")
+                    if (
+                        type(selected) is not str or selected != session.model
+                        or type(answered) is not str
+                        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}", answered) is None
+                        or selected_route is not None
+                    ):
+                        raise AdmissionDenied(409, "Invalid admitted model route attribution")
+                    selected_route = {
+                        "requested_model": selected,
+                        "model": answered,
+                    }
                 if event.type == "message.delta":
                     visible_deltas.append(event.payload["text"])
                 elif event.type == "metrics":
@@ -191,9 +211,13 @@ async def persist_completed_text_events(
                     final_attempted = True
                     try:
                         cursor = snapshot_session_receipts(session)
+                        save_metadata = {
+                            **(last_metrics or {}),
+                            **(selected_route or {}),
+                        } or None
                         save_admitted_assistant_response(
                             admission, session, writer.session_manager,
-                            session.id, outcome.content, last_metrics,
+                            session.id, outcome.content, save_metadata,
                             context_owner=context_owner, saver=writer.saver,
                         )
                         saved_message_id = require_new_session_receipt(
@@ -224,7 +248,7 @@ async def persist_completed_text_events(
                     # assistant message or trigger a duplicate writer retry.
                     if writer.after_assistant_saved is not None:
                         try:
-                            writer.after_assistant_saved(outcome.content, last_metrics)
+                            writer.after_assistant_saved(outcome.content, save_metadata)
                         except Exception:
                             logger.warning(
                                 "Admitted post-response dispatch failed after confirmed save"

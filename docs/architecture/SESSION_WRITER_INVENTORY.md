@@ -408,3 +408,23 @@ The memory/skill extraction policies, full Web metadata, durable
 job idempotency and cross-worker transactions remain open acceptance.
 [Post-response acceptance](../../tests/test_mnerys_gateway_web_post_response.py)
 covers these boundaries.
+
+## Confirmed HTTP fallback answering-model attribution
+
+The inherited strict Web/Gateway assistant writer now receives the
+answering model from a **validated native Core route-selection event**,
+not from a browser hint, provider-authored SSE or a guessed endpoint
+label. The persistence wrapper merges its existing safe integer
+usage counts with `requested_model` and `model` only for a real
+fallback. The original `save_assistant_response` writes those fields
+as ordinary assistant metadata. Its fresh _db_id confirmation remains
+required before `message.saved` and `[DONE]`; there is no additional
+message write. The same metadata passes to the admitted post-response
+dispatcher for existing accounting. An interrupted partial carries
+only validated route metadata if a fallback already occurred.
+
+This fixes model-name attribution for the narrow Web text profile; it
+does not provide durable candidate attempts, provider credential
+audit data, route-level pricing, cross-process run idempotence,
+multi-message transactions, or general Web feature parity.
+See [Web fallback integration tests](../../tests/test_mnerys_gateway_web_fallback.py).

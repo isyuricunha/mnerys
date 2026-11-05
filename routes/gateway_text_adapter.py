@@ -8,6 +8,7 @@ serializes the original detached typed turn.
 
 from collections.abc import AsyncIterator, Callable
 import json
+import re
 from typing import Any
 
 from fastapi.responses import StreamingResponse
@@ -41,6 +42,8 @@ def start_strict_text_web_response(
     privileges: dict,
     assistant_writer: Any,
     interrupted_writer: Any,
+    enable_model_fallback: bool = False,
+    allowed_fallback_models: frozenset[str] = frozenset(),
     post_response_runner: Callable[..., None] | None = None,
     memory_manager: Any = None,
     memory_vector: Any = None,
@@ -52,12 +55,21 @@ def start_strict_text_web_response(
     if (
         (post_response_runner is not None and not callable(post_response_runner))
         or (after_user_saved is not None and not callable(after_user_saved))
+        or type(enable_model_fallback) is not bool
+        or type(allowed_fallback_models) is not frozenset
+        or len(allowed_fallback_models) > 10
+        or (enable_model_fallback != bool(allowed_fallback_models))
+        or any(
+            type(model) is not str
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}", model) is None
+            for model in allowed_fallback_models
+        )
     ):
-        raise AdmissionDenied(403, "Invalid trusted Web completion callbacks")
+        raise AdmissionDenied(403, "Invalid trusted Web text routing options")
     ports = LegacyChatContextPorts()
 
     def after_assistant_saved(
-        response: str, metrics: dict[str, int] | None,
+        response: str, metrics: dict[str, Any] | None,
     ) -> None:
         if post_response_runner is None:
             return
@@ -88,6 +100,8 @@ def start_strict_text_web_response(
             privileges=privileges,
             interaction_mode="chat",
             max_rounds=1,
+            enable_model_fallback=enable_model_fallback,
+            allowed_fallback_models=allowed_fallback_models,
         ),
         persistence=TrustedTextPersistence(
             session_manager=session_manager,

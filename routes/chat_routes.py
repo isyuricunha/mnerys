@@ -2760,6 +2760,13 @@ def setup_chat_routes(
             allowed_models=_allowed_models_for_request(request),
         )
 
+        # The already owner-admitted foreground policy is the sole source of
+        # fallback model names for this request. Never accept client-provided
+        # candidates, endpoints or credential headers as a Gateway allowance.
+        _strict_web_fallback_models = (
+            frozenset(candidate[1] for candidate in foreground_policy.policy.fallback_candidates)
+            if foreground_policy.enabled else frozenset()
+        )
         # First real, explicitly opted-in Web/Core cutover path: only plain
         # text without tools, media, memory, RAG, research or editor state.
         # Normal Web sessions keep the inherited path. Admission, writer and
@@ -2795,6 +2802,7 @@ def setup_chat_routes(
             do_research=do_research,
             image_generation_session=image_generation_session,
             foreground_fallback_enabled=foreground_policy.enabled,
+            foreground_fallback_models=_strict_web_fallback_models,
             external_untrusted_context_seen=external_untrusted_context_seen,
             internal_tool_request=is_internal_tool_request(request),
             agent_permitted=bool(_request_privileges(
@@ -2814,6 +2822,8 @@ def setup_chat_routes(
                 ),
                 assistant_writer=save_assistant_response,
                 interrupted_writer=append_interrupted_assistant_response,
+                enable_model_fallback=foreground_policy.enabled,
+                allowed_fallback_models=_strict_web_fallback_models,
                 post_response_runner=run_post_response_tasks,
                 memory_manager=memory_manager,
                 memory_vector=memory_vector,

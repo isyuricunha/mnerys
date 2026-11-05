@@ -592,3 +592,21 @@ failure does not claim the saved answer was rolled back or blindly
 retry it. No additional typed event family, remote API or durable job
 cursor is introduced. See
 [HTTP post-response tests](../../tests/test_mnerys_gateway_web_post_response.py).
+
+## Source-owned model route in the strict Web HTTP adapter
+
+The opted-in strict Web branch now supplies a bounded, trusted
+owner-policy set to the same direct composer. If and only if the
+inherited Agent Loop actually switches to a permitted backup, its
+native `model.route.selected` observation is projected into the
+browser's existing `fallback` SSE shape; no provider-supplied
+fallback control frame is treated as a source of authority.
+
+The event includes only selected and answering model names, candidate
+index and round. A fresh assistant save also receives the selected/
+answering model pair as ordinary existing metadata after revalidating
+the Core observation against the admitted session model. Streaming
+and exact-run replay expose the original event exactly once per
+producer; reconnect never re-executes the fallback or writer.
+SSE still has only process-local cursors. See
+[Web fallback acceptance](../../tests/test_mnerys_gateway_web_fallback.py).
