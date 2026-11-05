@@ -346,3 +346,43 @@ durable user-visible approval receipt. Its local
 store/authority machinery, not an invented Web acknowledgement.
 
 See [review-card tests](../../tests/test_mnerys_gateway_web_approval_cards.py).
+
+## Guarded Web strict-text turn uses admitted legacy writers
+
+The first opt-in HTTP strict-text branch now traverses the shared
+Gateway composer and the **same existing context user writer and
+admitted assistant/interrupted writers**. It does not introduce
+a database table, double-write, cross-process fence, durable replay
+cursor or a second session manager. The optional saved-message frame
+is emitted only after the inherited assistant writer's fresh
+in-memory `_db_id` receipt is observed.
+
+The trusted profile preserves the original `chat` interaction marker;
+the direct default `agent` marker is unchanged. Connection loss,
+stop and replay remain on the existing per-session run manager.
+The branch is disabled unless both the server switch and strict
+request profile match; unsupported features continue on the
+original Web writers/transport without modification. Full Web
+history metadata parity, atomic turn persistence and final
+cross-backend cutover remain open.
+
+## First HTTP Web strict-text cutover reuses existing writers
+
+The opt-in, text-only branch of `POST /api/chat_stream` invokes the
+Gateway's existing strict-text persistence wrapper. It does **not**
+manually append the assistant or partial reply. The context adapter
+invokes the original user-message append, and the same
+`save_assistant_response` and `append_interrupted_assistant_response`
+implementations are bound as trusted dependencies. They still perform
+owner-admission checks, and the typed terminal waits for the original
+assistant receipt; an incomplete/failed write emits no `message_saved` or
+successful `[DONE]`.
+
+The legacy Web route retains its existing **two** admitted interrupted
+writer call paths. The new path is a third reference to the underlying
+writer, but it is injected into an already owner-admitted Gateway
+persistence service, not a third direct save branch. Tests verify the
+two old call sites and the new binding independently. This does not
+implement an atomic user/assistant transaction, durable event cursor,
+cross-process generation fence, exactly-once retries, or post-response
+job parity. See [HTTP cutover tests](../../tests/test_mnerys_gateway_web_text_cutover.py).

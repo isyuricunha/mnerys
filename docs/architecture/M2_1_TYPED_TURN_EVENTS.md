@@ -530,3 +530,46 @@ This is a presentation adapter only. It does not expose the sealed
 authority or full raw resource operations, and no Web endpoint, durable
 event store, remote authentication or UI button transport was added.
 See [approval-card acceptance](../../tests/test_mnerys_gateway_web_approval_cards.py).
+
+## Guarded HTTP strict-text Web adapter (still partial)
+
+The actual `/api/chat_stream` handler now contains a server-controlled,
+disabled-by-default branch for a **strict plain-chat**, fully
+owner-admitted turn. It routes through the exact existing composed
+typed turn and filtered SSE serializer; it does not introduce
+a second Core engine or event registry. The existing Web
+`/api/chat/resume` recognizes only a typed run whose provenance was
+marked `web_strict_text` by the trusted HTTP adapter. This mark
+does **not** confer admission, permissions, or durable credentials;
+owner/session proof and exact run IDs still apply. Other typed
+in-process streams cannot be attached to from the Web route.
+
+A confirmed user append still precedes the model, and the original
+assistant writer receipt precedes `message.saved`,
+`message.final` and `turn.completed`. The HTTP
+adapter preserves the original server run ID header and replays
+the existing run-scoped cursor without adding disk storage.
+Only strict no-tools text is eligible; unknown Web features fall
+through to the unchanged original path. The default switch is off
+and this slice has only synthetic ASGI/route-branch acceptance,
+not real-model or general UI acceptance.
+
+## Explicit Web HTTP strict-text adapter
+
+The already existing `POST /api/chat_stream` route may now invoke
+[the same typed Gateway composer](../../src/gateway_turns.py) through
+[a Web-only binder](../../routes/gateway_text_adapter.py), but only after
+a disabled-by-default server feature gate and an explicit, strictly
+constrained request profile. The binder serializes filtered events to the
+browser's original SSE vocabulary; model execution and writers remain in
+the inherited Core. The first selected Web profile is **plain chat only**.
+
+The original per-session run manager now records whether a typed run came
+from this trusted Web profile. `GET /api/chat/resume/{session_id}` only
+reattaches that profile; a foreign-owner, stale-ID or different adapter's
+typed run cannot be coerced into browser SSE. The run-scoped cursor and
+confirmed saved-message observation are still process-local. The
+original Web Stop can interrupt the matching run; no separate execution
+registry or remote approval contract was added. The opt-in does not
+claim full Web parity, replay after restart or a transport-independent
+authenticated Gateway API.

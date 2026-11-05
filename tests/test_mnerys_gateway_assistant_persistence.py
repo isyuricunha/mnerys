@@ -308,7 +308,10 @@ def test_web_cancel_paths_are_admission_bound_and_save_success_once():
     ).read_text()
     stream = source[source.index('@router.post("/api/chat_stream")'):]
     assert stream.count("gateway_turns.save_interrupted_assistant_response(") == 2
-    assert stream.count("writer=append_interrupted_assistant_response") == 2
+    # The two existing stopped-response branches retain their own admitted
+    # writer calls. The opt-in Gateway text path adds one trusted writer
+    # binding, without creating a third direct cancellation save.
+    assert stream.count("writer=append_interrupted_assistant_response") == 3
     assert "if full_response and not incognito and not _chat_terminal_saved:" in stream
     assert "if full_response and not incognito and not _terminal_saved:" in stream
     assert stream.count("_chat_terminal_saved = True") == 2
@@ -332,6 +335,23 @@ def test_web_cancel_paths_are_admission_bound_and_save_success_once():
         assert isinstance(kws["context_owner"],ast.Attribute)
         assert isinstance(kws["writer"],ast.Name)
         assert kws["writer"].id == "append_interrupted_assistant_response"
+    cutover_calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "start_strict_text_web_response"
+    ]
+    assert len(cutover_calls) == 1
+    cutover_keywords = {kw.arg: kw.value for kw in cutover_calls[0].keywords}
+    for key, expected in {
+        "admission": "_admitted_session",
+        "session": "sess",
+        "session_manager": "session_manager",
+        "assistant_writer": "save_assistant_response",
+        "interrupted_writer": "append_interrupted_assistant_response",
+    }.items():
+        assert isinstance(cutover_keywords[key], ast.Name)
+        assert cutover_keywords[key].id == expected
 
 
 def test_service_imports_no_web_or_duplicate_database_writer():

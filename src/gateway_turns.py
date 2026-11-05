@@ -450,6 +450,7 @@ class GatewayTurns:
         settings: TrustedTextTurnSettings,
         approval_store: ToolApprovalStore | None = None,
         persistence: TrustedTextPersistence | None = None,
+        web_strict_text: bool = False,
     ) -> TypedTurnStream:
         """Run the same direct composer behind the inherited detach/replay manager.
 
@@ -465,6 +466,8 @@ class GatewayTurns:
             raise AdmissionDenied(403, "Invalid server turn lifecycle")
         if not isinstance(settings, TrustedTextTurnSettings):
             raise AdmissionDenied(403, "Invalid trusted direct turn settings")
+        if type(web_strict_text) is not bool:
+            raise AdmissionDenied(403, "Invalid trusted run origin")
         if not isinstance(request, (TextTurnRequest, ToolApprovalTurnRequest)):
             raise AdmissionDenied(403, "Invalid direct turn request")
         delivery = self.open_composed_text_events(
@@ -479,6 +482,7 @@ class GatewayTurns:
         )
         return self._turns.start_detached_typed(
             session_id, delivery.events, delivery.outcome,
+            web_strict_text=web_strict_text,
         )
 
     def resume_composed_detached_text_events(
@@ -489,6 +493,7 @@ class GatewayTurns:
         context_owner: str | None,
         expected_run_id: str,
         after_cursor: str | None = None,
+        web_strict_text: bool = False,
     ) -> TypedTurnStream | None:
         """Replay a single admitted typed run without crossing owner or run IDs."""
         session_id = require_admitted_session(admission)
@@ -499,6 +504,7 @@ class GatewayTurns:
             raise AdmissionDenied(403, "Invalid server turn lifecycle")
         return self._turns.resume_typed(
             session_id, expected_run_id, after_cursor=after_cursor,
+            web_strict_text=web_strict_text,
         )
 
     def stop_composed_detached_text_turn(

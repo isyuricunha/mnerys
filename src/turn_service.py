@@ -86,7 +86,8 @@ class TurnService:
 
     def start_detached_typed(
         self, session_id: str, events: AsyncIterator[TurnEvent],
-        outcome: TurnOutcome,
+        outcome: TurnOutcome, *,
+        web_strict_text: bool = False,
     ) -> TypedTurnStream:
         """Use the original detached run manager for trusted typed events."""
         if (
@@ -95,7 +96,10 @@ class TurnService:
             or not callable(getattr(events, "aclose", None))
         ):
             raise TypeError("A fresh typed outcome and closable stream are required")
-        run = agent_runs.start(session_id, events, mode="typed", outcome=outcome)
+        run = agent_runs.start(
+            session_id, events, mode="typed", outcome=outcome,
+            web_strict_text=web_strict_text,
+        )
         return TypedTurnStream(
             run_id=run.run_id, outcome=outcome,
             events=agent_runs.subscribe(session_id, run, typed=True),
@@ -104,6 +108,7 @@ class TurnService:
     def resume_typed(
         self, session_id: str, expected_run_id: str, *,
         after_cursor: str | None = None,
+        web_strict_text: bool = False,
     ) -> Optional[TypedTurnStream]:
         """Resume only the same in-process typed run, never another modality."""
         if (
@@ -114,7 +119,10 @@ class TurnService:
         run = agent_runs.get_matching_run(
             session_id, expected_run_id, mode="typed",
         )
-        if run is None or not isinstance(run.outcome, TurnOutcome):
+        if (
+            run is None or not isinstance(run.outcome, TurnOutcome)
+            or run.web_strict_text is not web_strict_text
+        ):
             return None
         prior_saved = agent_runs.typed_saved_receipt_precedes_cursor(
             session_id, expected_run_id, after_cursor,

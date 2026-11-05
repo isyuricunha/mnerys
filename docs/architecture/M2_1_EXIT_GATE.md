@@ -507,3 +507,106 @@ authenticate a remote button, provide durable approval records/replay,
 cover workspace/editor/browser tools, match custom security reasons,
 or enable actual production Web UI routing. Real-model validation and
 full Web Gateway parity remain exit-gate requirements.
+
+### First guarded Web HTTP → single-composer cutover — November 5, 2026
+
+The existing [`/api/chat_stream` route](../../routes/chat_routes.py)
+now has a **disabled-by-default**, explicitly selected strict-text
+routing branch. A trusted server must set
+`MNERYS_M21_WEB_TEXT_ROUTING=1` and the already authenticated request
+must declare `gateway_profile=text_v1` with
+`no_memory=true` and `use_rag=false`. This is a controlled
+compatibility experiment, **not** a default/production Web migration.
+
+The fail-closed [eligibility gate](../../src/gateway_web_text_cutover.py)
+runs only after the original Web session ownership check, account chat
+limits, selected session/model resolution and owner-scoped foreground
+policy. It refuses tools/Agent mode, approval controls, attachments,
+active documents/email, selected notes, workspaces, incognito, compare,
+research, RAG/memory, fallback, non-default thinking, custom model
+settings, runtime bridges and unrecognized form/JSON features. An
+unsupported request stays on the original Web branch rather than
+silently discarding its options.
+
+The [HTTP-only adapter](../../routes/gateway_text_adapter.py) binds the
+**original** `LegacyChatContextPorts`, Gateway composer and admitted
+assistant/interrupted writers, requesting a trusted `chat` history
+marker instead of the direct Agent default. The existing
+[run manager](../../src/agent_runs.py) provides detached lifecycle,
+one-use run IDs, stop and bounded replay; the existing Web
+`/api/chat/resume` checks a server-marked strict-Web typed run before
+exposing its sanitized SSE. Internal typed runs from other adapters
+**cannot** be replayed as Web sessions. The browser receives the
+familiar mode/model headers and filtered text, assistant save receipt,
+final and terminal frames. No new writer, model loop, event store or
+authorization grant is introduced.
+
+[Focused HTTP and route-selection acceptance](../../tests/test_mnerys_gateway_web_text_cutover.py)
+covers a real ASGI transport with synthetic model and original
+in-process writer, actual Web router dispatch into the guarded branch,
+rejection/fallback for unsupported features, persisted assistant
+acknowledgements, generic writer failure, run source isolation and
+same-run cursor replay. The existing full Web feature route and UI
+are unchanged when the switch is unset.
+
+**M2.1 remains PARTIAL:** this explicitly limited chat path omits
+rich uploads, user preferences/skills/RAG/memory, research, fallback,
+full tool/approval cards, editor integration, comprehensive model
+metrics, custom output limits and complete Web parity. These
+in-process tests do **not** prove real-provider correctness, production
+readiness, live multi-client behavior or a safe default cutover.
+Web rollout, real-model acceptance and the final feature matrix
+remain required exit gates. Do not enable the environment flag on
+the private preview without separate authorization.
+
+### First opt-in live Web HTTP → Gateway composer slice — November 5, 2026
+
+The existing authenticated `POST /api/chat_stream` route now has a **disabled-by-
+default** text-only branch wired directly to the original admitted Gateway
+composer, inherited Agent Loop, shared context ports, and admitted legacy
+user/assistant/partial writers. This is the first actual route-internal
+cutover, not another mocked preview. It does not add an HTTP endpoint,
+parallel Agent engine, persistent event store or new authorization grant.
+
+**Selection is deliberately narrow and two-party opt-in:** the server must
+set `MNERYS_M21_WEB_TEXT_ROUTING=1`, and the request must explicitly send
+`gateway_profile=text_v1`. The client must send a plain `chat` message,
+`no_memory=true`, `use_rag=false` and `active_doc_state=none`. Only the
+strictly enumerated form fields are accepted. Agent/tools, approval controls,
+research, selected notes, attachments, Web search, Plan/Compare, incognito,
+active documents/email, workspaces, model switching, thinking overrides,
+fallback, image generation, internal tool requests and unsuitable account
+privileges all stay on the **existing Web path**. The operator switch is
+disabled in every default installation; the Web UI does **not** automatically
+send the new profile. No configured setting or user data is migrated.
+
+The [Web-only adapter](../../routes/gateway_text_adapter.py) binds the
+original [LegacyChatContextPorts](../../routes/chat_helpers.py),
+the existing assistant and stopped-response writers, and a trusted
+`chat` interaction marker to the same one-call composer. The original
+`agent_runs` detached registry marks these explicitly as Web text runs
+before exposure, so the existing `resume` endpoint may replay only an
+admitted Web-origin typed run, with an exact run ID and validated cursor.
+SSE frames include the same browser-consumable `turn_mode`, `model_info`,
+`delta`, confirmed `message_saved`, `final_response` and `[DONE]` sequence.
+The original stop endpoint retains exact-run cancellation; an older run ID
+cannot stop a replacement. A failed writer produces a sanitized error
+without success or save acknowledgement. No extra DB writer was created.
+
+[Route selection and actual HTTP acceptance](../../tests/test_mnerys_gateway_web_text_cutover.py)
+cover the server/client opt-in, original route selection and legacy fallback,
+real `StreamingResponse` delivery via ASGI, original synthetic Agent Loop,
+confirmed message persistence, a unique completion, upstream/writer failure,
+owner-bound same-run replay, cross-adapter replay denial, and stale/current
+Stop. The [existing writer AST regression](../../tests/test_mnerys_gateway_assistant_persistence.py)
+now checks the two inherited cancellation-save calls **plus** the single
+trusted Gateway writer binding without weakening their authorization checks.
+
+**Exit status still PARTIAL:** this explicitly selected small profile is
+not full Web Chat parity. It intentionally excludes the Web memory/skills
+context, auto-naming/post-response tasks, full model/provider options,
+richer chat formatting, browsing, attachments and tool/approval workflows.
+A controlled **real provider** turn, broader Web-versus-direct acceptance
+and full CI remain required before changing the default route. The
+in-process run buffer is not durable after restart, and M2.2/M2.3 storage
+and fencing work are separate. No private preview was deployed.

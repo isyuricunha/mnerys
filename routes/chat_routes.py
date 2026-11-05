@@ -35,6 +35,10 @@ from src.turn_service import turn_service
 from src.gateway_stream_delivery import should_detach_stream
 from src.gateway_post_response import post_response_extraction_allowed
 from src.gateway_turns import gateway_turns
+from src.gateway_web_text_cutover import eligible_strict_web_text_turn
+from routes.gateway_text_adapter import (
+    start_strict_text_web_response, resume_strict_text_web_response,
+)
 from src.gateway_admission import AdmissionDenied
 from src.gateway_execution_policy import execution_limits_for_admission
 from src.model_context import estimate_tokens
@@ -2755,6 +2759,62 @@ def setup_chat_routes(
             allowed_models=_allowed_models_for_request(request),
         )
 
+        # First real, explicitly opted-in Web/Core cutover path: only plain
+        # text without tools, media, memory, RAG, research or editor state.
+        # Normal Web sessions keep the inherited path. Admission, writer and
+        # model selection still belong to their original Gateway/Loop.
+        if eligible_strict_web_text_turn(
+            server_enabled=os.environ.get("MNERYS_M21_WEB_TEXT_ROUTING") == "1",
+            form_values=form_data,
+            json_values=body,
+            message=message,
+            chat_mode=chat_mode,
+            no_memory=no_memory,
+            use_rag=use_rag,
+            use_web=use_web,
+            allow_web_search=allow_web_search,
+            thinking_mode=thinking_mode,
+            reasoning_effort=reasoning_effort,
+            temperature_override=temperature_override,
+            selected_endpoint_id=selected_endpoint_id,
+            approved_plan=approved_plan,
+            preset_id=preset_id,
+            active_doc_id=active_doc_id,
+            active_doc_state=active_doc_state,
+            active_email_uid=active_email_uid,
+            selected_note_ids=selected_note_ids,
+            attachments=att_ids,
+            workspace=workspace,
+            workspace_rejected=workspace_rejected,
+            client_runtime_context=client_runtime_context,
+            incognito=incognito,
+            compare_mode=compare_mode,
+            plan_mode=plan_mode,
+            tool_approval_continuation=tool_approval_continuation,
+            do_research=do_research,
+            image_generation_session=image_generation_session,
+            foreground_fallback_enabled=foreground_policy.enabled,
+            external_untrusted_context_seen=external_untrusted_context_seen,
+            internal_tool_request=is_internal_tool_request(request),
+            agent_permitted=bool(_request_privileges(
+                request, effective_user(request),
+            ).get("can_use_agent", True)),
+        ):
+            return start_strict_text_web_response(
+                gateway=gateway_turns,
+                admission=_admitted_session,
+                session=sess,
+                text=message,
+                session_manager=session_manager,
+                chat_handler=chat_handler,
+                chat_processor=chat_processor,
+                privileges=_request_privileges(
+                    request, effective_user(request),
+                ),
+                assistant_writer=save_assistant_response,
+                interrupted_writer=append_interrupted_assistant_response,
+            )
+
         # Decide once whether this turn runs on the compact (clean v3)
         # runtime. Every input is final here; the native workspace term of
         # the contract policy cannot veto a requested clean route. This one
@@ -4502,6 +4562,23 @@ def setup_chat_routes(
     @router.get("/api/chat/resume/{session_id}")
     async def chat_resume(request: Request, session_id: str) -> StreamingResponse:
         admission = _verify_session_owner(request, session_id)
+        native_run = agent_runs.get_active_run(session_id)
+        if (
+            native_run is not None and native_run.mode == "typed"
+            and native_run.web_strict_text
+        ):
+            sess = session_manager.get_session(session_id)
+            expected = request.headers.get("X-Odysseus-Run-Id") or native_run.run_id
+            response = resume_strict_text_web_response(
+                gateway=gateway_turns,
+                admission=admission,
+                session=sess,
+                expected_run_id=expected,
+                after_cursor=request.headers.get("Last-Event-ID"),
+            )
+            if response is None:
+                raise HTTPException(404, "No matching active typed run")
+            return response
         _active_run = gateway_turns.resume_active(admission)
         if _active_run is None:
             raise HTTPException(404, "No active run for this session")

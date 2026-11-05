@@ -27,18 +27,22 @@ logger = logging.getLogger(__name__)
 
 
 class _Run:
-    __slots__ = ("session_id", "buffer", "subscribers", "status", "task", "evict_task", "run_id", "finish_requested", "finish_event", "mode", "outcome", "started")
+    __slots__ = ("session_id", "buffer", "subscribers", "status", "task", "evict_task", "run_id", "finish_requested", "finish_event", "mode", "outcome", "started", "web_strict_text")
 
     def __init__(
         self, session_id: str, *, mode: str = "sse",
         outcome: Optional[TurnOutcome] = None,
+        web_strict_text: bool = False,
     ) -> None:
+        if type(web_strict_text) is not bool or (web_strict_text and mode != "typed"):
+            raise ValueError("Invalid trusted Web typed-run provenance")
         if mode not in {"sse", "typed"}:
             raise ValueError("Unsupported process-local run mode")
         if mode == "typed" and not isinstance(outcome, TurnOutcome):
             raise TypeError("Typed runs require a trusted turn outcome")
         self.session_id = session_id
         self.mode = mode
+        self.web_strict_text = web_strict_text
         self.outcome = outcome
         self.started = False
         self.buffer: list = []          # original SSE frames or sanitized typed events
@@ -278,7 +282,7 @@ async def _drain(
         if run.mode == "typed":
             # Do not log trusted-port exception bodies: uploads, provider
             # settings and writer failures may contain private values.
-            logger.warning("[agent-run] typed run failed before completion")
+            logger.warning("[agent-run] typed run failed before completion (%s)", type(e).__name__)
         else:
             logger.error("[agent-run] %s failed: %s", session_id, e, exc_info=True)
         run.status = "error"
@@ -313,11 +317,15 @@ async def _drain(
 def start(
     session_id: str, agen: AsyncGenerator[str | TurnEvent, None], *,
     mode: str = "sse", outcome: Optional[TurnOutcome] = None,
+    web_strict_text: bool = False,
 ) -> _Run:
     """Start a detached run draining `agen` for a session. If a run is already in
     flight for this session (e.g. a rapid double-send), it's cancelled first."""
     # Validate the new run before cancelling an active one.
-    run = _Run(session_id, mode=mode, outcome=outcome)
+    run = _Run(
+        session_id, mode=mode, outcome=outcome,
+        web_strict_text=web_strict_text,
+    )
     prev = _RUNS.get(session_id)
     prev_task: Optional[asyncio.Task] = None
     if prev:

@@ -99,6 +99,9 @@ class TrustedTextTurnSettings:
     # the user must separately enable the owner-scoped foreground preference.
     enable_model_fallback: bool = False
     allowed_fallback_models: frozenset[str] = frozenset()
+    # The trusted Web adapter may preserve the original plain-chat history
+    # marker. Default direct Agent behavior remains unchanged.
+    interaction_mode: str = "agent"
 
 
 def _admitted_session_workspace(session: Any, configured: str | None) -> str | None:
@@ -190,6 +193,13 @@ async def stream_composed_text_turn(
         attachment_ids = validate_text_attachment_ids(request.attachment_ids)
     if not isinstance(settings, TrustedTextTurnSettings):
         raise AdmissionDenied(403, "Invalid trusted turn settings")
+    if (
+        type(settings.interaction_mode) is not str
+        or settings.interaction_mode not in {"chat", "agent"}
+        or (settings.interaction_mode == "chat" and
+            (settings.offered_tools or continuation))
+    ):
+        raise AdmissionDenied(403, "Unsupported trusted turn interaction mode")
     if type(native_tool_events) is not bool:
         raise AdmissionDenied(403, "Invalid trusted tool event mode")
     if type(native_route_events) is not bool:
@@ -458,10 +468,10 @@ async def stream_composed_text_turn(
         use_web=False,
         use_rag="false",
         no_memory=True,
-        agent_mode=True,
+        agent_mode=settings.interaction_mode == "agent",
         allow_tool_preprocessing=False,
         persist_user_message=persistence is not None,
-        interaction_mode="agent" if persistence is not None else None,
+        interaction_mode=settings.interaction_mode if persistence is not None else None,
         require_text_user_content=persistence is not None,
         on_user_message_persisted=(
             (lambda: require_new_session_receipt(session, user_write_cursor, "user"))
