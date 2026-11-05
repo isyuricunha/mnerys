@@ -267,7 +267,7 @@ async def test_explicit_network_isolation_is_established_or_refused(namespaces):
     host_namespace = os.readlink("/proc/self/ns/net")
     grant = containment.acquire(spec, owner="network-hook")
     try:
-        result = await containment.run(grant, [sys.executable, "-c",
+        result = await containment.run(grant, [subprocess_tools._sandbox_python_base_executable(), "-c",
             "import os; print(os.readlink('/proc/self/ns/net'))"], argv=True)
     except containment.ContainmentUnavailable:
         assert containment.active_grants() == []
@@ -293,7 +293,7 @@ async def test_setsid_daemon_cannot_survive_namespace_death(namespaces, exit_par
     )
     spec = subprocess_tools._owned_spec(str(namespaces), dict(os.environ), 1)
     result = await containment.run(containment.acquire(spec, owner="setsid"),
-                                   [sys.executable, "-c", code], argv=True)
+                                   [subprocess_tools._sandbox_python_base_executable(), "-c", code], argv=True)
     assert heartbeat.exists(), result.stderr
     assert result.timed_out is (not exit_parent)
     assert result.release.dead is True

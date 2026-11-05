@@ -13,16 +13,24 @@ def test_workspace_alias_rewrite_does_not_duplicate_absolute_host_path():
 
 def test_workspace_namespace_preserves_literal_paths_inside_scripts(tmp_path):
     from pathlib import Path
+    import shlex
     import subprocess
 
-    from src.agent_tools.subprocess_tools import _wrap_workspace_namespace
+    from src import containment
+    from src.agent_tools.subprocess_tools import (
+        _wrap_workspace_namespace, _sandbox_python_base_executable,
+    )
 
+    if not containment._bwrap_available():
+        return
+    # The namespace exposes the admitted canonical interpreter, not an
+    # unqualified "python" alias that might be absent on Ubuntu.
+    interpreter = shlex.quote(_sandbox_python_base_executable())
     command = _wrap_workspace_namespace(
-        "python -c 'from pathlib import Path; Path(\"/workspace/result.txt\").write_text(\"ok\")'",
+        f"{interpreter} -c 'from pathlib import Path; Path(\"/workspace/result.txt\").write_text(\"ok\")'",
         str(tmp_path),
     )
-    if command is None:
-        return
+    assert command is not None
     subprocess.run(command, shell=True, check=True)
     assert (Path(tmp_path) / "result.txt").read_text() == "ok"
 

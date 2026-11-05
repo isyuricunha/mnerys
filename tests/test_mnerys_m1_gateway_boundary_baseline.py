@@ -41,7 +41,7 @@ def run_app(monkeypatch):
     monkeypatch.setattr(session_routes, "SessionLocal", lambda: db)
 
     probes = {
-        "resume": MagicMock(return_value=SimpleNamespace(run_id=_RUN_ID)),
+        "resume": MagicMock(return_value=SimpleNamespace(run_id=_RUN_ID, mode="sse")),
         "stop": MagicMock(return_value=True),
         "finish": MagicMock(return_value=True),
         "status": MagicMock(return_value=True),

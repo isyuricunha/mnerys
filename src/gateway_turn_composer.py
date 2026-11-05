@@ -6,8 +6,9 @@ and immutable routed contract. Tools remain disabled by default. An explicitly
 server-selected session workspace can accompany native-only tools and sealed
 native approvals; filesystem actions require the original sealed resource
 snapshot and matching admitted workspace. Unbound effects remain unsupported.
-Conversation persistence is separately opt-in for tools-disabled text turns.
-The Web production cutover remains outside this direct profile.
+Conversation persistence is separately opt-in for plain text and one tightly
+scoped native manage_notes profile; approval resumptions remain outside the
+persisted profile. The Web production tool cutover is not enabled.
 This is not a remote client entry point.
 """
 
@@ -108,6 +109,10 @@ class TrustedTextTurnSettings:
     # The HTTP Web adapter alone may persist a verified text-only upload
     # after a second owner/hash read, without storing the upload as user prose.
     persist_verified_text_attachments: bool = False
+    # A server-created, non-HTTP M2.1 profile may persist a single native
+    # manage_notes turn through the inherited writers. Tool permissions and
+    # approval consumption remain owned by the Agent Loop and dispatcher.
+    persist_verified_native_tools: bool = False
 
 
 def _admitted_session_workspace(session: Any, configured: str | None) -> str | None:
@@ -255,10 +260,27 @@ async def stream_composed_text_turn(
     ):
         # Text upload context is read-only; it cannot grant file or tool IO.
         raise AdmissionDenied(403, "Text attachments require a read-only turn")
+    if type(settings.persist_verified_native_tools) is not bool:
+        raise AdmissionDenied(403, "Invalid trusted native tool persistence option")
+    native_tool_persistence = bool(
+        persistence is not None and settings.persist_verified_native_tools
+    )
+    if settings.persist_verified_native_tools and (
+        not native_tool_persistence
+        or settings.offered_tools != frozenset({"manage_notes"})
+        or settings.interaction_mode != "agent"
+        or continuation or attachment_ids
+        or settings.workspace is not None
+        or settings.active_document_id is not None
+    ):
+        raise AdmissionDenied(403, "Unsupported persisted native tool profile")
     if persistence is not None:
         require_trusted_text_persistence(persistence)
-        if (tools_enabled or continuation or settings.workspace is not None
-                or settings.active_document_id is not None):
+        if (
+            (tools_enabled and not native_tool_persistence)
+            or continuation or settings.workspace is not None
+            or settings.active_document_id is not None
+        ):
             raise AdmissionDenied(403, "Persisted direct turns require plain text without tools or approvals")
     if tools_enabled and native_terminal_events:
         raise AdmissionDenied(403, "Native terminal mode requires a tools-disabled turn")

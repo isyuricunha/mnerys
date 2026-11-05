@@ -769,3 +769,36 @@ recovery of extracted text, general Web attachment/source UI
 parity, transactional multi-message writes, native remote file
 resources, real-model acceptance, or a default Web cutover. The
 in-process run and upload index are not durable Gateway resources.
+
+## Restricted native notes persistence — November 5, 2026
+
+A server-created persist_verified_native_tools option extends the
+[direct turn composer](../../src/gateway_turn_composer.py) and the
+[original text persistence wrapper](../../src/gateway_text_persistence.py)
+to one native manage_notes surface in **Agent** mode. This is a
+process-local integration profile, not a client-accepted flag. The existing
+owner admission, account/tool policy, immutable tool contract, dispatcher,
+user append, assistant writer, and fresh database message receipt all
+remain mandatory.
+
+The profile denies every other offered tool, client/tool-controlled
+workspace, active document, file upload, approval continuation, and missing
+persistence writer. Normal successful tool turns emit only filtered native
+status, the original confirmed message receipt, final answer and completion.
+When the original Loop requests a sealed approval, the turn instead ends
+in turn.awaiting_approval after the approval/tool observation, without
+persisting an assistant response or manufacturing a cancelled partial.
+Sequence numbers remain contiguous after buffering the unsaved final text.
+
+[Native persistence regression tests](../../tests/test_mnerys_gateway_native_tool_persistence.py)
+exercise the actual inherited Agent Loop's immutable notes-read operation
+and mocked tool/provider turns, completion ordering, approval pause, no
+duplicate writes, and fail-closed configuration. They use synthetic
+effects and an in-memory writer; they do **not** prove a live model or
+production DB transaction.
+
+**Exit status remains PARTIAL.** No Web tool routing or actionable HTTP
+approval UI is enabled. In particular, approval continuation with
+persistence, tool-side-effect idempotence, durable receipts, restart replay,
+and full Web/CLI/Telegram parity remain open. Never treat a persisted
+user message as proof that an earlier tool effect can be repeated safely.

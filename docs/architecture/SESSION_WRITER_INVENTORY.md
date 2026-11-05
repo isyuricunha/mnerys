@@ -451,3 +451,19 @@ a failure after a confirmed user receipt can leave a user-only
 message, just as in the original text profile. There is no new DB
 table, upload writer, background task or event log. See
 [HTTP attachment regression](../../tests/test_mnerys_gateway_web_text_attachments.py).
+
+## Native note tools with inherited user/assistant writer
+
+A server-only, non-HTTP persist_verified_native_tools profile allows
+one manage_notes turn to use the existing user-message context port
+and admitted assistant-response saver after the real inherited
+Agent Loop. The saver must produce a fresh receipt before completion
+is acknowledged. No new store or background writer has been introduced.
+
+turn.awaiting_approval ends the current producer without saving a
+final assistant response or calling the interrupted writer: the sealed
+approval remains in the existing store until separately consumed.
+An uncertain effect or failed write must never be blindly retried.
+The approval-continuation/persistent HTTP path and transactional tool
+effect fencing are still unsupported. See
+[native write tests](../../tests/test_mnerys_gateway_native_tool_persistence.py).

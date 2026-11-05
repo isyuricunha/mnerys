@@ -2280,6 +2280,7 @@ def test_python_loaded_code_sees_virtual_workspace_alias(monkeypatch, tmp_path):
         prefix=str(environment),
         base_prefix=sys.base_prefix,
         executable=str(environment / "bin" / "python"),
+        _base_executable=sys._base_executable,
         version_info=sys.version_info,
     ))
     script = workspace / ".python-workspace-alias-test.py"

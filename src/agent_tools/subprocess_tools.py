@@ -544,6 +544,12 @@ async def _run_owned_command(command, ctx: dict, *, tool: str, timeout: int, arg
                 command = [*command[:-1], _replace_workspace_alias(command[-1], grant.workspace)]
             else:
                 command = _replace_workspace_alias(command, grant.workspace)
+        if grant.mechanism == "bubblewrap" and tool == "python" and argv:
+            # This namespace mounts only /usr, /etc and specifically admitted
+            # resources. Never mount the host venv or broaden filesystem access.
+            if not isinstance(command, list) or command[0] != (sys.executable or "python"):
+                raise ValueError("Unexpected native Python executable")
+            command = [_sandbox_python_base_executable(), *command[1:]]
         result = await containment.run(grant, command, argv=argv, progress_cb=ctx.get("progress_cb"))
         from src.agent_runtime.process_resources import attach_containment_processes
         attach_containment_processes(launch, grant.id)
@@ -895,6 +901,28 @@ def _python_with_visible_final_expression(content: str) -> str:
     ]
     ast.fix_missing_locations(tree)
     return ast.unparse(tree)
+
+
+def _sandbox_python_base_executable() -> str:
+    """Select Python's canonical base binary inside an existing read-only mount.
+
+    A virtualenv launcher or ancestor can be a symbolic link to a different
+    path. Resolve the base interpreter already admitted by _owned_spec,
+    without adding filesystem access to the sandbox.
+    """
+    base = getattr(sys, "_base_executable", None) or sys.executable
+    resolved = os.path.realpath(base) if isinstance(base, str) and base else ""
+    trusted_prefix = os.path.realpath(sys.base_prefix)
+    # The existing _owned_spec binds sys.base_prefix read-only when outside
+    # /usr. Resolve ancestor symlinks so the executable points into that
+    # canonical, already-admitted mount rather than an invisible alias.
+    available = resolved.startswith("/usr/") or (
+        trusted_prefix not in {"/", "/usr", "/etc", "/tmp", "/home"}
+        and resolved.startswith(trusted_prefix.rstrip("/") + "/")
+    )
+    if not available or not os.path.isfile(resolved) or not os.access(resolved, os.X_OK):
+        raise ValueError("Python base interpreter is unavailable in the trusted sandbox mounts")
+    return resolved
 
 
 def _python_with_configured_import_paths(content: str, env: dict | None) -> str:

@@ -1,4 +1,4 @@
-"""Opt-in conversation persistence for admitted direct plain-text turns.
+"""Opt-in conversation persistence for admitted text and restricted native turns.
 
 The shared context ports write user input. This wrapper reuses the existing
 owner-admitted assistant and interrupted-response writers. Terminal
@@ -283,6 +283,18 @@ async def persist_completed_text_events(
                             yield buffered_final
                         last_visible_sequence = event.sequence
                         yield event
+                    return
+                elif event.type == "turn.awaiting_approval":
+                    # A sealed pending review is not a completed answer.
+                    # Drop the unsaved final text and do not misclassify this
+                    # orderly pause as an interrupted assistant write.
+                    # Keep the process-local typed sequence gap-free.
+                    terminal_seen = True
+                    last_visible_sequence += 1
+                    outcome.last_sequence = last_visible_sequence
+                    yield TurnEvent(
+                        last_visible_sequence, event.type, event.payload,
+                    )
                     return
                 elif event.type == "turn.failed":
                     terminal_seen = True

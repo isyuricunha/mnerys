@@ -627,3 +627,20 @@ in-process SSE cursor still apply. Invalid/foreign/modified uploads
 produce no committed user message and never start the model. Replay
 does not reopen the upload, write a duplicate message or rerun the
 provider. See [attachment HTTP tests](../../tests/test_mnerys_gateway_web_text_attachments.py).
+
+## Persisted native notes: distinct paused terminal
+
+The [restricted in-process native notes profile](M2_1_EXIT_GATE.md#restricted-native-notes-persistence--november-5-2026)
+passes the already filtered tool and approval.requested event families
+through the existing typed adapter, without exposing raw tool arguments
+or results. A normal completed tool turn waits for the inherited assistant
+writer's confirmed receipt before emitting message.saved, message.final,
+and turn.completed.
+
+An approval pause is **not** assistant completion. The writer discards
+the unsaved final-response frame, preserves the original sealed approval
+in the store, and emits a contiguous turn.awaiting_approval terminal.
+No interrupted assistant writer runs on this orderly pause. This mode
+does not enable Web tool buttons, resume approval through HTTP, or add
+durable event storage. See
+[negative/Loop tests](../../tests/test_mnerys_gateway_native_tool_persistence.py).
