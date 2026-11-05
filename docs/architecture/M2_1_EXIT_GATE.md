@@ -457,6 +457,53 @@ matching sanitized UI frames, failure/blocked status, one-use denial,
 new sealed pending review, invalid tool names/frames, mismatched rounds,
 concurrent/unfinished tool steps, and owner/adapter scoping. The tool
 preview does not persist chats and has **not** been connected to the
-production Web endpoint. Safe rendering of full approval cards, editor
-side-effects, rich tool output and lifecycle/persistence parity remain
-open M2.1 acceptance work.
+production Web endpoint. General approval-card coverage for all tools,
+editor side-effects, rich tool output and lifecycle/persistence parity
+remain open M2.1 acceptance work.
+
+### Exact sealed pending-review Web card preview — November 5, 2026
+
+The existing [no-HTTP native tool timeline](../../src/gateway_web_compat_events.py)
+now supports an **in-process, owner-bound, read-only** Web `ask_user` card
+for an admitted `manage_notes` approval, without enabling arbitrary tools,
+raw tool outputs, editor side effects or production Web migration.
+
+A Core-native `approval.requested` event is **only a reference**. It cannot
+become a button by itself. The trusted Gateway facade selects the same
+[ToolApprovalStore](../../src/tool_approvals.py) already bound to the Agent
+Loop and calls [read_admitted_pending_review](../../src/gateway_web_approval_cards.py).
+The reader checks the issued admission, loaded session, owner, scope,
+expiry, current pending ID, full immutable action seal (via the existing
+`ExactToolApproval.matches`), exact input, original request authority,
+allowed native tool and bounded complete Web display. No renderer data is
+accepted as authority, and no pending card is consumed by displaying it.
+
+The serializer holds the review reference across a matching native
+`tool.awaiting_approval` observation and terminal
+`turn.awaiting_approval`, **without** pretending that a gated tool executed.
+It waits for the original composer/stream cleanup, rereads the *same*
+unconsumed sealed record and checks its digest and public payload again
+before producing the inherited Web `ask_user` card followed by `[DONE]`.
+The review contains the complete input, original action digest prefix,
+effects and existing task/session/deny choices; the default reason is
+used because a custom original security reason is not stored in the
+sealed record. Newline-containing input is JSON-escaped. A cancelled,
+failed, superseded, expired, consumed, forged or changed proposal never
+becomes an actionable card.
+
+The original [admitted approval continuation](../../src/gateway_turn_composer.py)
+still validates and consumes `approve`, `approve_task` or `deny` exactly
+once under the original resource/authority policy; a displayed card does
+**not** grant execution rights. Tests in
+[sealed Web review acceptance](../../tests/test_mnerys_gateway_web_approval_cards.py)
+cover complete cards, real composer and original store, one-use
+continuation, denied execution, owner/session isolation, invalid action
+seals, malicious SSE text, expiry during cleanup, cancellation,
+falsified provider `ask_user` and absent/mismatched terminals.
+
+**Still partial:** this is only an in-process/no-HTTP preview for the
+single permitted native tool. It does not persist the original Web card,
+authenticate a remote button, provide durable approval records/replay,
+cover workspace/editor/browser tools, match custom security reasons,
+or enable actual production Web UI routing. Real-model validation and
+full Web Gateway parity remain exit-gate requirements.

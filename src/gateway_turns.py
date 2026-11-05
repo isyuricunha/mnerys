@@ -26,7 +26,8 @@ from src.gateway_prompt_preparation import (
 from src.gateway_approval_decisions import ToolApprovalDecision, consume_admitted_tool_approval
 from src.gateway_turn_authority import authority_for_admitted_turn
 from src.tool_policy import ToolPolicy
-from src.tool_approvals import ExactToolApproval, ToolApprovalStore
+from src.tool_approvals import ExactToolApproval, ToolApprovalStore, tool_approval_store
+from src.gateway_web_approval_cards import read_admitted_pending_review
 from src.turn_service import TurnService, TurnStream, TypedTurnStream, turn_service
 from src.gateway_stream_delivery import TurnDelivery, open_admitted_stream
 from src.gateway_post_response import dispatch_admitted_post_response
@@ -416,6 +417,9 @@ class GatewayTurns:
             or settings.active_document_id is not None
         ):
             raise AdmissionDenied(403, "Unsupported native tool timeline preview")
+        store = tool_approval_store if approval_store is None else approval_store
+        if not isinstance(store, ToolApprovalStore):
+            raise AdmissionDenied(403, "A trusted review store is required")
         delivery = self.open_composed_text_events(
             admission, session,
             context_owner=context_owner,
@@ -423,11 +427,14 @@ class GatewayTurns:
             chat_handler=chat_handler,
             chat_processor=chat_processor,
             settings=settings,
-            approval_store=approval_store,
+            approval_store=store,
         )
         return serialize_plain_text_web_sse(
             delivery.events, require_saved_receipt=False,
             tool_status_preview=frozenset({"manage_notes"}),
+            approval_card_resolver=lambda approval_id: read_admitted_pending_review(
+                admission, session, store, approval_id, context_owner=context_owner,
+            ),
         )
 
     def open_composed_detached_text_events(

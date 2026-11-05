@@ -329,3 +329,20 @@ receipt. The preview must not replace the production Web adapter until
 tool result, approval UI and response writer parity are accepted.
 
 See [tool status acceptance](../../tests/test_mnerys_gateway_web_tool_status.py).
+
+## Exact pending approval preview does not persist a Web card
+
+The native no-HTTP `ask_user` preview rereads an original pending record
+from the existing in-memory `ToolApprovalStore`, validates the exact
+action seal and renders a *display copy* after the original Agent Core
+has fully unwound. Neither the read nor the display consumes the pending
+action, starts a tool, writes a conversation message or allocates a new
+approval database.
+
+The inherited Web path still owns any persisted review-card history and
+its resolution metadata. The preview cannot claim history parity or a
+durable user-visible approval receipt. Its local
+`ToolApprovalTurnRequest` continuation still uses the existing one-use
+store/authority machinery, not an invented Web acknowledgement.
+
+See [review-card tests](../../tests/test_mnerys_gateway_web_approval_cards.py).

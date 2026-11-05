@@ -9,12 +9,13 @@ Do not use it for tool/approval/editor turns until their full Web payloads
 and authorization contracts have accepted parity tests.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import aclosing
 import json
 import re
 
 from src.gateway_turn_events import TurnEvent, TypedRunEvent
+from src.gateway_web_approval_cards import SealedReviewCard
 
 
 _MAX_TEXT_CHARS = 4 * 1024 * 1024
@@ -222,6 +223,7 @@ async def serialize_plain_text_web_sse(
     replay: bool = False,
     prior_saved_receipt: bool = False,
     tool_status_preview: frozenset[str] = frozenset(),
+    approval_card_resolver: Callable[[str], SealedReviewCard] | None = None,
 ) -> AsyncIterator[str]:
     """Serialize an approved text-only stream; never authorize a tool turn.
 
@@ -236,6 +238,11 @@ async def serialize_plain_text_web_sse(
         or (prior_saved_receipt and not replay)
         or type(tool_status_preview) is not frozenset
         or not tool_status_preview <= _TOOL_STATUS_PREVIEW
+        or (approval_card_resolver is not None and (
+            not callable(approval_card_resolver)
+            or not tool_status_preview
+            or replay
+        ))
     ):
         raise TypeError("Invalid Web compatibility serialization options")
     previous = 0
@@ -244,9 +251,14 @@ async def serialize_plain_text_web_sse(
     receipt_seen = prior_saved_receipt
     terminal_seen = False
     active_tool: tuple[str, int | None] | None = None
+    pending_review: SealedReviewCard | None = None
+    awaiting_tool_notice = False
+    pending_terminal = False
     async with aclosing(events) as source:
         async for item in source:
             event, cursor = _event_identity(item)
+            if pending_terminal:
+                raise ValueError("Unexpected event after awaiting-review terminal")
             has_cursor = cursor is not None
             if has_cursor != replay:
                 raise ValueError("Web compatibility event representation mismatch")
@@ -266,6 +278,37 @@ async def serialize_plain_text_web_sse(
             if event.type.startswith("tool.") or event.type.startswith("approval."):
                 if not tool_status_preview:
                     raise ValueError("Tool timeline was not admitted")
+                if event.type == "approval.requested" and approval_card_resolver is not None:
+                    if (
+                        pending_review is not None or active_tool is not None
+                        or type(event.payload) is not dict
+                        or set(event.payload) != {"approval_id"}
+                        or type(event.payload["approval_id"]) is not str
+                    ):
+                        raise ValueError("Invalid pending review event order")
+                    review = approval_card_resolver(event.payload["approval_id"])
+                    if type(review) is not SealedReviewCard or (
+                        review.approval_id != event.payload["approval_id"]
+                    ):
+                        raise ValueError("Pending review did not match the sealed store")
+                    pending_review = review
+                    continue
+                if event.type == "tool.awaiting_approval" and pending_review is not None:
+                    if (
+                        awaiting_tool_notice or active_tool is not None
+                        or type(event.payload) is not dict
+                        or set(event.payload) != {"tool", "round", "exit_code"}
+                        or event.payload.get("tool") != "manage_notes"
+                        or event.payload.get("exit_code") is not None
+                    ):
+                        raise ValueError("Invalid pending tool review status")
+                    # Do not pretend a gated tool started or completed. The
+                    # original Web review card, if still valid, is shown only
+                    # after the turn's awaiting-approval terminal handshake.
+                    awaiting_tool_notice = True
+                    continue
+                if pending_review is not None:
+                    raise ValueError("Unexpected action while review is pending")
                 if event.type.startswith("tool."):
                     frame, active_tool = _tool_status_frame(
                         event, permitted=tool_status_preview, active=active_tool,
@@ -273,12 +316,23 @@ async def serialize_plain_text_web_sse(
                 elif event.type == "approval.decided" and active_tool is None:
                     frame = _approval_decision_frame(event)
                 else:
-                    # Pending approvals need a sealed owner-scoped UI card,
-                    # not merely an opaque ID or a fabricated button.
                     raise ValueError("Pending or unresolved approval cannot be rendered")
                 if cursor is not None:
                     frame = "id: " + cursor + "\n" + frame
                 yield frame
+                continue
+            if event.type == "turn.awaiting_approval":
+                if (
+                    approval_card_resolver is None
+                    or pending_review is None or not awaiting_tool_notice
+                    or active_tool is not None
+                    or type(event.payload) is not dict
+                    or event.payload != {"approval_id": pending_review.approval_id}
+                ):
+                    raise ValueError("Unverified pending Web approval terminal")
+                # Await the original stream's normal completion and cleanup
+                # before exposing any actionable review card or [DONE].
+                pending_terminal = True
                 continue
             if event.type == "message.saved":
                 if receipt_seen:
@@ -296,6 +350,8 @@ async def serialize_plain_text_web_sse(
                 raise ValueError("Completed Web turn has no confirmed assistant receipt")
             # A replay may omit an already acknowledged receipt only when
             # the original run registry proved it preceded this cursor.
+            if event.type == "turn.completed" and pending_review is not None:
+                raise ValueError("Review cannot be acknowledged as completed work")
             if event.type in {"message.final", "turn.completed", "turn.failed"} and active_tool is not None:
                 raise ValueError("Tool timeline ended without a terminal tool status")
             frame, terminal = serialize_plain_text_turn_event(event)
@@ -305,6 +361,20 @@ async def serialize_plain_text_web_sse(
             if terminal:
                 terminal_seen = True
                 return
+    if pending_terminal:
+        if pending_review is None or approval_card_resolver is None:
+            raise ValueError("Unverified pending Web review")
+        current = approval_card_resolver(pending_review.approval_id)
+        if (
+            type(current) is not SealedReviewCard
+            or current.approval_id != pending_review.approval_id
+            or current.digest != pending_review.digest
+            or current.payload != pending_review.payload
+        ):
+            raise ValueError("Pending review changed before display")
+        yield _data_frame({"type": "ask_user", "data": current.payload})
+        yield "data: [DONE]\n\n"
+        return
     # Replayed subscriptions can intentionally begin *after* the previously
     # acknowledged terminal event. They have nothing further to send.
     if not terminal_seen and not replay:

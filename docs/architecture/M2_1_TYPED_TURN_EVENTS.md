@@ -507,3 +507,26 @@ by the renderer, no tool is retried, and the production Web SSE surface
 is not changed. [No-HTTP tests](../../tests/test_mnerys_gateway_web_tool_status.py)
 verify both positive status rendering and negative authorization/UI
 escalation.
+
+## Sealed pending-review projection (still in-process)
+
+The filtered native stream can now carry a reference to a pending review
+through `approval.requested`, a genuine `tool.awaiting_approval` status and
+`turn.awaiting_approval`. Only the original
+[ToolApprovalStore](../../src/tool_approvals.py) can provide the complete
+card data, via the trusted owner/session-checked
+[review reader](../../src/gateway_web_approval_cards.py). The reference
+alone is not a credential or a source of selectable decisions.
+
+The no-HTTP serializer keeps the card **unpublished** until the source
+has fully unwound, then rereads the same sealed record and compares its
+digest and complete public payload before emitting the browser's
+`ask_user` + `[DONE]`. It never converts an unexecuted approval gate into
+a successful `tool_output`; it does not fabricate a button on an expired,
+tampered, consumed or foreign ID. The existing `ToolApprovalTurnRequest`
+path remains the only one-use consumption mechanism for a local review.
+
+This is a presentation adapter only. It does not expose the sealed
+authority or full raw resource operations, and no Web endpoint, durable
+event store, remote authentication or UI button transport was added.
+See [approval-card acceptance](../../tests/test_mnerys_gateway_web_approval_cards.py).

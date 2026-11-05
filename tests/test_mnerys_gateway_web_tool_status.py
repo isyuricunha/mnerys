@@ -190,7 +190,7 @@ async def test_browser_status_never_fabricates_tool_result(end, code, expected):
         [TurnEvent(1, "turn.awaiting_approval", {
             "approval_id": "x" * 43,
         })],
-        "no approved plain-text",
+        "Unverified pending Web approval terminal",
     ),
     (
         [TurnEvent(1, "tool.started", {
@@ -285,7 +285,7 @@ async def test_pending_approval_is_not_deserialized_into_an_actionable_card(
     stream = GatewayTurns(TurnService()).preview_composed_tool_status_web_sse(
         admission, session, **options,
     )
-    with pytest.raises(ValueError, match="Pending or unresolved"):
+    with pytest.raises(ValueError, match="Invalid pending review event order"):
         _ = [frame async for frame in stream]
     assert len(created) == 1
     assert store.peek(created[0].approval_id) is created[0]
