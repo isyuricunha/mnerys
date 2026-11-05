@@ -15,6 +15,7 @@ from collections.abc import Mapping
 from contextlib import aclosing
 from dataclasses import dataclass, replace
 import json
+import logging
 import os
 from typing import Any, AsyncGenerator
 
@@ -59,6 +60,8 @@ from src.gateway_text_persistence import (
     TrustedTextPersistence, require_trusted_text_persistence,
     snapshot_session_receipts, require_new_session_receipt,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -457,6 +460,18 @@ async def stream_composed_text_turn(
     # trusted ports. Do not append an orphaned user message while the response
     # finalization/persistence service is still owned by Web.
     user_write_cursor = snapshot_session_receipts(session) if persistence is not None else None
+
+    def on_confirmed_user_append() -> None:
+        # Never fire user events on an orphaned or failed legacy append.
+        require_new_session_receipt(session, user_write_cursor, "user")
+        if persistence is not None and persistence.after_user_saved is not None:
+            try:
+                persistence.after_user_saved()
+            except Exception:
+                # A notification failed after the user DB write; do not
+                # reinterpret that committed message as an unpersisted input.
+                logger.warning("Admitted user-message notification failed after save")
+
     context = await assemble_chat_context(
         session, owner, chat_handler, chat_processor,
         message=message,
@@ -474,8 +489,7 @@ async def stream_composed_text_turn(
         interaction_mode=settings.interaction_mode if persistence is not None else None,
         require_text_user_content=persistence is not None,
         on_user_message_persisted=(
-            (lambda: require_new_session_receipt(session, user_write_cursor, "user"))
-            if user_write_cursor is not None else None
+            on_confirmed_user_append if user_write_cursor is not None else None
         ),
     )
     if not isinstance(context.messages, list):

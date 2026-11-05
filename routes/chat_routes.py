@@ -69,6 +69,7 @@ from routes.chat_helpers import (
     save_assistant_response,
     append_interrupted_assistant_response,
     run_post_response_tasks,
+    fire_message_event,
     accumulate_token_usage,
     clean_thinking_for_save,
     clean_repeated_assistant_content,
@@ -2813,6 +2814,14 @@ def setup_chat_routes(
                 ),
                 assistant_writer=save_assistant_response,
                 interrupted_writer=append_interrupted_assistant_response,
+                post_response_runner=run_post_response_tasks,
+                memory_manager=memory_manager,
+                memory_vector=memory_vector,
+                webhook_manager=webhook_manager,
+                after_user_saved=lambda: fire_message_event(
+                    request, webhook_manager, session, sess, message,
+                    compare_mode=False,
+                ),
             )
 
         # Decide once whether this turn runs on the compact (clean v3)

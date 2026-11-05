@@ -9,6 +9,7 @@ durable receipt, cross-run idempotence or Web cutover is claimed.
 from collections.abc import AsyncIterator, Callable
 from contextlib import aclosing
 from dataclasses import dataclass
+import logging
 import re
 from typing import Any
 
@@ -18,6 +19,8 @@ from src.gateway_assistant_persistence import (
     save_admitted_interrupted_assistant_response,
 )
 from src.gateway_turn_events import TurnEvent, TurnOutcome
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,11 @@ class TrustedTextPersistence:
     # Only the trusted text-to-Web compatibility adapter selects this.
     # The receipt remains the inherited writer's post-commit message ID.
     emit_message_saved_events: bool = False
+    # Trusted optional Web compatibility hooks only; both execute *after*
+    # the corresponding existing writer has confirmed its database receipt.
+    # No new scheduler or persistence implementation is introduced.
+    after_user_saved: Callable[[], None] | None = None
+    after_assistant_saved: Callable[[str, dict[str, int] | None], None] | None = None
 
 
 class LegacyWriteNotConfirmed(RuntimeError):
@@ -87,6 +95,8 @@ def require_trusted_text_persistence(value: Any) -> TrustedTextPersistence:
         or value.session_manager is None
         or not callable(value.saver)
         or type(value.emit_message_saved_events) is not bool
+        or (value.after_user_saved is not None and not callable(value.after_user_saved))
+        or (value.after_assistant_saved is not None and not callable(value.after_assistant_saved))
         or (
             value.interrupted_writer is not None
             and not callable(value.interrupted_writer)
@@ -198,6 +208,27 @@ async def persist_completed_text_events(
                         terminal_seen = True
                         yield persistence_failure()
                         return
+                    # Do not start optional post-response work while the
+                    # original LLM/Agent async generator still owns resources.
+                    # The terminal was buffered by the typed adapter, so
+                    # closing here cannot drop any further user-visible reply.
+                    try:
+                        await source.aclose()
+                    except Exception:
+                        logger.warning(
+                            "Admitted Agent cleanup failed after confirmed save"
+                        )
+                    # This optional Web continuation is downstream of the
+                    # original successful save *and* fresh receipt check.
+                    # Its failure cannot invalidate an already-committed
+                    # assistant message or trigger a duplicate writer retry.
+                    if writer.after_assistant_saved is not None:
+                        try:
+                            writer.after_assistant_saved(outcome.content, last_metrics)
+                        except Exception:
+                            logger.warning(
+                                "Admitted post-response dispatch failed after confirmed save"
+                            )
                     terminal_seen = True
                     if writer.emit_message_saved_events:
                         # Publish the confirmed receipt before the canonical

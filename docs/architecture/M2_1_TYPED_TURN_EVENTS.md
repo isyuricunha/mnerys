@@ -573,3 +573,22 @@ original Web Stop can interrupt the matching run; no separate execution
 registry or remote approval contract was added. The opt-in does not
 claim full Web parity, replay after restart or a transport-independent
 authenticated Gateway API.
+
+## Confirmed Web post-response handoff
+
+For the opted-in real Web strict-text path, the same admitted Agent
+composer and existing message writers now precede the inherited
+post-response task dispatcher. The writer must return a fresh assistant
+receipt before either the `message.saved` acknowledgement or the
+post-response handoff can occur. The original upstream Core generator
+must finish resource cleanup before the dispatcher schedules optional
+background work. This is not another event or turn engine.
+
+The optional trusted callbacks execute **inside the detached producer**;
+SSE disconnection/replay does not re-run them. Failure or cancellation
+before confirmed assistant persistence never emits a completed-response
+task. Once persistence succeeds, a later notification/scheduling
+failure does not claim the saved answer was rolled back or blindly
+retry it. No additional typed event family, remote API or durable job
+cursor is introduced. See
+[HTTP post-response tests](../../tests/test_mnerys_gateway_web_post_response.py).

@@ -610,3 +610,53 @@ A controlled **real provider** turn, broader Web-versus-direct acceptance
 and full CI remain required before changing the default route. The
 in-process run buffer is not durable after restart, and M2.2/M2.3 storage
 and fencing work are separate. No private preview was deployed.
+
+### HTTP strict-text post-response dispatch after confirmed completion — November 5, 2026
+
+The disabled-by-default, server-and-client-opted-in Web text route now
+reuses the existing [admitted post-response dispatcher](../../src/gateway_post_response.py)
+and original [Web task runner](../../routes/chat_helpers.py), rather than
+silently omitting notification, accounting and auto-naming behavior.
+
+The trusted [HTTP binder](../../routes/gateway_text_adapter.py) provides two
+optional callables to the existing
+[text persistence contract](../../src/gateway_text_persistence.py):
+`after_user_saved` fires the original Web `chat.message`/event-bus handoff
+only after the inherited user append has produced a fresh receipt.
+`after_assistant_saved` invokes `GatewayTurns.dispatch_post_response`
+with the admitted owner/session, the same saved response, sanitized
+usage, trusted user preferences and existing Web post-response runner,
+only after the original assistant writer confirms its fresh receipt.
+The source-owned Agent stream is closed before dispatch, so background
+task scheduling cannot begin before the main model releases its turn
+resources. These callables are selected by the Web server, not accepted
+as request fields or tool permissions.
+
+The original run manager still owns model execution, stop and replay.
+The hook runs inside the **one original detached producer**, not the SSE
+subscriber: a resumed client cannot save or schedule the response a
+second time. Writer failure, user receipt failure and interrupted
+partial replies do not dispatch a completed-response job. A failing
+notification or post-response task after a confirmed write is logged
+without its exception body; the message remains committed and the
+client gets the proper confirmed completion rather than a false
+uncommitted response or an automatic retry. A fresh Gateway owner
+check is performed at the post-response boundary, even if the loaded
+session changes during its legacy writer call.
+
+[HTTP post-response acceptance](../../tests/test_mnerys_gateway_web_post_response.py)
+includes the original synthetic model, real inherited writer receipt
+checks, exact-run replay, early Stop, invalid callbacks, failed writes,
+notification/task exceptions, owner changes and explicit ordering
+`user_saved → model → assistant_saved → model_closed → post_response`.
+No production database or provider is exercised, and the server switch
+stays **off by default**.
+
+**Remaining limitations:** this is post-response *handoff parity for
+the strict no-tools/no-memory profile*, not full Web job equivalence.
+Background extraction is deliberately blocked for this restricted
+profile; full memory, preset, skills, uploads, tool results, auto-
+escalation, real-provider parity and all post-response metadata still
+belong to the broader M2.1 acceptance gate. No durable task delivery,
+cross-process idempotency, database migration or preview deployment
+is part of this change.

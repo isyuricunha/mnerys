@@ -321,6 +321,11 @@ async def test_actual_web_chat_route_dispatches_opted_in_strict_profile(
     assert calls[0]["admission"].session_id == "session-1"
     assert calls[0]["session"].id == "session-1"
     assert callable(calls[0]["assistant_writer"])
+    assert calls[0]["post_response_runner"] is chat_routes.run_post_response_tasks
+    assert callable(calls[0]["after_user_saved"])
+    assert "memory_manager" in calls[0]
+    assert "memory_vector" in calls[0]
+    assert "webhook_manager" in calls[0]
     assert "chat" not in captures
     assert "agent" not in captures
     assert "build_context" not in captures

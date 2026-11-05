@@ -386,3 +386,25 @@ two old call sites and the new binding independently. This does not
 implement an atomic user/assistant transaction, durable event cursor,
 cross-process generation fence, exactly-once retries, or post-response
 job parity. See [HTTP cutover tests](../../tests/test_mnerys_gateway_web_text_cutover.py).
+
+## Strict HTTP Web post-response callbacks reuse original writers
+
+The strict Web/Gateway binder now provides optional hooks attached to
+the original text-persistence wrapper. They do not write messages.
+The user-message hook runs only after the inherited context port's
+fresh user receipt, and the completed-response hook runs after the
+original admitted assistant saver returns a **new** assistant receipt
+and the original Agent stream has closed. It invokes the existing
+Gateway-admitted `dispatch_post_response` and inherited
+`run_post_response_tasks` implementation without creating a job
+queue, scheduler, SQL write path or replay-side effect.
+
+Each hook is invoked at most once in its original detached run and
+never by an SSE subscriber. An ambiguous writer failure is not
+retried, a cancelled partial never counts as a completed reply, and
+errors after confirmed persistence do not invalidate its receipt.
+The existing HTTP text-only branch stays disabled by default.
+The memory/skill extraction policies, full Web metadata, durable
+job idempotency and cross-worker transactions remain open acceptance.
+[Post-response acceptance](../../tests/test_mnerys_gateway_web_post_response.py)
+covers these boundaries.
