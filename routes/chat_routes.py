@@ -34,7 +34,7 @@ from src import agent_runs
 from src.turn_service import turn_service
 from src.gateway_stream_delivery import should_detach_stream
 from src.gateway_post_response import post_response_extraction_allowed
-from src.gateway_turns import gateway_turns
+from src.gateway_turns import gateway_turns, WebTurnComposition
 from src.gateway_web_text_cutover import (
     eligible_strict_web_text_turn, parse_strict_web_text_attachment_ids,
 )
@@ -85,6 +85,7 @@ from routes.chat_helpers import (
     clean_repeated_assistant_content,
     _allowed_models_for_request,
     _enforce_chat_privileges,
+    LegacyChatContextPorts,
 )
 from src.image_model_ids import looks_like_image_generation_model
 from src.tool_policy import (
@@ -2695,7 +2696,10 @@ def setup_chat_routes(
                     notes_db.close()
             selected_notes_context = _format_selected_notes_context(selected_notes)
 
-            if tool_approval_id:
+            # The Gateway-composed path decides the one-use approval inside
+            # compose_web_turn; the legacy branch must not consume it first.
+            _web_cutover = os.environ.get("MNERYS_M21_WEB_CORE_CUTOVER") == "1"
+            if tool_approval_id and not _web_cutover:
                 # The pending record's *digest-bound server origin*, not a
                 # client gateway_profile hint or a short-lived run buffer,
                 # decides which adapter may consume its one-use grant.
@@ -2763,7 +2767,7 @@ def setup_chat_routes(
                     allow_web_search = "true"
                     _search_enabled = True
                 chat_mode = "agent"
-            else:
+            elif not _web_cutover:
                 # A normal user message supersedes the card that was waiting
                 # in this thread. Retire its opaque grant, but preserve the
                 # originating provenance for this turn so dismissing a card
@@ -2815,51 +2819,54 @@ def setup_chat_routes(
             # Only now is the resolved model and session owner authoritative.
             # The Gateway preserves the original contextual mode ordering;
             # Web provides server-owned history/path lookups, not grants.
-            _post_session_route = gateway_turns.reconcile_post_session_route(
-                _admitted_session, sess,
-                context_owner=owner,
-                message=message,
-                chat_mode=chat_mode,
-                auto_escalated=auto_escalated,
-                tool_intent=_tool_intent,
-                workspace_agent_intent=_workspace_agent_intent,
-                workspace=workspace,
-                allow_bash=allow_bash,
-                explicit_browser_intent=_explicit_browser_intent,
-                clean_route_requested=_clean_v3_route_requested,
-                recent_private_browser_success_lookup=lambda: _has_recent_private_browser_success(sess),
-                contextual_web_followup_lookup=lambda: _is_contextual_web_followup(message, sess),
-                contextual_browser_followup_lookup=lambda: _is_contextual_browser_followup(message, sess),
-                workspace_from_message_lookup=lambda: _resolve_workspace_from_message_path(
-                    request, message,
-                ),
-            )
-            chat_mode = _post_session_route.chat_mode
-            auto_escalated = _post_session_route.auto_escalated
-            _tool_intent = _post_session_route.tool_intent
-            _workspace_agent_intent = _post_session_route.workspace_agent_intent
-            workspace = _post_session_route.workspace
-            allow_bash = _post_session_route.allow_bash
-            _explicit_browser_intent = _post_session_route.explicit_browser_intent
-            _clean_v3_private_browser_warm = _post_session_route.private_browser_warm
-            _contextual_browser_turn_followup = _post_session_route.contextual_browser_followup
-            logger.info(
-                "clean v3 private-browser capability: route=%s warm=%s",
-                _clean_v3_route_requested,
-                _clean_v3_private_browser_warm,
-            )
-            for _route_event in _post_session_route.escalation_events:
-                if _route_event == "clean_route":
-                    logger.info("chat→agent route ownership: clean v3 persisted endpoint")
-                elif _route_event == "contextual_web":
-                    logger.info(
-                        "chat→agent auto-escalation: category=%s reason=%s",
-                        _tool_intent.category, _tool_intent.reason,
-                    )
-                elif _route_event == "contextual_browser":
-                    logger.info("chat→agent auto-escalation: contextual browser/form follow-up")
-                elif _route_event == "workspace_path":
-                    logger.info("chat→agent auto-escalation: explicit path workspace=%s", workspace)
+            # The composed cutover path reconciles the post-session route
+            # inside compose_web_turn; do not run it twice.
+            if not _web_cutover:
+                _post_session_route = gateway_turns.reconcile_post_session_route(
+                    _admitted_session, sess,
+                    context_owner=owner,
+                    message=message,
+                    chat_mode=chat_mode,
+                    auto_escalated=auto_escalated,
+                    tool_intent=_tool_intent,
+                    workspace_agent_intent=_workspace_agent_intent,
+                    workspace=workspace,
+                    allow_bash=allow_bash,
+                    explicit_browser_intent=_explicit_browser_intent,
+                    clean_route_requested=_clean_v3_route_requested,
+                    recent_private_browser_success_lookup=lambda: _has_recent_private_browser_success(sess),
+                    contextual_web_followup_lookup=lambda: _is_contextual_web_followup(message, sess),
+                    contextual_browser_followup_lookup=lambda: _is_contextual_browser_followup(message, sess),
+                    workspace_from_message_lookup=lambda: _resolve_workspace_from_message_path(
+                        request, message,
+                    ),
+                )
+                chat_mode = _post_session_route.chat_mode
+                auto_escalated = _post_session_route.auto_escalated
+                _tool_intent = _post_session_route.tool_intent
+                _workspace_agent_intent = _post_session_route.workspace_agent_intent
+                workspace = _post_session_route.workspace
+                allow_bash = _post_session_route.allow_bash
+                _explicit_browser_intent = _post_session_route.explicit_browser_intent
+                _clean_v3_private_browser_warm = _post_session_route.private_browser_warm
+                _contextual_browser_turn_followup = _post_session_route.contextual_browser_followup
+                logger.info(
+                    "clean v3 private-browser capability: route=%s warm=%s",
+                    _clean_v3_route_requested,
+                    _clean_v3_private_browser_warm,
+                )
+                for _route_event in _post_session_route.escalation_events:
+                    if _route_event == "clean_route":
+                        logger.info("chat→agent route ownership: clean v3 persisted endpoint")
+                    elif _route_event == "contextual_web":
+                        logger.info(
+                            "chat→agent auto-escalation: category=%s reason=%s",
+                            _tool_intent.category, _tool_intent.reason,
+                        )
+                    elif _route_event == "contextual_browser":
+                        logger.info("chat→agent auto-escalation: contextual browser/form follow-up")
+                    elif _route_event == "workspace_path":
+                        logger.info("chat→agent auto-escalation: explicit path workspace=%s", workspace)
         except SessionNotFoundError as e:
             raise HTTPException(404, str(e))
         except (ValueError, ValidationError):
@@ -2878,677 +2885,879 @@ def setup_chat_routes(
         # Ensure session has auth headers
         resolve_session_auth(sess, session, owner=effective_user(request))
 
-        # Check for research_pending BEFORE mode persist overwrites it
-        # An approval response resumes the sealed agent action.  Do not let
-        # mutable form fields, or a stale research_pending session marker,
-        # consume the one-use grant on the unrelated research path.
-        do_research = (
-            not tool_approval_continuation
-            and str(use_research).lower() == "true"
+        # ------------------------------------------------------------------ #
+        # Gateway-composed Web turn: one admitted composition operation
+        # replaces the inline intent/policy chain when the operator enables
+        # MNERYS_M21_WEB_CORE_CUTOVER. Research and image-generation turns
+        # stay on the legacy path for now.
+        # ------------------------------------------------------------------ #
+        _web_cutover = (
+            os.environ.get("MNERYS_M21_WEB_CORE_CUTOVER") == "1"
+            and str(use_research or "").lower() != "true"
+            and not _is_image_generation_session(sess, owner=effective_user(request))
         )
-        if not do_research and not tool_approval_continuation:
-            if get_session_mode(session) == 'research_pending':
-                do_research = True
-                logger.info(f"Session {session} in research_pending — auto-triggering research")
-
-        att_ids = []
-        if tool_approval_continuation:
-            # Browser composer state is unrelated to the action that was
-            # reviewed.  The original turn remains in session history.
-            att_ids = []
-        elif body and isinstance(body.get("attachments"), list):
-            att_ids = [str(x) for x in body["attachments"]]
-        elif attachments:
-            try:
-                att_ids = [str(x) for x in json.loads(attachments)]
-            except Exception as e:
-                logger.warning("Failed to parse attachments JSON, ignoring attachments", exc_info=e)
-
-        image_generation_session = _is_image_generation_session(sess, owner=effective_user(request))
-        no_memory = str(form_data.get("no_memory", "")).lower() == "true"
-        if image_generation_session:
-            no_memory = True
-            use_rag = "false"
-            search_context = None
-        pre_context_tool_policy = build_effective_tool_policy(
-            last_user_message=message,
-        )
-        allow_tool_preprocessing = not pre_context_tool_policy.block_all_tool_calls
-        foreground_policy = gateway_turns.resolve_foreground_policy(
-            _admitted_session,
-            allowed_models=_allowed_models_for_request(request),
-        )
-
-        # The already owner-admitted foreground policy is the sole source of
-        # fallback model names for this request. Never accept client-provided
-        # candidates, endpoints or credential headers as a Gateway allowance.
-        _strict_web_fallback_models = (
-            frozenset(candidate[1] for candidate in foreground_policy.policy.fallback_candidates)
-            if foreground_policy.enabled else frozenset()
-        )
-        _strict_web_text_attachment_ids = parse_strict_web_text_attachment_ids(
-            form_data, body, att_ids,
-        )
-        # JSON-only clients must explicitly opt out of RAG and memory as
-        # well. Do not change inherited Web feature parsing for other runs.
-        _strict_no_memory = no_memory or (
-            type(body) is dict and body.get("no_memory") is True
-        )
-        _strict_use_rag = use_rag if use_rag is not None else (
-            "false" if type(body) is dict and body.get("use_rag") is False
-            else None
-        )
-        # First real, explicitly opted-in Web/Core cutover path: only plain
-        # text without tools, media, memory, RAG, research or editor state.
-        # Normal Web sessions keep the inherited path. Admission, writer and
-        # model selection still belong to their original Gateway/Loop.
-        if eligible_strict_web_text_turn(
-            server_enabled=os.environ.get("MNERYS_M21_WEB_TEXT_ROUTING") == "1",
-            form_values=form_data,
-            json_values=body,
-            message=message,
-            chat_mode=chat_mode,
-            no_memory=_strict_no_memory,
-            use_rag=_strict_use_rag,
-            use_web=use_web,
-            allow_web_search=allow_web_search,
-            thinking_mode=thinking_mode,
-            reasoning_effort=reasoning_effort,
-            temperature_override=temperature_override,
-            selected_endpoint_id=selected_endpoint_id,
-            approved_plan=approved_plan,
-            preset_id=preset_id,
-            active_doc_id=active_doc_id,
-            active_doc_state=active_doc_state,
-            active_email_uid=active_email_uid,
-            selected_note_ids=selected_note_ids,
-            attachments=_strict_web_text_attachment_ids,
-            workspace=workspace,
-            workspace_rejected=workspace_rejected,
-            client_runtime_context=client_runtime_context,
-            incognito=incognito,
-            compare_mode=compare_mode,
-            plan_mode=plan_mode,
-            tool_approval_continuation=tool_approval_continuation,
-            do_research=do_research,
-            image_generation_session=image_generation_session,
-            foreground_fallback_enabled=foreground_policy.enabled,
-            foreground_fallback_models=_strict_web_fallback_models,
-            external_untrusted_context_seen=external_untrusted_context_seen,
-            internal_tool_request=is_internal_tool_request(request),
-            agent_permitted=bool(_request_privileges(
-                request, effective_user(request),
-            ).get("can_use_agent", True)),
-        ):
-            return start_strict_text_web_response(
-                gateway=gateway_turns,
-                admission=_admitted_session,
-                session=sess,
-                text=message,
-                attachment_ids=_strict_web_text_attachment_ids,
-                session_manager=session_manager,
+        if _web_cutover:
+            _prepared = await gateway_turns.compose_web_turn(WebTurnComposition(
+                admission=_admitted_session, session=sess, session_id=session,
+                message=message,
+                chat_mode=chat_mode,
+                att_ids=tuple(
+                    [str(x) for x in body["attachments"]]
+                    if body and isinstance(body.get("attachments"), list)
+                    else (
+                        [str(x) for x in json.loads(attachments)]
+                        if attachments
+                        else []
+                    )
+                ),
+                search_enabled=bool(web_search_enabled_for_turn(allow_web_search, use_web)),
+                use_web=use_web,
+                use_rag=use_rag,
+                no_memory=str(form_data.get("no_memory", "")).lower() == "true",
+                incognito=incognito,
+                compare_mode=compare_mode,
+                search_context=search_context,
+                preset_id=preset_id,
+                thinking_mode=thinking_mode,
+                reasoning_effort=reasoning_effort,
+                temperature_override=temperature_override,
+                plan_mode=plan_mode,
+                approved_plan=approved_plan,
+                allow_bash=allow_bash,
+                allow_web_search=allow_web_search,
+                tool_approval_id=tool_approval_id,
+                tool_approval_decision=tool_approval_decision,
+                workspace=workspace,
+                active_doc_id=active_doc_id,
+                active_doc_state=active_doc_state,
+                active_email=active_email_ctx,
+                selected_notes_context=_format_selected_notes_context(selected_notes),
+                selected_note_ids=tuple(selected_note_ids),
+                client_runtime_context=client_runtime_context,
+                internal_tool_request=is_internal_tool_request(request),
+                experiment_header=request.headers.get("x-odysseus-routing-experiment"),
+                privileges=_request_privileges(request, effective_user(request)),
+                global_disabled_tools=tuple(get_setting("disabled_tools", []) or []),
+                browser_tools=frozenset(_BROWSER_MCP_TOOLS),
+                allowed_models=_allowed_models_for_request(request),
+                selected_endpoint_id=selected_endpoint_id,
                 chat_handler=chat_handler,
                 chat_processor=chat_processor,
-                privileges=_request_privileges(
-                    request, effective_user(request),
+                ports=LegacyChatContextPorts(),
+                research_requested=bool(str(use_research).lower() == "true"),
+                research_pending=(get_session_mode(session) == "research_pending"),
+                tool_schema_full_route=(_effective_tool_schema_mode == "full"),
+                clean_route_requested=_clean_v3_route_requested,
+                initial_tool_intent=_tool_intent,
+                initial_workspace_agent_intent=_workspace_agent_intent,
+                initial_auto_escalated=auto_escalated,
+                initial_local_browser_render_lookup=lambda: (
+                    _local_media_needs_browser_render(message)
+                    or _native_runtime_requires_local_browser(client_runtime_context)
                 ),
-                assistant_writer=save_assistant_response,
-                interrupted_writer=append_interrupted_assistant_response,
-                enable_model_fallback=foreground_policy.enabled,
-                allowed_fallback_models=_strict_web_fallback_models,
-                post_response_runner=run_post_response_tasks,
-                memory_manager=memory_manager,
-                memory_vector=memory_vector,
-                webhook_manager=webhook_manager,
-                after_user_saved=lambda: fire_message_event(
-                    request, webhook_manager, session, sess, message,
-                    compare_mode=False,
+                recent_private_browser_success_lookup=lambda: _has_recent_private_browser_success(sess),
+                contextual_web_followup_lookup=lambda: _is_contextual_web_followup(message, sess),
+                contextual_browser_followup_lookup=lambda: _is_contextual_browser_followup(message, sess),
+                workspace_from_message_lookup=lambda: _resolve_workspace_from_message_path(request, message),
+                web_link_followup_lookup=lambda: _is_contextual_web_link_followup(
+                    getattr(sess, "history", []) or [], message,
                 ),
-            )
-
-        # Decide once whether this turn runs on the compact (clean v3)
-        # runtime. Every input is final here; the native workspace term of
-        # the contract policy cannot veto a requested clean route. This one
-        # value prepares the turn below and stamps its contract later, and
-        # the agent loop dispatches on that stamp.
-        _compact_preview_turn = gateway_turns.select_compact_runtime(
-            _admitted_session, sess,
-            context_owner=effective_user(request),
-            clean_route_requested=_clean_v3_route_requested,
-            full_schema_route=(_effective_tool_schema_mode == "full"),
-            exact_tool_approval=exact_tool_approval,
-            runtime_surface=str((client_runtime_context or {}).get("surface") or ""),
-            agent_mode=(chat_mode == "agent"),
-            agent_permitted=bool(_request_privileges(
-                request, effective_user(request),
-            ).get("can_use_agent", True)),
-            image_generation=image_generation_session,
-        )
-        # A compact turn resolves its typed context window once, here, with
-        # the session's provider credentials. History shaping below and the
-        # compact runtime both reuse this exact object, so the turn neither
-        # probes twice nor mixes the legacy untyped lookup into it.
-        _compact_context_resolution = None
-        if _compact_preview_turn:
-            from src.agent_runtime.context_resolution import resolve_effective_context
-            _compact_context_resolution = await resolve_effective_context(
-                sess.endpoint_url, sess.model, headers=sess.headers,
-                client_runtime_context=client_runtime_context,
-            )
-
-        # Build shared context (stream path uses enhanced_message for context preface)
-        ctx = await build_chat_context(
-            sess, request, chat_handler, chat_processor,
-            admission=_admitted_session,
-            message=message,
-            session_id=session,
-            selected_notes_context=selected_notes_context,
-            preset_id=preset_id,
-            att_ids=att_ids,
-            use_web=use_web,
-            use_rag=use_rag,
-            time_filter=time_filter,
-            incognito=incognito,
-            no_memory=no_memory,
-            search_context=search_context,
-            compare_mode=compare_mode,
-            webhook_manager=webhook_manager,
-            use_enhanced_message=True,
-            # Skills index only ships when the model can actually call
-            # manage_skills (agent mode). In plain chat or incognito the
-            # index would be useless / unwanted noise.
-            agent_mode=(chat_mode == "agent"),
-            allow_tool_preprocessing=allow_tool_preprocessing,
-            defer_context_shaping=foreground_policy.enabled,
-            continuation_context_message=(
-                pending_tool_approval.continuation_query
-                if exact_tool_approval
-                and pending_tool_approval
-                and pending_tool_approval.continuation_query
-                else None
-            ),
-            persist_user_message=not tool_approval_continuation and not is_internal_tool_request(request),
-            context_resolution=_compact_context_resolution,
-            interaction_mode=chat_mode,
-            auto_escalated=auto_escalated,
-        )
-        gateway_turns.append_internal_context(
-            _admitted_session, foreground_policy, ctx, message,
-            internal_tool_request=is_internal_tool_request(request),
-        )
-
-        _research_flags = {"do": do_research}  # Mutable container for generator scope
-
-        # Browser turns explicitly declare whether the editor is visible. The
-        # visible active tab is authoritative; a minimized/closed editor must
-        # not be resurrected from session or process-global state. Legacy API
-        # clients that omit active_doc_state retain the old fallback behavior.
-        active_doc = None
-        legacy_active_doc_fallback = not active_doc_state
-        _doc_db = SessionLocal()
-        try:
-            if active_doc_id:
-                logger.info(f"[doc-inject] active_doc_id from frontend: {active_doc_id}")
-                # Scope to the caller's documents. The session and in-memory
-                # fallbacks below are already owner/session-bound; this
-                # explicit-id path looked up by id alone, so a user could
-                # inject another user's document by passing its id.
-                _doc_q = _doc_db.query(DBDocument).filter(DBDocument.id == active_doc_id)
-                active_doc = _owner_session_filter(_doc_q, ctx.user).first()
-                if active_doc:
-                    doc_session = active_doc.session_id
-                    doc_owner = getattr(active_doc, "owner", None)
-                    if doc_owner and ctx.user and doc_owner != ctx.user:
-                        logger.warning(
-                            "[doc-inject] ignoring active_doc_id %s owned by another user",
-                            active_doc_id,
-                        )
-                        active_doc = None
-                    else:
-                        # NOTE: previously dropped the doc when doc.session_id
-                        # != current chat session — but that broke the common
-                        # case of "open an email draft from one chat, ask a
-                        # different chat to write into it". The frontend only
-                        # sends active_doc_id only for the currently visible
-                        # active editor tab,
-                        # the UI, and we already owner-checked above, so trust
-                        # the explicit signal. We just log the mismatch and
-                        # re-bind the doc to the current session for ownership
-                        # and document-history continuity.
-                        if doc_session and doc_session != session:
-                            logger.info(
-                                "[doc-inject] cross-session active_doc_id %s (was session %s, now %s) — accepting and rebinding",
-                                active_doc_id, doc_session, session,
-                            )
-                            try:
-                                active_doc.session_id = session
-                                _doc_db.commit()
-                            except Exception as _e:
-                                _doc_db.rollback()
-                                logger.warning(f"[doc-inject] session rebind failed: {_e}")
-                        logger.info(f"[doc-inject] found by ID: title={active_doc.title!r}, lang={active_doc.language!r}, is_active={active_doc.is_active}, content_len={len(active_doc.current_content or '')}")
-                else:
-                    logger.warning(f"[doc-inject] NOT FOUND by ID {active_doc_id}")
-            if not active_doc and legacy_active_doc_fallback:
-                _email_doc_q = _doc_db.query(DBDocument).filter(
-                    DBDocument.session_id == session,
-                    DBDocument.is_active == True,
-                    DBDocument.language == "email",
+                recent_web_event_lookup=lambda: _has_recent_web_tool_event(sess),
+                message_denies_web_lookup=lambda: _explicitly_denies_web_lookup(message),
+                successful_session_tool_names=lambda: _successful_session_tool_names(sess),
+                most_recent_successful_web_tool=lambda: _most_recent_successful_web_tool(sess),
+                structured_document_intent_lookup=lambda: _prefers_structured_document_tools(message),
+                on_user_message_persisted=None,
+            ))
+            if _prepared.approval_denied:
+                return StreamingResponse(
+                    _tool_approval_resolution_stream(_prepared.approval_decision),
+                    media_type="text/event-stream",
                 )
-                active_doc = _owner_session_filter(_email_doc_q, ctx.user).order_by(DBDocument.updated_at.desc()).first()
-                if active_doc:
-                    logger.info(f"[doc-inject] found email draft by session fallback: title={active_doc.title!r}")
-            if not active_doc and legacy_active_doc_fallback:
-                _session_doc_q = _doc_db.query(DBDocument).filter(
-                    DBDocument.session_id == session,
-                    DBDocument.is_active == True
+            if _prepared.pending_tool_approval is not None:
+                if not _mark_tool_approval_resolved(
+                    sess, tool_approval_id, _prepared.approval_decision,
+                ):
+                    logger.warning(
+                        "Tool approval %s was consumed but its persisted card could not be marked resolved",
+                        tool_approval_id,
+                    )
+            ctx = _prepared.context
+            foreground_policy = _prepared.foreground_policy
+            tool_policy = _prepared.tool_policy
+            disabled_tools = set(_prepared.disabled_tools)
+            _request_authority = _prepared.request_authority
+            _turn_contract = _prepared.turn_contract
+            _final_tool_policy = _prepared.final_policy
+            _compact_preview_turn = _prepared.compact_preview
+            _compact_context_resolution = None
+            if _compact_preview_turn:
+                from src.agent_runtime.context_resolution import resolve_effective_context
+                _compact_context_resolution = await resolve_effective_context(
+                    sess.endpoint_url, sess.model, headers=sess.headers,
+                    client_runtime_context=client_runtime_context,
                 )
-                active_doc = _owner_session_filter(_session_doc_q, ctx.user).order_by(DBDocument.updated_at.desc()).first()
-                if active_doc:
-                    logger.info(f"[doc-inject] found by session fallback: title={active_doc.title!r}")
-            # Last resort: the document the agent itself just created/edited
-            # (tracked in-memory by the tool layer). This rescues docs that
-            # got orphaned from their session (session_id NULL) — otherwise
-            # neither lookup above can associate them with this conversation,
-            # so the agent never sees what it just wrote. Guarded so we never
-            # leak a doc that belongs to a DIFFERENT session.
-            if not active_doc and legacy_active_doc_fallback:
+            active_doc = None
+            legacy_active_doc_fallback = not active_doc_state
+            if active_doc_id and _prepared.pending_tool_approval is None:
+                _doc_db = SessionLocal()
                 try:
-                    from src.agent_tools.document_tools import get_active_document
-                    _mem_id = get_active_document()
-                    if _mem_id:
-                        _mem_q = _doc_db.query(DBDocument).filter(DBDocument.id == _mem_id)
-                        cand = _owner_session_filter(_mem_q, ctx.user).first()
-                        is_sft_fixture_user = str(ctx.user or "").startswith("sft_")
-                        if (
-                            cand
-                            and cand.session_id == session
-                            or (
-                                cand
-                                and not cand.session_id
-                                and not is_sft_fixture_user
+                    _doc_q = _doc_db.query(DBDocument).filter(DBDocument.id == active_doc_id)
+                    active_doc = _owner_session_filter(_doc_q, ctx.user).first()
+                    if active_doc:
+                        doc_owner = getattr(active_doc, "owner", None)
+                        if doc_owner and ctx.user and doc_owner != ctx.user:
+                            logger.warning(
+                                "[doc-inject] ignoring active_doc_id %s owned by another user",
+                                active_doc_id,
                             )
-                        ):
-                            active_doc = cand
-                            logger.info(f"[doc-inject] found by in-memory active id: title={active_doc.title!r} (session_id={cand.session_id!r})")
-                except Exception as _e:
-                    logger.debug(f"[doc-inject] in-memory fallback failed: {_e}")
-            if not active_doc:
-                logger.info(f"[doc-inject] no active doc for session {session}")
-            if active_doc:
-                _doc_db.expunge(active_doc)
-        except Exception as e:
-            logger.warning(f"Failed to query active document: {e}")
-        finally:
-            _doc_db.close()
-
-        # Active-document ownership and visible-editor state have been
-        # resolved above. Promotion still requires the admitted session;
-        # it never grants document-writing authority.
-        _document_edit_route = gateway_turns.promote_document_edit_route(
-            _admitted_session, sess,
-            context_owner=ctx.user,
-            message=message,
-            chat_mode=chat_mode,
-            auto_escalated=auto_escalated,
-            active_document=bool(active_doc),
-        )
-        chat_mode = _document_edit_route.chat_mode
-        auto_escalated = _document_edit_route.auto_escalated
-        if _document_edit_route.edit_requested:
-            logger.info(
-                "chat→agent auto-escalation: active document edit request doc_id=%s",
-                getattr(active_doc, "id", ""),
-            )
-
-        # Build disabled-tools set from frontend toggles + user privileges
-        # Product Agent turns resolve a contract once.  A native desktop/web
-        # surface is still the product surface: its runtime marker must not
-        # bypass the contract and let tool RAG replace (for example) a browser
-        # request with shell tools.  Only an actual environment-owned TUI, or
-        # a native terminal task that explicitly needs its isolated workspace,
-        # retains a separate declared execution contract.
-        _contract_scope = gateway_turns.select_contract_scope(
-            _admitted_session, sess,
-            context_owner=ctx.user,
-            client_runtime_context=client_runtime_context,
-            workspace_agent_intent=_workspace_agent_intent,
-            workspace_bound=bool(workspace),
-            clean_route_requested=_clean_v3_route_requested,
-            full_schema_route=(_effective_tool_schema_mode == "full"),
-            exact_tool_approval=exact_tool_approval,
-        )
-        _native_workspace_contract = _contract_scope.native_workspace_contract
-        _use_turn_contract = _contract_scope.enabled
-        _turn_history = getattr(sess, "history", []) or []
-        # Classify request families once under the issued session admission.
-        # A visible document can be offered without becoming a required call.
-        _initial_turn_capabilities = gateway_turns.classify_turn_capabilities(
-            _admitted_session, sess,
-            context_owner=ctx.user,
-            message=message,
-            use_turn_contract=_use_turn_contract,
-            active_document=bool(active_doc),
-            workspace_bound=bool(workspace),
-            image_attachment=any(
-                str(a.get("mime") or "").startswith("image/")
-                for a in (ctx.preprocessed.attachment_meta or [])
-            ),
-            explicit_browser_intent=_explicit_browser_intent,
-            external_discovery_intent=_external_discovery_intent,
-            private_browser_warm=_clean_v3_private_browser_warm,
-            contextual_browser_followup_lookup=lambda: _is_contextual_browser_followup(
-                message, sess,
-            ),
-        )
-        _corrected_browser_target = _initial_turn_capabilities.corrected_browser_target
-        _turn_capabilities = _initial_turn_capabilities.capabilities
-        _active_turn_capabilities = _initial_turn_capabilities.active_capabilities
-        if _initial_turn_capabilities.image_editing_requested and ctx.preprocessed.attachment_meta:
-            image_refs = ['odysseus://attachment/' + str(a['id']) for a in ctx.preprocessed.attachment_meta
-                          if a.get('id') and str(a.get('mime') or '').startswith('image/')]
-            if image_refs:
-                image_edit_context = {'role': 'system', 'content':
-                    'For the requested image edit, use edit_image with action=prompt and image_id set to the uploaded image reference: '
-                    + ', '.join(image_refs) + '. Pass the requested changes as prompt. The backend sends the actual source pixels; a description or stock-image URL is not an edited image.'}
-                ctx.messages.insert(0, image_edit_context)
-                if foreground_policy.enabled:
-                    getattr(ctx, 'route_messages', ctx.messages).insert(0, dict(image_edit_context))
-        # Same compact-runtime decision that prepared context; the admitted
-        # classifier only supplies candidate families, not execution grants.
-        _clean_v3_preview = _compact_preview_turn
-        if _initial_turn_capabilities.suppress_explicit_web_intent:
-            _explicit_web_intent = False
-        # Bearer credentials get their non-admin restrictions immediately.
-        # The later account privilege pass must occur AFTER optional web/tool
-        # intent routing so those restrictions cannot be re-enabled.
-        _delegated_credential = _admitted_session.principal.delegated
-        disabled_tools = set(execution_limits_for_admission(
-            _admitted_session, None,
-            browser_tools=frozenset(_BROWSER_MCP_TOOLS),
-        ).disabled_tools)
-        # Only disable bash when the caller *explicitly* set it to a falsy
-        # value. When unset (None), defer to per-user privilege checks below.
-        # Web search is per-turn opt-in: either the chat pre-search setting
-        # (`use_web=true`) or agent web toggle (`allow_web_search=true`) must
-        # explicitly enable it.
-        if allow_bash is not None and str(allow_bash).lower() != "true":
-            disabled_tools.add("bash")
-        _model_lower = str(getattr(sess, "model", "") or "").lower()
-        _qwen_tool_router_selected = (
-            "qwen38-tool-router" in _model_lower
-            or "qwen35-9b-tool-router" in _model_lower
-            or "qwen3.5-9b-tool-router" in _model_lower
-            or "odysseus-qwen3.5-9b" in _model_lower
-        )
-        # The admitted Gateway owns Web-intent promotion and the inherited
-        # pre-policy toggle/denylist ordering. Legacy Web helpers supply typed
-        # server-side evidence lazily; the account/global final veto runs next.
-        _web_intent_result = gateway_turns.reconcile_web_intent(
-            _admitted_session, sess,
-            context_owner=ctx.user,
-            message=message,
-            explicit_web_intent=_explicit_web_intent,
-            personal_store_intent=_explicit_personal_store_intent,
-            tool_intent_is_web=bool(
-                _tool_intent and _tool_intent.category == "web"
-            ),
-            capabilities=_turn_capabilities,
-            clean_route_requested=_clean_v3_route_requested,
-            allow_web_search=allow_web_search,
-            search_enabled=_search_enabled,
-            explicit_browser_intent=_explicit_browser_intent,
-            local_browser_render_intent=_local_browser_render_intent,
-            exact_url_fetch_intent=_exact_url_fetch_intent,
-            use_turn_contract=_use_turn_contract,
-            full_schema_route=(_effective_tool_schema_mode == "full"),
-            workspace_bound=bool(workspace),
-            base_disabled_tools=disabled_tools,
-            web_link_followup_lookup=lambda: _is_contextual_web_link_followup(
-                getattr(sess, "history", []) or [], message,
-            ),
-            contextual_web_followup_lookup=lambda: _is_contextual_web_followup(
-                message, sess,
-            ),
-            recent_web_event_lookup=lambda: _has_recent_web_tool_event(sess),
-            message_denies_lookup=lambda: _explicitly_denies_web_lookup(message),
-        )
-        _explicit_web_intent = _web_intent_result.explicit_web_intent
-        _contextual_web_turn_followup = _web_intent_result.contextual_web_turn_followup
-        _search_enabled = _web_intent_result.search_enabled
-        allow_web_search = _web_intent_result.allow_web_search
-        disabled_tools = set(_web_intent_result.disabled_tools)
-
-        # Nobody/incognito mode: deny tools that would expose the user's
-        # persistent memory, past chats, or other identity-linked data.
-        if incognito:
-            disabled_tools.update({
-                "manage_memory",      # persistent memory store
-                "search_chats",       # past chat history
-                "manage_skills",      # skill presets tied to user
-                "create_session",
-                "list_sessions",
-                "manage_session",
-                "send_to_session",
-                "chat_with_model",
-            })
-
-        # Active email reader open → strip the tools that let the agent drift
-        # away from the visible email or skip review. The only allowed compose
-        # path is ui_control open_email_reply, which opens the same draft editor
-        # as the Reply button with the generated body pre-filled. This prevents
-        # the model from falling back to direct SMTP when it botches a draft
-        # call, and prevents fake email-shaped documents.
-        if active_email_ctx and active_email_ctx.get("uid"):
-            disabled_tools.update({
-                "create_document",
-                "send_email",
-                "reply_to_email",
-                "mcp__email__send_email",
-                "mcp__email__reply_to_email",
-            })
-
-        # Server-owned final veto after request intent and Web-specific gating.
-        # The adapter supplies only trusted account/global config and the
-        # already-computed denylist. No client hint restores denied tools.
-        _user = effective_user(request)
-        _privs = _request_privileges(request, _user)
-        from src.settings import get_setting
-        _global_disabled = get_setting("disabled_tools", [])
-        _final_tool_policy = gateway_turns.finalize_tool_policy(
-            _admitted_session, sess,
-            context_owner=ctx.user,
-            base_disabled_tools=disabled_tools,
-            privileges=_privs,
-            global_disabled_tools=_global_disabled,
-            browser_tools=frozenset(_BROWSER_MCP_TOOLS),
-            last_user_message=message,
-            chat_mode=chat_mode,
-            auto_escalated=auto_escalated,
-            workspace_agent_intent=_workspace_agent_intent,
-            use_turn_contract=_use_turn_contract,
-            allow_browser_for_web_turn=_allow_browser_for_web_turn,
-            compare_mode=compare_mode,
-            plan_mode=plan_mode,
-        )
-        if not _final_tool_policy.allow_research:
-            _research_flags["do"] = False
-        if not _final_tool_policy.allow_agent:
-            _effective_mode = "chat"
-        chat_mode = _final_tool_policy.chat_mode
-        tool_policy = _final_tool_policy.policy
-        disabled_tools = tool_policy.all_disabled_names()
-        if str(_user or "").startswith("sft_"):
-            logger.info(
-                "[sft-policy-audit] owner=%s personal_disabled=%s "
-                "compare=%s explicit_web=%s privileges=%s global_disabled=%s",
-                _user,
-                sorted(set(disabled_tools) & {"manage_notes", "manage_calendar", "manage_tasks"}),
-                bool(compare_mode),
-                bool(_explicit_web_intent),
-                _privs,
-                _global_disabled,
-            )
-        disabled_tools = tool_policy.all_disabled_names()
-        # Server-derived runtime toggles now belong to the admitted Gateway.
-        # A client-provided web_ui_state cannot override final tool policy.
-        _runtime_ui_projection = gateway_turns.project_runtime_ui_state(
-            _admitted_session, sess,
-            context_owner=ctx.user,
-            client_runtime_context=client_runtime_context,
-            policy=tool_policy,
-            use_rag=use_rag,
-            use_research=form_data.get("use_research"),
-            incognito=bool(incognito),
-        )
-        client_runtime_context = _runtime_ui_projection.context
-        # Capture permission state before schema selection/reconciliation.
-        # Only deterministic request intent supplies grants, never inventory.
-        _request_authority = gateway_turns.build_authority(
-            _admitted_session, message,
-            workspace=workspace,
-            history=_turn_history,
-            policy=tool_policy,
-            client_runtime_context=client_runtime_context,
-            active_document=bool(active_doc),
-            image_attachment=any(str(a.get('mime') or '').startswith('image/')
-                                 for a in (ctx.preprocessed.attachment_meta or [])),
-            capabilities=({'search_browser'} if (
-                _explicit_browser_intent or _external_discovery_intent
-            ) else ()),
-            internal_tool_request=is_internal_tool_request(request),
-            exact_approval=exact_tool_approval,
-        )
-        _turn_contract = None
-        # Image models execute directly, not through the text-agent inventory.
-        # Keep the permission policy above, but do not apply routing omissions
-        # as denials to this separate execution path.
-        if _use_turn_contract and chat_mode == "agent" and not image_generation_session:
-            # Schema and owner/MCP restrictions now have one admitted
-            # Gateway entry point. Intent-based selection remains below.
-            _tool_inventory = gateway_turns.prepare_tool_inventory(
-                _admitted_session, sess,
-                context_owner=ctx.user,
-                base_policy=tool_policy,
-                base_disabled_tools=disabled_tools,
-                message=message,
-                plan_mode=plan_mode,
-                native_workspace_contract=_native_workspace_contract,
-            )
-            _contract_schemas = _tool_inventory.schemas
-            _owner_blocked = _tool_inventory.owner_blocked
-            disabled_tools = set(_tool_inventory.disabled_tools)
-            _contract_policy = _tool_inventory.policy
-            # Selection hints are derived from the admitted session and
-            # inherited classifier. Only the contract/authority can offer or
-            # execute the resulting exact tool names.
-            _selected_intent = gateway_turns.select_tool_intent(
-                _admitted_session, sess,
-                context_owner=ctx.user,
-                inventory=_tool_inventory,
-                message=message,
-                capabilities=_turn_capabilities,
-                active_capabilities=_active_turn_capabilities,
-                warm_tools=_successful_session_tool_names(sess),
-                recent_web_tool_lookup=lambda: _most_recent_successful_web_tool(sess),
-                active_document=bool(active_doc),
-                contextual_browser_followup=_contextual_browser_turn_followup,
-                contextual_web_followup=_contextual_web_turn_followup,
-                active_email_review=bool(
-                    active_email_ctx and active_email_ctx.get("uid")
-                ),
-                corrected_browser_target=bool(_corrected_browser_target),
-            )
-            _warm_tools = _selected_intent.warm_tools
-            _selected_tools = _selected_intent.selected_tools
-            _required_tools = _selected_intent.required_tools
-            _turn_capabilities = _selected_intent.capabilities
-            _active_turn_capabilities = _selected_intent.active_capabilities
-            _contract_policy = _selected_intent.policy
+                            active_doc = None
+                        else:
+                            if active_doc.session_id and active_doc.session_id != session:
+                                try:
+                                    active_doc.session_id = session
+                                    _doc_db.commit()
+                                except Exception as _e:
+                                    _doc_db.rollback()
+                                    logger.warning(f"[doc-inject] session rebind failed: {_e}")
+                except Exception as e:
+                    logger.warning(f"Failed to query active document: {e}")
+                    if active_doc:
+                        _doc_db.expunge(active_doc)
+                finally:
+                    _doc_db.close()
+            active_email_ctx = _prepared.active_email
+            _search_enabled = _prepared.search_enabled
+            _explicit_web_intent = _prepared.explicit_web_intent
+            _explicit_browser_intent = _prepared.explicit_browser_intent
+            _tool_intent = _prepared.tool_intent
+            _workspace_agent_intent = _prepared.workspace_agent_intent
+            _foreground_policy = _prepared.foreground_policy
+            external_untrusted_context_seen = _prepared.external_untrusted_context_seen
+            exact_tool_approval = _prepared.exact_tool_approval
+            pending_tool_approval = _prepared.pending_tool_approval
+            image_generation_session = False
+            allow_tool_preprocessing = not build_effective_tool_policy(
+                last_user_message=message,
+            ).block_all_tool_calls
+            do_research = False
+            _research_flags = {"do": False}
+            effective_do_research = False
+            _clean_v3_preview = _compact_preview_turn
+            _turn_history = getattr(sess, "history", []) or []
+            # Persist session mode after policy/privilege gates so blocked
+            # research turns remain ordinary chat/agent streams.
+            _effective_mode = chat_mode or "chat"
+            if _effective_mode in ("agent", "research", "chat"):
+                set_session_mode(session, _effective_mode)
+            image_refs = []
             if (
-                str(_user or "").startswith("sft_")
-                and _selected_intent.fixture_personal_tools
-            ):
-                logger.info(
-                    "[sft-policy-audit] explicit personal contract tools=%s capabilities=%s",
-                    sorted(_selected_intent.fixture_personal_tools),
-                    sorted(_turn_capabilities),
+                _turn_contract is not None
+                and getattr(ctx, "preprocessed", None) is not None
+                and ctx.preprocessed.attachment_meta
+                and any(
+                    str(a.get("mime") or "").startswith("image/")
+                    for a in ctx.preprocessed.attachment_meta
                 )
-            _resolved_routed_contract = gateway_turns.resolve_routed_contract(
+            ):
+                _classified_image_edit = gateway_turns.classify_turn_capabilities(
+                    _admitted_session, sess,
+                    context_owner=ctx.user,
+                    message=message,
+                    use_turn_contract=True,
+                    active_document=bool(active_doc),
+                    workspace_bound=bool(workspace),
+                    image_attachment=True,
+                    explicit_browser_intent=_explicit_browser_intent,
+                    external_discovery_intent=_external_discovery_intent,
+                    private_browser_warm=False,
+                    contextual_browser_followup_lookup=lambda: _is_contextual_browser_followup(message, sess),
+                )
+                if _classified_image_edit.image_editing_requested:
+                    image_refs = [
+                        "odysseus://attachment/" + str(a["id"])
+                        for a in ctx.preprocessed.attachment_meta
+                        if a.get("id") and str(a.get("mime") or "").startswith("image/")
+                    ]
+            if image_refs:
+                image_edit_context = {"role": "system", "content":
+                    "For the requested image edit, use edit_image with action=prompt and image_id set to the uploaded image reference: "
+                    + ", ".join(image_refs) + ". Pass the requested changes as prompt. The backend sends the actual source pixels; a description or stock-image URL is not an edited image."}
+                ctx.messages.insert(0, image_edit_context)
+                if foreground_policy is not None and foreground_policy.enabled:
+                    getattr(ctx, "route_messages", ctx.messages).insert(0, dict(image_edit_context))
+        else:
+            # Check for research_pending BEFORE mode persist overwrites it
+            # An approval response resumes the sealed agent action.  Do not let
+            # mutable form fields, or a stale research_pending session marker,
+            # consume the one-use grant on the unrelated research path.
+            do_research = (
+                not tool_approval_continuation
+                and str(use_research).lower() == "true"
+            )
+            if not do_research and not tool_approval_continuation:
+                if get_session_mode(session) == 'research_pending':
+                    do_research = True
+                    logger.info(f"Session {session} in research_pending — auto-triggering research")
+
+            att_ids = []
+            if tool_approval_continuation:
+                # Browser composer state is unrelated to the action that was
+                # reviewed.  The original turn remains in session history.
+                att_ids = []
+            elif body and isinstance(body.get("attachments"), list):
+                att_ids = [str(x) for x in body["attachments"]]
+            elif attachments:
+                try:
+                    att_ids = [str(x) for x in json.loads(attachments)]
+                except Exception as e:
+                    logger.warning("Failed to parse attachments JSON, ignoring attachments", exc_info=e)
+
+            image_generation_session = _is_image_generation_session(sess, owner=effective_user(request))
+            no_memory = str(form_data.get("no_memory", "")).lower() == "true"
+            if image_generation_session:
+                no_memory = True
+                use_rag = "false"
+                search_context = None
+            pre_context_tool_policy = build_effective_tool_policy(
+                last_user_message=message,
+            )
+            allow_tool_preprocessing = not pre_context_tool_policy.block_all_tool_calls
+            foreground_policy = gateway_turns.resolve_foreground_policy(
+                _admitted_session,
+                allowed_models=_allowed_models_for_request(request),
+            )
+
+            # The already owner-admitted foreground policy is the sole source of
+            # fallback model names for this request. Never accept client-provided
+            # candidates, endpoints or credential headers as a Gateway allowance.
+            _strict_web_fallback_models = (
+                frozenset(candidate[1] for candidate in foreground_policy.policy.fallback_candidates)
+                if foreground_policy.enabled else frozenset()
+            )
+            _strict_web_text_attachment_ids = parse_strict_web_text_attachment_ids(
+                form_data, body, att_ids,
+            )
+            # JSON-only clients must explicitly opt out of RAG and memory as
+            # well. Do not change inherited Web feature parsing for other runs.
+            _strict_no_memory = no_memory or (
+                type(body) is dict and body.get("no_memory") is True
+            )
+            _strict_use_rag = use_rag if use_rag is not None else (
+                "false" if type(body) is dict and body.get("use_rag") is False
+                else None
+            )
+            # First real, explicitly opted-in Web/Core cutover path: only plain
+            # text without tools, media, memory, RAG, research or editor state.
+            # Normal Web sessions keep the inherited path. Admission, writer and
+            # model selection still belong to their original Gateway/Loop.
+            if eligible_strict_web_text_turn(
+                server_enabled=os.environ.get("MNERYS_M21_WEB_TEXT_ROUTING") == "1",
+                form_values=form_data,
+                json_values=body,
+                message=message,
+                chat_mode=chat_mode,
+                no_memory=_strict_no_memory,
+                use_rag=_strict_use_rag,
+                use_web=use_web,
+                allow_web_search=allow_web_search,
+                thinking_mode=thinking_mode,
+                reasoning_effort=reasoning_effort,
+                temperature_override=temperature_override,
+                selected_endpoint_id=selected_endpoint_id,
+                approved_plan=approved_plan,
+                preset_id=preset_id,
+                active_doc_id=active_doc_id,
+                active_doc_state=active_doc_state,
+                active_email_uid=active_email_uid,
+                selected_note_ids=selected_note_ids,
+                attachments=_strict_web_text_attachment_ids,
+                workspace=workspace,
+                workspace_rejected=workspace_rejected,
+                client_runtime_context=client_runtime_context,
+                incognito=incognito,
+                compare_mode=compare_mode,
+                plan_mode=plan_mode,
+                tool_approval_continuation=tool_approval_continuation,
+                do_research=do_research,
+                image_generation_session=image_generation_session,
+                foreground_fallback_enabled=foreground_policy.enabled,
+                foreground_fallback_models=_strict_web_fallback_models,
+                external_untrusted_context_seen=external_untrusted_context_seen,
+                internal_tool_request=is_internal_tool_request(request),
+                agent_permitted=bool(_request_privileges(
+                    request, effective_user(request),
+                ).get("can_use_agent", True)),
+            ):
+                return start_strict_text_web_response(
+                    gateway=gateway_turns,
+                    admission=_admitted_session,
+                    session=sess,
+                    text=message,
+                    attachment_ids=_strict_web_text_attachment_ids,
+                    session_manager=session_manager,
+                    chat_handler=chat_handler,
+                    chat_processor=chat_processor,
+                    privileges=_request_privileges(
+                        request, effective_user(request),
+                    ),
+                    assistant_writer=save_assistant_response,
+                    interrupted_writer=append_interrupted_assistant_response,
+                    enable_model_fallback=foreground_policy.enabled,
+                    allowed_fallback_models=_strict_web_fallback_models,
+                    post_response_runner=run_post_response_tasks,
+                    memory_manager=memory_manager,
+                    memory_vector=memory_vector,
+                    webhook_manager=webhook_manager,
+                    after_user_saved=lambda: fire_message_event(
+                        request, webhook_manager, session, sess, message,
+                        compare_mode=False,
+                    ),
+                )
+
+            # Decide once whether this turn runs on the compact (clean v3)
+            # runtime. Every input is final here; the native workspace term of
+            # the contract policy cannot veto a requested clean route. This one
+            # value prepares the turn below and stamps its contract later, and
+            # the agent loop dispatches on that stamp.
+            _compact_preview_turn = gateway_turns.select_compact_runtime(
+                _admitted_session, sess,
+                context_owner=effective_user(request),
+                clean_route_requested=_clean_v3_route_requested,
+                full_schema_route=(_effective_tool_schema_mode == "full"),
+                exact_tool_approval=exact_tool_approval,
+                runtime_surface=str((client_runtime_context or {}).get("surface") or ""),
+                agent_mode=(chat_mode == "agent"),
+                agent_permitted=bool(_request_privileges(
+                    request, effective_user(request),
+                ).get("can_use_agent", True)),
+                image_generation=image_generation_session,
+            )
+            # A compact turn resolves its typed context window once, here, with
+            # the session's provider credentials. History shaping below and the
+            # compact runtime both reuse this exact object, so the turn neither
+            # probes twice nor mixes the legacy untyped lookup into it.
+            _compact_context_resolution = None
+            if _compact_preview_turn:
+                from src.agent_runtime.context_resolution import resolve_effective_context
+                _compact_context_resolution = await resolve_effective_context(
+                    sess.endpoint_url, sess.model, headers=sess.headers,
+                    client_runtime_context=client_runtime_context,
+                )
+
+            # Build shared context (stream path uses enhanced_message for context preface)
+            ctx = await build_chat_context(
+                sess, request, chat_handler, chat_processor,
+                admission=_admitted_session,
+                message=message,
+                session_id=session,
+                selected_notes_context=selected_notes_context,
+                preset_id=preset_id,
+                att_ids=att_ids,
+                use_web=use_web,
+                use_rag=use_rag,
+                time_filter=time_filter,
+                incognito=incognito,
+                no_memory=no_memory,
+                search_context=search_context,
+                compare_mode=compare_mode,
+                webhook_manager=webhook_manager,
+                use_enhanced_message=True,
+                # Skills index only ships when the model can actually call
+                # manage_skills (agent mode). In plain chat or incognito the
+                # index would be useless / unwanted noise.
+                agent_mode=(chat_mode == "agent"),
+                allow_tool_preprocessing=allow_tool_preprocessing,
+                defer_context_shaping=foreground_policy.enabled,
+                continuation_context_message=(
+                    pending_tool_approval.continuation_query
+                    if exact_tool_approval
+                    and pending_tool_approval
+                    and pending_tool_approval.continuation_query
+                    else None
+                ),
+                persist_user_message=not tool_approval_continuation and not is_internal_tool_request(request),
+                context_resolution=_compact_context_resolution,
+                interaction_mode=chat_mode,
+                auto_escalated=auto_escalated,
+            )
+            gateway_turns.append_internal_context(
+                _admitted_session, foreground_policy, ctx, message,
+                internal_tool_request=is_internal_tool_request(request),
+            )
+
+            _research_flags = {"do": do_research}  # Mutable container for generator scope
+
+            # Browser turns explicitly declare whether the editor is visible. The
+            # visible active tab is authoritative; a minimized/closed editor must
+            # not be resurrected from session or process-global state. Legacy API
+            # clients that omit active_doc_state retain the old fallback behavior.
+            active_doc = None
+            legacy_active_doc_fallback = not active_doc_state
+            _doc_db = SessionLocal()
+            try:
+                if active_doc_id:
+                    logger.info(f"[doc-inject] active_doc_id from frontend: {active_doc_id}")
+                    # Scope to the caller's documents. The session and in-memory
+                    # fallbacks below are already owner/session-bound; this
+                    # explicit-id path looked up by id alone, so a user could
+                    # inject another user's document by passing its id.
+                    _doc_q = _doc_db.query(DBDocument).filter(DBDocument.id == active_doc_id)
+                    active_doc = _owner_session_filter(_doc_q, ctx.user).first()
+                    if active_doc:
+                        doc_session = active_doc.session_id
+                        doc_owner = getattr(active_doc, "owner", None)
+                        if doc_owner and ctx.user and doc_owner != ctx.user:
+                            logger.warning(
+                                "[doc-inject] ignoring active_doc_id %s owned by another user",
+                                active_doc_id,
+                            )
+                            active_doc = None
+                        else:
+                            # NOTE: previously dropped the doc when doc.session_id
+                            # != current chat session — but that broke the common
+                            # case of "open an email draft from one chat, ask a
+                            # different chat to write into it". The frontend only
+                            # sends active_doc_id only for the currently visible
+                            # active editor tab,
+                            # the UI, and we already owner-checked above, so trust
+                            # the explicit signal. We just log the mismatch and
+                            # re-bind the doc to the current session for ownership
+                            # and document-history continuity.
+                            if doc_session and doc_session != session:
+                                logger.info(
+                                    "[doc-inject] cross-session active_doc_id %s (was session %s, now %s) — accepting and rebinding",
+                                    active_doc_id, doc_session, session,
+                                )
+                                try:
+                                    active_doc.session_id = session
+                                    _doc_db.commit()
+                                except Exception as _e:
+                                    _doc_db.rollback()
+                                    logger.warning(f"[doc-inject] session rebind failed: {_e}")
+                            logger.info(f"[doc-inject] found by ID: title={active_doc.title!r}, lang={active_doc.language!r}, is_active={active_doc.is_active}, content_len={len(active_doc.current_content or '')}")
+                    else:
+                        logger.warning(f"[doc-inject] NOT FOUND by ID {active_doc_id}")
+                if not active_doc and legacy_active_doc_fallback:
+                    _email_doc_q = _doc_db.query(DBDocument).filter(
+                        DBDocument.session_id == session,
+                        DBDocument.is_active == True,
+                        DBDocument.language == "email",
+                    )
+                    active_doc = _owner_session_filter(_email_doc_q, ctx.user).order_by(DBDocument.updated_at.desc()).first()
+                    if active_doc:
+                        logger.info(f"[doc-inject] found email draft by session fallback: title={active_doc.title!r}")
+                if not active_doc and legacy_active_doc_fallback:
+                    _session_doc_q = _doc_db.query(DBDocument).filter(
+                        DBDocument.session_id == session,
+                        DBDocument.is_active == True
+                    )
+                    active_doc = _owner_session_filter(_session_doc_q, ctx.user).order_by(DBDocument.updated_at.desc()).first()
+                    if active_doc:
+                        logger.info(f"[doc-inject] found by session fallback: title={active_doc.title!r}")
+                # Last resort: the document the agent itself just created/edited
+                # (tracked in-memory by the tool layer). This rescues docs that
+                # got orphaned from their session (session_id NULL) — otherwise
+                # neither lookup above can associate them with this conversation,
+                # so the agent never sees what it just wrote. Guarded so we never
+                # leak a doc that belongs to a DIFFERENT session.
+                if not active_doc and legacy_active_doc_fallback:
+                    try:
+                        from src.agent_tools.document_tools import get_active_document
+                        _mem_id = get_active_document()
+                        if _mem_id:
+                            _mem_q = _doc_db.query(DBDocument).filter(DBDocument.id == _mem_id)
+                            cand = _owner_session_filter(_mem_q, ctx.user).first()
+                            is_sft_fixture_user = str(ctx.user or "").startswith("sft_")
+                            if (
+                                cand
+                                and cand.session_id == session
+                                or (
+                                    cand
+                                    and not cand.session_id
+                                    and not is_sft_fixture_user
+                                )
+                            ):
+                                active_doc = cand
+                                logger.info(f"[doc-inject] found by in-memory active id: title={active_doc.title!r} (session_id={cand.session_id!r})")
+                    except Exception as _e:
+                        logger.debug(f"[doc-inject] in-memory fallback failed: {_e}")
+                if not active_doc:
+                    logger.info(f"[doc-inject] no active doc for session {session}")
+                if active_doc:
+                    _doc_db.expunge(active_doc)
+            except Exception as e:
+                logger.warning(f"Failed to query active document: {e}")
+            finally:
+                _doc_db.close()
+
+            # Active-document ownership and visible-editor state have been
+            # resolved above. Promotion still requires the admitted session;
+            # it never grants document-writing authority.
+            _document_edit_route = gateway_turns.promote_document_edit_route(
                 _admitted_session, sess,
                 context_owner=ctx.user,
-                request_authority=_request_authority,
+                message=message,
+                chat_mode=chat_mode,
+                auto_escalated=auto_escalated,
+                active_document=bool(active_doc),
+            )
+            chat_mode = _document_edit_route.chat_mode
+            auto_escalated = _document_edit_route.auto_escalated
+            if _document_edit_route.edit_requested:
+                logger.info(
+                    "chat→agent auto-escalation: active document edit request doc_id=%s",
+                    getattr(active_doc, "id", ""),
+                )
+
+            # Build disabled-tools set from frontend toggles + user privileges
+            # Product Agent turns resolve a contract once.  A native desktop/web
+            # surface is still the product surface: its runtime marker must not
+            # bypass the contract and let tool RAG replace (for example) a browser
+            # request with shell tools.  Only an actual environment-owned TUI, or
+            # a native terminal task that explicitly needs its isolated workspace,
+            # retains a separate declared execution contract.
+            _contract_scope = gateway_turns.select_contract_scope(
+                _admitted_session, sess,
+                context_owner=ctx.user,
+                client_runtime_context=client_runtime_context,
+                workspace_agent_intent=_workspace_agent_intent,
+                workspace_bound=bool(workspace),
+                clean_route_requested=_clean_v3_route_requested,
+                full_schema_route=(_effective_tool_schema_mode == "full"),
+                exact_tool_approval=exact_tool_approval,
+            )
+            _native_workspace_contract = _contract_scope.native_workspace_contract
+            _use_turn_contract = _contract_scope.enabled
+            _turn_history = getattr(sess, "history", []) or []
+            # Classify request families once under the issued session admission.
+            # A visible document can be offered without becoming a required call.
+            _initial_turn_capabilities = gateway_turns.classify_turn_capabilities(
+                _admitted_session, sess,
+                context_owner=ctx.user,
+                message=message,
+                use_turn_contract=_use_turn_contract,
+                active_document=bool(active_doc),
+                workspace_bound=bool(workspace),
+                image_attachment=any(
+                    str(a.get("mime") or "").startswith("image/")
+                    for a in (ctx.preprocessed.attachment_meta or [])
+                ),
+                explicit_browser_intent=_explicit_browser_intent,
+                external_discovery_intent=_external_discovery_intent,
+                private_browser_warm=_clean_v3_private_browser_warm,
+                contextual_browser_followup_lookup=lambda: _is_contextual_browser_followup(
+                    message, sess,
+                ),
+            )
+            _corrected_browser_target = _initial_turn_capabilities.corrected_browser_target
+            _turn_capabilities = _initial_turn_capabilities.capabilities
+            _active_turn_capabilities = _initial_turn_capabilities.active_capabilities
+            if _initial_turn_capabilities.image_editing_requested and ctx.preprocessed.attachment_meta:
+                image_refs = ['odysseus://attachment/' + str(a['id']) for a in ctx.preprocessed.attachment_meta
+                              if a.get('id') and str(a.get('mime') or '').startswith('image/')]
+                if image_refs:
+                    image_edit_context = {'role': 'system', 'content':
+                        'For the requested image edit, use edit_image with action=prompt and image_id set to the uploaded image reference: '
+                        + ', '.join(image_refs) + '. Pass the requested changes as prompt. The backend sends the actual source pixels; a description or stock-image URL is not an edited image.'}
+                    ctx.messages.insert(0, image_edit_context)
+                    if foreground_policy.enabled:
+                        getattr(ctx, 'route_messages', ctx.messages).insert(0, dict(image_edit_context))
+            # Same compact-runtime decision that prepared context; the admitted
+            # classifier only supplies candidate families, not execution grants.
+            _clean_v3_preview = _compact_preview_turn
+            if _initial_turn_capabilities.suppress_explicit_web_intent:
+                _explicit_web_intent = False
+            # Bearer credentials get their non-admin restrictions immediately.
+            # The later account privilege pass must occur AFTER optional web/tool
+            # intent routing so those restrictions cannot be re-enabled.
+            _delegated_credential = _admitted_session.principal.delegated
+            disabled_tools = set(execution_limits_for_admission(
+                _admitted_session, None,
+                browser_tools=frozenset(_BROWSER_MCP_TOOLS),
+            ).disabled_tools)
+            # Only disable bash when the caller *explicitly* set it to a falsy
+            # value. When unset (None), defer to per-user privilege checks below.
+            # Web search is per-turn opt-in: either the chat pre-search setting
+            # (`use_web=true`) or agent web toggle (`allow_web_search=true`) must
+            # explicitly enable it.
+            if allow_bash is not None and str(allow_bash).lower() != "true":
+                disabled_tools.add("bash")
+            _model_lower = str(getattr(sess, "model", "") or "").lower()
+            _qwen_tool_router_selected = (
+                "qwen38-tool-router" in _model_lower
+                or "qwen35-9b-tool-router" in _model_lower
+                or "qwen3.5-9b-tool-router" in _model_lower
+                or "odysseus-qwen3.5-9b" in _model_lower
+            )
+            # The admitted Gateway owns Web-intent promotion and the inherited
+            # pre-policy toggle/denylist ordering. Legacy Web helpers supply typed
+            # server-side evidence lazily; the account/global final veto runs next.
+            _web_intent_result = gateway_turns.reconcile_web_intent(
+                _admitted_session, sess,
+                context_owner=ctx.user,
+                message=message,
+                explicit_web_intent=_explicit_web_intent,
+                personal_store_intent=_explicit_personal_store_intent,
+                tool_intent_is_web=bool(
+                    _tool_intent and _tool_intent.category == "web"
+                ),
                 capabilities=_turn_capabilities,
-                schemas=_contract_schemas,
-                policy=_contract_policy,
-                required_tools=_required_tools,
-                required_capabilities=_active_turn_capabilities,
-                selected_tools=_selected_tools,
-                always_available_tools=(FAMILY_TOOLS["documents"] if active_doc else ()),
-                warm_tools=_warm_tools,
-                message=message,
-                history=getattr(sess, "history", []) or [],
+                clean_route_requested=_clean_v3_route_requested,
+                allow_web_search=allow_web_search,
+                search_enabled=_search_enabled,
+                explicit_browser_intent=_explicit_browser_intent,
+                local_browser_render_intent=_local_browser_render_intent,
+                exact_url_fetch_intent=_exact_url_fetch_intent,
+                use_turn_contract=_use_turn_contract,
+                full_schema_route=(_effective_tool_schema_mode == "full"),
+                workspace_bound=bool(workspace),
+                base_disabled_tools=disabled_tools,
+                web_link_followup_lookup=lambda: _is_contextual_web_link_followup(
+                    getattr(sess, "history", []) or [], message,
+                ),
+                contextual_web_followup_lookup=lambda: _is_contextual_web_followup(
+                    message, sess,
+                ),
+                recent_web_event_lookup=lambda: _has_recent_web_tool_event(sess),
+                message_denies_lookup=lambda: _explicitly_denies_web_lookup(message),
             )
-            # The admitted Gateway now owns compact preview/experiment scoping
-            # and final tool policy reconciliation. The Web adapter still
-            # supplies server-resolved intent, schema inventory and flags.
-            _scoped_contract = gateway_turns.scope_routed_contract(
+            _explicit_web_intent = _web_intent_result.explicit_web_intent
+            _contextual_web_turn_followup = _web_intent_result.contextual_web_turn_followup
+            _search_enabled = _web_intent_result.search_enabled
+            allow_web_search = _web_intent_result.allow_web_search
+            disabled_tools = set(_web_intent_result.disabled_tools)
+
+            # Nobody/incognito mode: deny tools that would expose the user's
+            # persistent memory, past chats, or other identity-linked data.
+            if incognito:
+                disabled_tools.update({
+                    "manage_memory",      # persistent memory store
+                    "search_chats",       # past chat history
+                    "manage_skills",      # skill presets tied to user
+                    "create_session",
+                    "list_sessions",
+                    "manage_session",
+                    "send_to_session",
+                    "chat_with_model",
+                })
+
+            # Active email reader open → strip the tools that let the agent drift
+            # away from the visible email or skip review. The only allowed compose
+            # path is ui_control open_email_reply, which opens the same draft editor
+            # as the Reply button with the generated body pre-filled. This prevents
+            # the model from falling back to direct SMTP when it botches a draft
+            # call, and prevents fake email-shaped documents.
+            if active_email_ctx and active_email_ctx.get("uid"):
+                disabled_tools.update({
+                    "create_document",
+                    "send_email",
+                    "reply_to_email",
+                    "mcp__email__send_email",
+                    "mcp__email__reply_to_email",
+                })
+
+            # Server-owned final veto after request intent and Web-specific gating.
+            # The adapter supplies only trusted account/global config and the
+            # already-computed denylist. No client hint restores denied tools.
+            _user = effective_user(request)
+            _privs = _request_privileges(request, _user)
+            from src.settings import get_setting
+            _global_disabled = get_setting("disabled_tools", [])
+            _final_tool_policy = gateway_turns.finalize_tool_policy(
                 _admitted_session, sess,
                 context_owner=ctx.user,
-                routed=_resolved_routed_contract,
-                schemas=_contract_schemas,
-                contract_policy=_contract_policy,
-                disabled_tools=disabled_tools,
-                active_capabilities=_active_turn_capabilities,
-                selected_tools=_selected_tools,
-                warm_tools=_warm_tools,
-                compact_preview=_clean_v3_preview,
-                native_workspace_contract=_native_workspace_contract,
-                structured_document_intent=bool(
-                    _clean_v3_preview
-                    and _native_workspace_contract
-                    and _prefers_structured_document_tools(message)
-                ),
-                local_browser_render_intent=_local_browser_render_intent,
-                experiment_header=(
-                    request.headers.get("x-odysseus-routing-experiment")
-                    if _clean_v3_preview else None
-                ),
-                message=message,
+                base_disabled_tools=disabled_tools,
+                privileges=_privs,
+                global_disabled_tools=_global_disabled,
+                browser_tools=frozenset(_BROWSER_MCP_TOOLS),
+                last_user_message=message,
+                chat_mode=chat_mode,
+                auto_escalated=auto_escalated,
+                workspace_agent_intent=_workspace_agent_intent,
+                use_turn_contract=_use_turn_contract,
+                allow_browser_for_web_turn=_allow_browser_for_web_turn,
+                compare_mode=compare_mode,
+                plan_mode=plan_mode,
+            )
+            if not _final_tool_policy.allow_research:
+                _research_flags["do"] = False
+            if not _final_tool_policy.allow_agent:
+                _effective_mode = "chat"
+            chat_mode = _final_tool_policy.chat_mode
+            tool_policy = _final_tool_policy.policy
+            disabled_tools = tool_policy.all_disabled_names()
+            if str(_user or "").startswith("sft_"):
+                logger.info(
+                    "[sft-policy-audit] owner=%s personal_disabled=%s "
+                    "compare=%s explicit_web=%s privileges=%s global_disabled=%s",
+                    _user,
+                    sorted(set(disabled_tools) & {"manage_notes", "manage_calendar", "manage_tasks"}),
+                    bool(compare_mode),
+                    bool(_explicit_web_intent),
+                    _privs,
+                    _global_disabled,
+                )
+            disabled_tools = tool_policy.all_disabled_names()
+            # Server-derived runtime toggles now belong to the admitted Gateway.
+            # A client-provided web_ui_state cannot override final tool policy.
+            _runtime_ui_projection = gateway_turns.project_runtime_ui_state(
+                _admitted_session, sess,
+                context_owner=ctx.user,
+                client_runtime_context=client_runtime_context,
+                policy=tool_policy,
+                use_rag=use_rag,
+                use_research=form_data.get("use_research"),
+                incognito=bool(incognito),
+            )
+            client_runtime_context = _runtime_ui_projection.context
+            # Capture permission state before schema selection/reconciliation.
+            # Only deterministic request intent supplies grants, never inventory.
+            _request_authority = gateway_turns.build_authority(
+                _admitted_session, message,
+                workspace=workspace,
                 history=_turn_history,
-                browser_requested=_explicit_browser_intent,
+                policy=tool_policy,
+                client_runtime_context=client_runtime_context,
+                active_document=bool(active_doc),
+                image_attachment=any(str(a.get('mime') or '').startswith('image/')
+                                     for a in (ctx.preprocessed.attachment_meta or [])),
+                capabilities=({'search_browser'} if (
+                    _explicit_browser_intent or _external_discovery_intent
+                ) else ()),
+                internal_tool_request=is_internal_tool_request(request),
+                exact_approval=exact_tool_approval,
             )
-            _turn_contract = _scoped_contract.contract
-            _request_authority = _scoped_contract.authority
-            disabled_tools = set(_scoped_contract.disabled_tools)
-            tool_policy = _scoped_contract.policy
-        research_blocked_by_policy = bool(
-            tool_policy.blocks("trigger_research")
-            or tool_policy.blocks("manage_research")
-        )
-        effective_do_research = bool(
-            do_research and _research_flags["do"] and not research_blocked_by_policy
-        )
-
-        if chat_mode == "agent":
-            runtime_msg = _client_runtime_context_system_message(
-                client_runtime_context,
-                disabled_tools=disabled_tools,
-                # Agent turns render the full directive set in
-                # _tui_runtime_directive; keeping it here too duplicates
-                # routing instructions in the model context.
-                include_directives=(chat_mode != "agent"),
+            _turn_contract = None
+            # Image models execute directly, not through the text-agent inventory.
+            # Keep the permission policy above, but do not apply routing omissions
+            # as denials to this separate execution path.
+            if _use_turn_contract and chat_mode == "agent" and not image_generation_session:
+                # Schema and owner/MCP restrictions now have one admitted
+                # Gateway entry point. Intent-based selection remains below.
+                _tool_inventory = gateway_turns.prepare_tool_inventory(
+                    _admitted_session, sess,
+                    context_owner=ctx.user,
+                    base_policy=tool_policy,
+                    base_disabled_tools=disabled_tools,
+                    message=message,
+                    plan_mode=plan_mode,
+                    native_workspace_contract=_native_workspace_contract,
+                )
+                _contract_schemas = _tool_inventory.schemas
+                _owner_blocked = _tool_inventory.owner_blocked
+                disabled_tools = set(_tool_inventory.disabled_tools)
+                _contract_policy = _tool_inventory.policy
+                # Selection hints are derived from the admitted session and
+                # inherited classifier. Only the contract/authority can offer or
+                # execute the resulting exact tool names.
+                _selected_intent = gateway_turns.select_tool_intent(
+                    _admitted_session, sess,
+                    context_owner=ctx.user,
+                    inventory=_tool_inventory,
+                    message=message,
+                    capabilities=_turn_capabilities,
+                    active_capabilities=_active_turn_capabilities,
+                    warm_tools=_successful_session_tool_names(sess),
+                    recent_web_tool_lookup=lambda: _most_recent_successful_web_tool(sess),
+                    active_document=bool(active_doc),
+                    contextual_browser_followup=_contextual_browser_turn_followup,
+                    contextual_web_followup=_contextual_web_turn_followup,
+                    active_email_review=bool(
+                        active_email_ctx and active_email_ctx.get("uid")
+                    ),
+                    corrected_browser_target=bool(_corrected_browser_target),
+                )
+                _warm_tools = _selected_intent.warm_tools
+                _selected_tools = _selected_intent.selected_tools
+                _required_tools = _selected_intent.required_tools
+                _turn_capabilities = _selected_intent.capabilities
+                _active_turn_capabilities = _selected_intent.active_capabilities
+                _contract_policy = _selected_intent.policy
+                if (
+                    str(_user or "").startswith("sft_")
+                    and _selected_intent.fixture_personal_tools
+                ):
+                    logger.info(
+                        "[sft-policy-audit] explicit personal contract tools=%s capabilities=%s",
+                        sorted(_selected_intent.fixture_personal_tools),
+                        sorted(_turn_capabilities),
+                    )
+                _resolved_routed_contract = gateway_turns.resolve_routed_contract(
+                    _admitted_session, sess,
+                    context_owner=ctx.user,
+                    request_authority=_request_authority,
+                    capabilities=_turn_capabilities,
+                    schemas=_contract_schemas,
+                    policy=_contract_policy,
+                    required_tools=_required_tools,
+                    required_capabilities=_active_turn_capabilities,
+                    selected_tools=_selected_tools,
+                    always_available_tools=(FAMILY_TOOLS["documents"] if active_doc else ()),
+                    warm_tools=_warm_tools,
+                    message=message,
+                    history=getattr(sess, "history", []) or [],
+                )
+                # The admitted Gateway now owns compact preview/experiment scoping
+                # and final tool policy reconciliation. The Web adapter still
+                # supplies server-resolved intent, schema inventory and flags.
+                _scoped_contract = gateway_turns.scope_routed_contract(
+                    _admitted_session, sess,
+                    context_owner=ctx.user,
+                    routed=_resolved_routed_contract,
+                    schemas=_contract_schemas,
+                    contract_policy=_contract_policy,
+                    disabled_tools=disabled_tools,
+                    active_capabilities=_active_turn_capabilities,
+                    selected_tools=_selected_tools,
+                    warm_tools=_warm_tools,
+                    compact_preview=_clean_v3_preview,
+                    native_workspace_contract=_native_workspace_contract,
+                    structured_document_intent=bool(
+                        _clean_v3_preview
+                        and _native_workspace_contract
+                        and _prefers_structured_document_tools(message)
+                    ),
+                    local_browser_render_intent=_local_browser_render_intent,
+                    experiment_header=(
+                        request.headers.get("x-odysseus-routing-experiment")
+                        if _clean_v3_preview else None
+                    ),
+                    message=message,
+                    history=_turn_history,
+                    browser_requested=_explicit_browser_intent,
+                )
+                _turn_contract = _scoped_contract.contract
+                _request_authority = _scoped_contract.authority
+                disabled_tools = set(_scoped_contract.disabled_tools)
+                tool_policy = _scoped_contract.policy
+            research_blocked_by_policy = bool(
+                tool_policy.blocks("trigger_research")
+                or tool_policy.blocks("manage_research")
             )
-            if runtime_msg:
-                ctx.messages.insert(0, runtime_msg)
-                if foreground_policy.enabled:
-                    getattr(ctx, "route_messages", ctx.messages).insert(0, dict(runtime_msg))
+            effective_do_research = bool(
+                do_research and _research_flags["do"] and not research_blocked_by_policy
+            )
 
-        # Persist session mode after policy/privilege gates so blocked research
-        # turns remain ordinary chat/agent streams and saved messages.
-        _effective_mode = 'research' if effective_do_research else (chat_mode or 'chat')
-        if _effective_mode in ('agent', 'research', 'chat'):
-            set_session_mode(session, _effective_mode)
+            if chat_mode == "agent":
+                runtime_msg = _client_runtime_context_system_message(
+                    client_runtime_context,
+                    disabled_tools=disabled_tools,
+                    # Agent turns render the full directive set in
+                    # _tui_runtime_directive; keeping it here too duplicates
+                    # routing instructions in the model context.
+                    include_directives=(chat_mode != "agent"),
+                )
+                if runtime_msg:
+                    ctx.messages.insert(0, runtime_msg)
+                    if foreground_policy.enabled:
+                        getattr(ctx, "route_messages", ctx.messages).insert(0, dict(runtime_msg))
+
+            # Persist session mode after policy/privilege gates so blocked research
+            # turns remain ordinary chat/agent streams and saved messages.
+            _effective_mode = 'research' if effective_do_research else (chat_mode or 'chat')
+            if _effective_mode in ('agent', 'research', 'chat'):
+                set_session_mode(session, _effective_mode)
 
         async def stream_with_save() -> AsyncGenerator[str, None]:
             # _effective_mode is read-only here; closure captures it from

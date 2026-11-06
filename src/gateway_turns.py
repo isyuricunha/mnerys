@@ -194,6 +194,7 @@ class WebTurnComposition:
     tool_schema_full_route: bool = False
     clean_route_requested: bool = False
     compact_context_resolution: Any = None
+    selected_endpoint_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -225,6 +226,16 @@ class PreparedWebTurn:
     effective_do_research: bool
     research_blocked_by_policy: bool
     image_generation_session: bool
+    # Web intent/evidence results the execution branch consumes
+    search_enabled: bool = False
+    explicit_web_intent: bool = False
+    explicit_browser_intent: bool = False
+    tool_intent: ToolIntent | None = None
+    workspace_agent_intent: bool = False
+    foreground_candidates: list | None = None
+    foreground_route_descriptors: list | None = None
+    chat_request_factory: Any = None
+    compact_preview: Any = None
     # Approval continuation state (already admitted, not yet consumed)
     pending_tool_approval: Any = None
     exact_tool_approval: Any = None
@@ -597,6 +608,26 @@ class GatewayTurns:
             admission, foreground_policy, context, message,
             internal_tool_request=composition.internal_tool_request,
         )
+        _foreground_candidates, _foreground_route_descriptors = (
+            self.build_foreground_routes(
+                admission, foreground_policy,
+                endpoint_url=session.endpoint_url,
+                model=session.model,
+                headers=getattr(session, "headers", None),
+                selected_endpoint_id=(
+                    composition.selected_endpoint_id
+                    or getattr(session, "endpoint_id", None)
+                ),
+            )
+            if foreground_policy.enabled else (None, None)
+        )
+        _chat_request_factory = None
+        if foreground_policy.enabled:
+            _chat_request_factory, _ = self.build_candidate_context_factory(
+                admission, foreground_policy,
+                context.messages, getattr(context, "context_length", 0),
+                session=session,
+            )
 
         # The adapter resolves the active document through its existing
         # owner/session-checked lookups; promotion still requires admission.
@@ -854,6 +885,15 @@ class GatewayTurns:
             approval_decision=approval_decision,
             approval_denied=False,
             external_untrusted_context_seen=external_untrusted_context_seen,
+            search_enabled=_search_enabled,
+            explicit_web_intent=_explicit_web_intent,
+            explicit_browser_intent=_explicit_browser_intent,
+            tool_intent=_tool_intent,
+            workspace_agent_intent=_workspace_agent_intent,
+            foreground_candidates=_foreground_candidates,
+            foreground_route_descriptors=_foreground_route_descriptors,
+            chat_request_factory=_chat_request_factory,
+            compact_preview=compact_preview,
         )
 
     def build_authority(

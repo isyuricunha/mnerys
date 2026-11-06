@@ -145,7 +145,9 @@ def test_route_selection_is_separate_and_precedes_legacy_approval_consumption():
     assert "MNERYS_M21_WEB_NATIVE_NOTES_ROUTING" in source
     assert "select_restricted_notes_web_input" in source
     assert "start_strict_text_web_response" in source
-    assert source.index("if _native_notes_profile:") < source.index("if tool_approval_id:")
+    assert source.index("if _native_notes_profile:") < source.index(
+        "if tool_approval_id and not _web_cutover:",
+    )
     assert source.index("if _native_notes_profile:") < source.index(
         "tool_approval_store.retire_for_session("
     )
