@@ -342,6 +342,73 @@ class BackgroundToolJob(Base):
     created_at = Column(DateTime, default=utcnow_naive)
 
 
+class GatewayTurn(Base):
+    """M2.3 durable, owner-scoped turn record (explicit migration required).
+
+    One row per admitted turn: the exact turn identity, the session
+    lifetime it ran under, its idempotency key and its deterministic
+    terminal state. The row is only ever finalized exactly once; a turn
+    may not be restarted after a terminal state.
+    """
+    __tablename__ = "gateway_turns"
+    id = Column(String, primary_key=True)
+    owner = Column(String, nullable=False, index=True)
+    session_id = Column(String, nullable=False, index=True)
+    incarnation_id = Column(String, nullable=False)
+    idempotency_key = Column(String, nullable=True, index=True)
+    status = Column(String, nullable=False, default="running", index=True)
+    policy_version = Column(String, nullable=True)
+    cancellation_token = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow_naive)
+    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
+    terminal_at = Column(DateTime, nullable=True)
+
+
+class GatewayTurnEvent(Base):
+    """One ordered, versioned, sanitized event inside a durable turn.
+
+    ``sequence`` is monotonic per turn; gaps are explicit (a failed
+    consumer sees the next sequence, never a rewritten history). Payloads
+    are written by the Gateway's sanitized adapter only; raw provider
+    data, credentials, tool arguments/results and private identity are
+    forbidden here.
+    """
+    __tablename__ = "gateway_turn_events"
+    id = Column(String, primary_key=True)
+    turn_id = Column(String, ForeignKey("gateway_turns.id", ondelete="CASCADE"), nullable=False, index=True)
+    sequence = Column(Integer, nullable=False)
+    kind = Column(String, nullable=False)
+    payload = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=utcnow_naive)
+    __table_args__ = (
+        Index("ix_gateway_turn_events_turn_seq", "turn_id", "sequence", unique=True),
+    )
+
+
+class GatewayApproval(Base):
+    """Sealed, one-use durable approval record for one exact operation.
+
+    The digest, resource identity, origin turn and effective authority are
+    bound at creation; the decision is recorded at most once and never
+    reconstructed from UI cards or journal metadata.
+    """
+    __tablename__ = "gateway_approvals"
+    approval_id = Column(String, primary_key=True)
+    owner = Column(String, nullable=False, index=True)
+    session_id = Column(String, nullable=False, index=True)
+    incarnation_id = Column(String, nullable=False)
+    turn_id = Column(String, nullable=False, index=True)
+    tool_name = Column(String, nullable=False)
+    operation_digest = Column(String, nullable=False)
+    resource_identity = Column(Text, nullable=True)
+    decision = Column(String, nullable=True)
+    effective_authority = Column(Text, nullable=True)
+    status = Column(String, nullable=False, default="pending", index=True)
+    consumed_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow_naive)
+
+
 class Document(TimestampMixin, Base):
     """Living document that the AI can create and edit in-place."""
     __tablename__ = "documents"
