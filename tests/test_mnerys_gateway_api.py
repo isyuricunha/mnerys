@@ -58,6 +58,7 @@ class FakeComposerGateway:
                 return item
 
             yield await event("message.delta", {"text": "Remote answer."})
+            outcome.content = "Remote answer."
             outcome.state = "completed"
             yield await event("message.final", {"text": "Remote answer."})
             yield await event("turn.completed", {})
@@ -66,7 +67,9 @@ class FakeComposerGateway:
                     turn_id=turn_id, owner=context_owner, status="completed",
                 )
 
-        return SimpleNamespace(events=frames(), outcome=outcome, turn_id=turn_id)
+        return __import__(
+            "src.gateway_turn_events", fromlist=["TypedTurnDelivery"],
+        ).TypedTurnDelivery(events=frames(), outcome=outcome, turn_id=turn_id)
 
     def decide_tool_approval(self, admission, approval_id, decision, *,
                              plan_mode, internal_tool_request, store,
@@ -296,6 +299,34 @@ def test_remote_client_cannot_decide_approvals_by_design(monkeypatch, tmp_path):
             assert row.operation_digest == pending.digest
     finally:
         remote.close()
+
+
+def test_remote_turn_continues_the_session_when_persistence_is_wired(monkeypatch, tmp_path):
+    """The remote turn persists through the same writer wrapper as Web turns."""
+    from src.gateway_text_persistence import TrustedTextPersistence
+    from tests.remote_gateway.client import RemoteGatewayClient
+
+    client_app, _session, _admission = _make_app(
+        monkeypatch, with_records=True, tmp_path=tmp_path,
+    )
+    saved = []
+
+    def saver(current, manager, session_id, text, metrics, **kwargs):
+        saved.append(text)
+        return "remote-saved-answer"
+
+    client_app.app.state.text_persistence = TrustedTextPersistence(
+        session_manager=SimpleNamespace(), saver=saver,
+        emit_message_saved_events=True,
+    )
+    remote = RemoteGatewayClient(client=client_app, token="test-token")
+    try:
+        created = remote.create_turn("session-1", "Continuing state")
+        snapshot = remote.turn(created.turn_id)
+        assert snapshot.status in ("completed", "running")
+    finally:
+        remote.close()
+    assert saved == ["Remote answer."]
 
 
 def test_direct_loop_bypass_is_not_possible():
