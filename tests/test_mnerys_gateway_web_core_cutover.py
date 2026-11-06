@@ -1,0 +1,210 @@
+"""Actual /api/chat_stream through the Gateway composition cutover.
+
+Exercises the real route handler with the composition cutover enabled:
+one admitted compose_web_turn call replaces the inline chain, with the
+same writers, saves and SSE frames as the legacy path. Synthetic model,
+writers and in-memory sessions only.
+"""
+
+
+from types import SimpleNamespace
+
+from core.models import ChatMessage
+import pytest
+
+from routes import chat_routes
+from src import turn_service as runtime
+from src.gateway_turns import GatewayTurns
+from src.turn_service import TurnService
+from tests.test_foreground_model_routing import _RouteRequest
+from tests.test_mnerys_gateway_composed_tools import configured
+from tests.test_mnerys_gateway_turn_composer import FakePorts
+
+
+BASE_CHAT = {"session": "session-1", "mode": "chat"}
+
+
+class WebRoutePorts(FakePorts):
+    def __init__(self):
+        super().__init__()
+        self.private_writes = []
+
+    def append_user_message(
+        self, session, _handler, preprocessed, *,
+        incognito, interaction_mode, auto_escalated,
+    ):
+        assert incognito is False
+        self.operations.append(("save_user", interaction_mode))
+        session.messages.append({
+            "role": "user", "content": preprocessed.user_content,
+        })
+        session.history.append(ChatMessage(
+            "user", preprocessed.user_content,
+            metadata={"_db_id": f"cutover-user-{len(session.history) + 1}"},
+        ))
+
+    def append_private_message(self, session_id, role, content, metadata):
+        self.operations.append(("private", session_id, role))
+        self.private_writes.append({"role": role, "content": content})
+        return {"role": role, "content": content}
+
+    def private_messages(self, session_id):
+        return list(self.private_writes)
+
+
+def cutover_fixture(monkeypatch):
+    admission, session, ports, opts = configured(monkeypatch)
+    ports = WebRoutePorts()
+
+    def fake_extract_preset(_preset_id):
+        return (None, None, None, None, None, None)
+
+    async def fake_preprocess(message, _att_ids, _sess, *, auto_opened_docs,
+                              allow_tool_preprocessing,
+                              allow_attachment_preprocessing=False):
+        return (message, message, message, [], [])
+
+    chat_handler = SimpleNamespace(
+        upload_handler=None,
+        validate_and_extract_preset=fake_extract_preset,
+        preprocess_message=fake_preprocess,
+        update_session_name_if_needed=lambda *_a, **_k: None,
+        trim_history_if_needed=lambda *_a, **_k: None,
+    )
+    writes = []
+    store = SimpleNamespace(
+        peek=lambda _id: None, retire_for_session=lambda **k: False,
+    )
+    gateway = GatewayTurns(TurnService())
+    fake_manager = SimpleNamespace(
+        get_session=lambda sid: session if sid == session.id else (_ for _ in ()).throw(KeyError(sid)),
+        save_sessions=lambda: None,
+    )
+
+    def save(current, manager, session_id, text, metrics, **kwargs):
+        assert current is session and session_id == session.id
+        writes.append(text)
+        current.messages.append({"role": "assistant", "content": text})
+        current.history.append(ChatMessage(
+            "assistant", text,
+            metadata={"_db_id": f"cutover-assistant-{len(current.history) + 1}"},
+        ))
+        return f"cutover-assistant-{len(current.history)}"
+
+    monkeypatch.setattr(chat_routes, "_verify_session_owner", lambda req, sid: admission)
+    monkeypatch.setattr(chat_routes, "effective_user", lambda request: "alice")
+    monkeypatch.setattr(chat_routes, "is_internal_tool_request", lambda request: False)
+    monkeypatch.setattr(chat_routes, "_reconcile_selected_route_from_request", lambda *a, **k: False)
+    monkeypatch.setattr(chat_routes, "_clear_orphaned_session_endpoint", lambda *a, **k: False)
+    monkeypatch.setattr(chat_routes, "_recover_empty_session_model", lambda *a, **k: False)
+    monkeypatch.setattr(chat_routes, "_enforce_chat_privileges", lambda *a, **k: None)
+    monkeypatch.setattr(chat_routes, "resolve_session_auth", lambda *a, **k: None)
+    monkeypatch.setattr(chat_routes, "run_post_response_tasks", lambda *a, **k: None)
+    monkeypatch.setattr(chat_routes, "save_assistant_response", save)
+    monkeypatch.setattr(chat_routes, "append_interrupted_assistant_response", lambda *args: None)
+    monkeypatch.setattr(chat_routes, "gateway_turns", gateway)
+    monkeypatch.setattr(chat_routes, "tool_approval_store", store)
+    monkeypatch.setattr("src.settings.get_setting", lambda *a, **k: [])
+    monkeypatch.setenv("MNERYS_M21_WEB_CORE_CUTOVER", "1")
+
+    def cutover_session():
+        def add_message(message):
+            session.messages.append({
+                "role": message.role, "content": message.content,
+            })
+        session.add_message = add_message
+        session.get_context_messages = lambda *a, **k: []
+        return session
+
+    def fake_preface(**_options):
+        return ([{"role": "system", "content": "test preface"}], [], [])
+
+    chat_processor = SimpleNamespace(build_context_preface=fake_preface)
+
+    router = chat_routes.setup_chat_routes(
+        fake_manager, chat_handler, chat_processor,
+        SimpleNamespace(), SimpleNamespace(), SimpleNamespace(),
+    )
+    routes = {route.path: route.endpoint for route in router.routes}
+    return admission, cutover_session(), ports, writes, routes
+
+
+def chat_request(form):
+    req = _RouteRequest("chat")
+    req._form = dict(BASE_CHAT) | form
+    return req
+
+
+@pytest.mark.asyncio
+async def test_cutover_chat_turn_streams_and_persists_like_legacy(monkeypatch):
+    _admission, session, ports, writes, routes = cutover_fixture(monkeypatch)
+
+    async def fake_llm(_candidates, _messages, **_kw):
+        yield 'data: {"delta":"Composed answer."}\n\n'
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(chat_routes, "stream_llm_with_fallback", fake_llm)
+    response = await routes["/api/chat_stream"](chat_request({
+        "message": "Say hello",
+    }))
+    frames = [chunk async for chunk in response.body_iterator]
+    text = "".join(frames)
+    assert '"delta":"Composed answer."' in text
+    assert '"type": "message_saved"' in text
+    assert "data: [DONE]\n\n" in text
+    assert writes == ["Composed answer."]
+    assert [item["role"] for item in session.messages] == ["user", "assistant"]
+
+
+@pytest.mark.asyncio
+async def test_cutover_agent_turn_executes_the_offered_tool(monkeypatch):
+    _admission, session, ports, writes, routes = cutover_fixture(monkeypatch)
+
+    async def fake_loop(_url, _name, _messages, **kwargs):
+        assert kwargs["request_authority"].bound_to(
+            owner="alice", session_id=session.id,
+        )
+        assert kwargs["turn_contract"] is not None
+        yield 'data: {"type":"tool_start","tool":"manage_notes","round":1}\n\n'
+        yield 'data: {"type":"tool_output","tool":"manage_notes","round":1,"exit_code":0,"output":"PRIVATE"}\n\n'
+        yield 'data: {"delta":"Notes listed."}\n\n'
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(runtime, "stream_agent_loop", fake_loop)
+    response = await routes["/api/chat_stream"](chat_request({
+        "message": "List my notes", "mode": "agent",
+    }))
+    frames = [chunk async for chunk in response.body_iterator]
+    text = "".join(frames)
+    assert '"tool_start"' in text
+    assert "Notes listed." in text
+    assert writes == ["Notes listed."]
+    assert [item["role"] for item in session.messages] == ["user", "assistant"]
+
+
+@pytest.mark.asyncio
+async def test_cutover_disabled_by_default_keeps_legacy_chain(monkeypatch):
+    _admission, session, ports, writes, routes = cutover_fixture(monkeypatch)
+    monkeypatch.setenv("MNERYS_M21_WEB_CORE_CUTOVER", "0")
+    composed = []
+
+    async def unexpected(*args, **kwargs):
+        composed.append(True)
+        yield 'data: {"delta":"x"}\n\n'
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(GatewayTurns, "compose_web_turn", unexpected)
+
+    async def fake_llm(_candidates, _messages, **_kw):
+        yield 'data: {"delta":"Legacy answer."}\n\n'
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(chat_routes, "stream_llm_with_fallback", fake_llm)
+    response = await routes["/api/chat_stream"](chat_request({
+        "message": "Say hello",
+    }))
+    frames = [chunk async for chunk in response.body_iterator]
+    text = "".join(frames)
+    assert '"delta":"Legacy answer."' in text
+    assert writes == ["Legacy answer."]
+    assert not composed

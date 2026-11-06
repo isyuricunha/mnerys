@@ -232,6 +232,7 @@ class PreparedWebTurn:
     explicit_browser_intent: bool = False
     tool_intent: ToolIntent | None = None
     workspace_agent_intent: bool = False
+    image_editing_requested: bool = False
     foreground_candidates: list | None = None
     foreground_route_descriptors: list | None = None
     chat_request_factory: Any = None
@@ -890,6 +891,9 @@ class GatewayTurns:
             explicit_browser_intent=_explicit_browser_intent,
             tool_intent=_tool_intent,
             workspace_agent_intent=_workspace_agent_intent,
+            image_editing_requested=(
+                initial_capabilities.image_editing_requested
+            ),
             foreground_candidates=_foreground_candidates,
             foreground_route_descriptors=_foreground_route_descriptors,
             chat_request_factory=_chat_request_factory,

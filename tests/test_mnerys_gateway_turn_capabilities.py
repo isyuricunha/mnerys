@@ -370,12 +370,19 @@ def test_web_handoff_is_single_and_stays_before_policy_and_image_context():
     kw = {item.arg: item.value for item in calls[0].keywords}
     assert isinstance(kw["context_owner"], ast.Attribute)
     assert kw["context_owner"].attr == "user"
-    assert source.index("gateway_turns.select_contract_scope(") < source.index(
-        "gateway_turns.classify_turn_capabilities("
-    ) < source.index("image_edit_context =")
-    assert source.index("gateway_turns.classify_turn_capabilities(") < source.index(
-        "gateway_turns.finalize_tool_policy("
+    # Legacy path: contract scope, then the single classification, then the
+    # image-edit context and the final policy veto.
+    legacy_scope = source.index("gateway_turns.select_contract_scope(")
+    legacy_classify = source.index("gateway_turns.classify_turn_capabilities(")
+    assert legacy_scope < legacy_classify < source.index(
+        "gateway_turns.finalize_tool_policy(",
+        legacy_classify,
     )
+    # Composed cutover path: the single composition operation precedes the
+    # image-edit context it feeds, and the legacy chain still follows it.
+    compose_call = source.index("gateway_turns.compose_web_turn(")
+    first_image_context = source.index("image_edit_context =")
+    assert compose_call < first_image_context < legacy_scope
     assert "requested_capabilities(" not in source
     assert "corrected_browser_target(" not in source
     assert "_warm_turn_capabilities =" not in source

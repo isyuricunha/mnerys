@@ -2897,6 +2897,7 @@ def setup_chat_routes(
             and not _is_image_generation_session(sess, owner=effective_user(request))
         )
         if _web_cutover:
+            from src.settings import get_setting
             _prepared = await gateway_turns.compose_web_turn(WebTurnComposition(
                 admission=_admitted_session, session=sess, session_id=session,
                 message=message,
@@ -2932,7 +2933,6 @@ def setup_chat_routes(
                 active_doc_state=active_doc_state,
                 active_email=active_email_ctx,
                 selected_notes_context=_format_selected_notes_context(selected_notes),
-                selected_note_ids=tuple(selected_note_ids),
                 client_runtime_context=client_runtime_context,
                 internal_tool_request=is_internal_tool_request(request),
                 experiment_header=request.headers.get("x-odysseus-routing-experiment"),
@@ -3051,34 +3051,18 @@ def setup_chat_routes(
             if _effective_mode in ("agent", "research", "chat"):
                 set_session_mode(session, _effective_mode)
             image_refs = []
+            # The composition already classified the turn once; the image-edit
+            # references reuse that single admitted classification result.
             if (
-                _turn_contract is not None
+                _prepared.image_editing_requested
                 and getattr(ctx, "preprocessed", None) is not None
                 and ctx.preprocessed.attachment_meta
-                and any(
-                    str(a.get("mime") or "").startswith("image/")
-                    for a in ctx.preprocessed.attachment_meta
-                )
             ):
-                _classified_image_edit = gateway_turns.classify_turn_capabilities(
-                    _admitted_session, sess,
-                    context_owner=ctx.user,
-                    message=message,
-                    use_turn_contract=True,
-                    active_document=bool(active_doc),
-                    workspace_bound=bool(workspace),
-                    image_attachment=True,
-                    explicit_browser_intent=_explicit_browser_intent,
-                    external_discovery_intent=_external_discovery_intent,
-                    private_browser_warm=False,
-                    contextual_browser_followup_lookup=lambda: _is_contextual_browser_followup(message, sess),
-                )
-                if _classified_image_edit.image_editing_requested:
-                    image_refs = [
-                        "odysseus://attachment/" + str(a["id"])
-                        for a in ctx.preprocessed.attachment_meta
-                        if a.get("id") and str(a.get("mime") or "").startswith("image/")
-                    ]
+                image_refs = [
+                    "odysseus://attachment/" + str(a["id"])
+                    for a in ctx.preprocessed.attachment_meta
+                    if a.get("id") and str(a.get("mime") or "").startswith("image/")
+                ]
             if image_refs:
                 image_edit_context = {"role": "system", "content":
                     "For the requested image edit, use edit_image with action=prompt and image_id set to the uploaded image reference: "
