@@ -45,6 +45,10 @@ def test_init_db_dispatches_postgres_without_legacy_sqlite_migrations(monkeypatc
 def test_postgresql_initializer_fails_closed_if_schema_missing_columns(monkeypatch):
     import core.database as database
 
+    # The migration scripts set this env var for their own import windows;
+    # the leak would silently bypass the fail-closed branch this test guards.
+    monkeypatch.delenv("MNERYS_ALLOW_STARTUP_SCHEMA_MIGRATION", raising=False)
+
     class StubEngine:
         class dialect:
             name = "postgresql"
