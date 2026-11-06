@@ -193,12 +193,13 @@ def _pick_or_create_session(client: GatewayClient, endpoint: str) -> str:
     if sessions:
         return sessions[0]["id"]
     name = os.environ.get("MNERYS_TEST_SESSION") or f"cli-{os.getpid()}"
-    response = client._request(
-        "POST", "/api/v1/sessions",
-        json_body={"name": name},
-    )
-    data = response.json()
-    return data.get("id") or data.get("session_id")
+    data = client.create_session(name=name)
+    session_id = data.get("id") or data.get("session_id")
+    if not session_id:
+        raise MnerysCliError(
+            "Gateway session creation returned no session id",
+        )
+    return str(session_id)
 
 
 def _stream_turn(

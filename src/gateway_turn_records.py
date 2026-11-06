@@ -268,6 +268,25 @@ class SqlTurnRecords:
                     "payload": json.loads(row.payload),
                 }
 
+    def list_session_approvals(
+        self, *, owner: str, session_id: str, limit: int = 50,
+    ) -> list[dict]:
+        """Read owner-scoped approval projections for one session.
+
+        Returns the display fields only: digests, resource identities and
+        effective authority stay server-side. Newest first, bounded page.
+        """
+        self._require_id_text("owner", owner)
+        self._require_id_text("session_id", session_id)
+        if type(limit) is not int or not 1 <= limit <= 200:
+            raise TurnRecordError("Invalid approval page limit")
+        with self.session_factory() as db:
+            rows = db.query(self.approval_model).filter(
+                self.approval_model.owner == owner,
+                self.approval_model.session_id == session_id,
+            ).order_by(self.approval_model.created_at.desc()).limit(limit).all()
+            return [self._approval_dict(row) for row in rows]
+
     def prune_terminal_turns(self, *, before: datetime, batch: int = 200) -> int:
         """Delete terminal turns and their events older than ``before``."""
         if type(batch) is not int or not 1 <= batch <= 1000:
@@ -298,6 +317,24 @@ class SqlTurnRecords:
             "policy_version": row.policy_version,
             "cancellation_token": row.cancellation_token,
             "terminal_at": row.terminal_at,
+        }
+
+    @staticmethod
+    def _approval_dict(row) -> dict:
+        """Display-only approval projection; never authority material."""
+
+        def _iso(value: Any) -> str | None:
+            return value.isoformat() if isinstance(value, datetime) else None
+
+        return {
+            "approval_id": row.approval_id,
+            "turn_id": row.turn_id,
+            "tool_name": row.tool_name,
+            "status": row.status,
+            "decision": row.decision,
+            "created_at": _iso(row.created_at),
+            "expires_at": _iso(row.expires_at),
+            "consumed_at": _iso(row.consumed_at),
         }
 
     @staticmethod

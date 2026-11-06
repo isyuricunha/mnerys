@@ -117,6 +117,19 @@ class GatewayClient:
         response = self._request("GET", "/api/v1/sessions")
         return (response.json() or {}).get("sessions", [])
 
+    def create_session(
+        self, *, name: str = "", endpoint_id: str | None = None,
+        model: str | None = None,
+    ) -> dict:
+        """Create one owner-scoped session (server-validated endpoint/model)."""
+        body: dict[str, Any] = {"name": name}
+        if endpoint_id:
+            body["endpoint_id"] = endpoint_id
+        if model:
+            body["model"] = model
+        response = self._request("POST", "/api/v1/sessions", json_body=body)
+        return response.json()
+
     def models(self) -> list[dict]:
         response = self._request("GET", "/api/v1/models")
         return (response.json() or {}).get("models", [])

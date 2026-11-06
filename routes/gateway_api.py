@@ -333,22 +333,341 @@ async def approval_decision(
 
 @router.get("/sessions")
 async def list_sessions(request: Request) -> dict:
-    """Owner-scoped session listing (metadata only)."""
+    """Owner-scoped session listing (metadata only).
+
+    The database is the complete, authoritative listing (the in-memory
+    manager cache is a bounded recent subset); cached-only manager fixtures
+    without a database keep their memory listing.
+    """
     owner = _require_owner(request)
     manager = _session_manager(request)
     if manager is None:
         raise HTTPException(status_code=503, detail="Session manager unavailable")
-    items = []
+    items: dict[str, dict] = {}
+    try:
+        from core.database import SessionLocal, Session as DbSession
+        from routes.session_routes import _is_hidden_session_name
+        from src.auth_helpers import owner_filter
+
+        db = SessionLocal()
+        try:
+            query = owner_filter(
+                db.query(DbSession).filter(DbSession.archived == False),
+                DbSession, owner,
+            ).order_by(DbSession.is_important.desc(), DbSession.updated_at.desc())
+            for row in query.all():
+                if _is_hidden_session_name(row.name):
+                    continue
+                items[row.id] = {
+                    "id": row.id,
+                    "name": row.name,
+                    "model": row.model,
+                    "mode": getattr(row, "mode", None) or "chat",
+                }
+        finally:
+            db.close()
+    except Exception:
+        # The durable listing is preferred; the manager cache is still an
+        # owner-filtered fallback. Never hide that the listing is partial.
+        logger.warning("Gateway session listing fell back to the manager cache", exc_info=True)
     for session in manager.sessions.values():
         if getattr(session, "owner", None) != owner:
             continue
-        items.append({
+        items.setdefault(session.id, {
             "id": session.id,
             "name": getattr(session, "name", None),
             "model": getattr(session, "model", None),
             "mode": getattr(session, "mode", "chat"),
         })
-    return {"sessions": items}
+    return {"sessions": list(items.values())}
+
+
+class SessionCreateBody(BaseModel):
+    """Owner-scoped session creation hints; the server validates everything.
+
+    Delegated credentials can never supply raw endpoint URLs or API keys:
+    the endpoint resolves from registered, owner-filtered rows only.
+    """
+
+    name: str = Field(default="", max_length=200)
+    endpoint_id: Optional[str] = Field(default=None, max_length=128)
+    model: Optional[str] = Field(default=None, max_length=256)
+
+
+class SessionUpdateBody(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=200)
+    endpoint_id: Optional[str] = Field(default=None, max_length=128)
+    model: Optional[str] = Field(default=None, max_length=256)
+
+
+def _resolve_endpoint_row(db: Any, owner: str, endpoint_id: str | None):
+    """One enabled, owner-filtered ModelEndpoint row (explicit or default)."""
+    from core.database import ModelEndpoint
+    from src.auth_helpers import owner_filter
+
+    query = owner_filter(
+        db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True),
+        ModelEndpoint, owner,
+    )
+    if endpoint_id:
+        row = query.filter(ModelEndpoint.id == endpoint_id).first()
+        if row is None:
+            raise HTTPException(status_code=400, detail="Model endpoint no longer exists")
+        return row
+    row = query.order_by(ModelEndpoint.updated_at.desc()).first()
+    if row is None:
+        raise HTTPException(status_code=400, detail="No registered model endpoint for this owner")
+    return row
+
+
+def _validated_session_model(endpoint_row: Any, owner: str, model_hint: str | None) -> str:
+    """Validate the model hint against the endpoint registry, server-side."""
+    from src.endpoint_resolver import build_chat_url, build_headers, normalize_base
+    from src.llm_core import list_model_ids
+
+    endpoint_url = build_chat_url(normalize_base(endpoint_row.base_url or ""))
+    headers = build_headers(endpoint_row.api_key, endpoint_row.base_url or "") if (
+        endpoint_row.api_key
+    ) else None
+    available = list_model_ids(
+        endpoint_url, timeout=3, headers=headers, owner=owner,
+        endpoint_id=getattr(endpoint_row, "id", None),
+    )
+    if not available:
+        raise HTTPException(status_code=400, detail="Cannot reach /v1/models")
+    if model_hint:
+        base_hint = model_hint.rsplit("/", 1)[-1]
+        for candidate in available:
+            if candidate == model_hint or candidate.rsplit("/", 1)[-1] == base_hint:
+                return candidate
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model not found at server. Available: {', '.join(available[:20])}",
+        )
+    non_chat = (
+        "text-embedding", "embedding", "tts-", "whisper", "text-moderation",
+        "moderation-", "dall-e", "rerank",
+    )
+    chat_ids = [m for m in available if not any(p in m.lower() for p in non_chat)]
+    return (chat_ids or available)[0]
+
+
+@router.post("/sessions", status_code=201)
+async def create_session(body: SessionCreateBody, request: Request) -> dict:
+    """Create one owner-scoped session from registered endpoints only."""
+    import uuid
+
+    owner = _require_owner(request)
+    manager = _session_manager(request)
+    if manager is None:
+        raise HTTPException(status_code=503, detail="Session manager unavailable")
+    from core.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        endpoint_row = _resolve_endpoint_row(db, owner, (body.endpoint_id or "").strip() or None)
+    finally:
+        db.close()
+    model = _validated_session_model(endpoint_row, owner, (body.model or "").strip() or None)
+    from src.endpoint_resolver import build_chat_url, normalize_base
+
+    session = manager.create_session(
+        session_id=str(uuid.uuid4()),
+        name=body.name or "",
+        endpoint_url=build_chat_url(normalize_base(endpoint_row.base_url or "")),
+        model=model,
+        owner=owner,
+        endpoint_id=getattr(endpoint_row, "id", None),
+    )
+    try:
+        from src.event_bus import fire_event
+
+        fire_event("session_created", owner)
+    except Exception:
+        logger.warning("session_created event delivery failed", exc_info=True)
+    return {
+        "id": session.id,
+        "session_id": session.id,
+        "name": session.name,
+        "model": session.model,
+        "mode": "chat",
+    }
+
+
+@router.get("/sessions/{session_id}")
+async def session_detail(
+    session_id: str, request: Request, limit: int = 200, offset: int = 0,
+) -> dict:
+    """Owner-scoped session metadata plus persisted, sanitized history."""
+    _admission, session = _admit(request, session_id)
+    from core.database import ChatMessage as DbChatMessage, SessionLocal
+    from routes.chat_helpers import strip_tui_local_context
+    from routes.history.history_routes import _history_display_content
+
+    db = SessionLocal()
+    try:
+        total = (
+            db.query(DbChatMessage)
+            .filter(DbChatMessage.session_id == session_id)
+            .count()
+        )
+        page_limit = max(1, min(int(limit), 500))
+        page_offset = max(0, min(int(offset), total))
+        rows = (
+            db.query(DbChatMessage)
+            .filter(DbChatMessage.session_id == session_id)
+            .order_by(DbChatMessage.timestamp)
+            .offset(page_offset)
+            .limit(page_limit)
+            .all()
+        )
+        history = []
+        for row in rows:
+            meta: dict = {}
+            if row.meta_data:
+                try:
+                    meta = json.loads(row.meta_data) or {}
+                except (json.JSONDecodeError, ValueError):
+                    meta = {}
+            if meta.get("hidden"):
+                continue
+            history.append({
+                "role": row.role,
+                "content": strip_tui_local_context(_history_display_content(row.content)),
+                "metadata": meta,
+            })
+    finally:
+        db.close()
+    return {
+        "session": {
+            "id": session.id,
+            "name": getattr(session, "name", None),
+            "model": getattr(session, "model", None),
+            "mode": getattr(session, "mode", "chat"),
+        },
+        "history": history,
+        "total": total,
+        "offset": page_offset,
+        "limit": page_limit,
+        "has_more_before": page_offset > 0,
+        "has_more_after": page_offset + len(rows) < total,
+    }
+
+
+@router.get("/sessions/{session_id}/approvals")
+async def session_approvals(session_id: str, request: Request) -> dict:
+    """Owner-scoped durable approval projections for one session."""
+    _admission, _session = _admit(request, session_id)
+    records = _records_for(request)
+    if records is None:
+        raise HTTPException(status_code=503, detail="Durable approval records unavailable")
+    try:
+        items = records.list_session_approvals(
+            owner=_require_owner(request), session_id=session_id,
+        )
+    except TurnRecordError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"approvals": items}
+
+
+@router.get("/approvals/{approval_id}")
+async def approval_preview(
+    approval_id: str, request: Request,
+) -> dict:
+    """One owner-checked pending approval display card (never consumed)."""
+    session_id = request.query_params.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=422, detail="session_id query parameter required")
+    _admission, _session = _admit(request, session_id)
+    store = getattr(request.app.state, "tool_approval_store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="Approval store unavailable")
+    peek = getattr(store, "peek", None)
+    if not callable(peek):
+        raise HTTPException(status_code=503, detail="Approval store cannot preview")
+    pending = peek(approval_id)
+    owner = _require_owner(request)
+    public_payload = getattr(pending, "public_payload", None) if pending is not None else None
+    if (
+        pending is None
+        or not callable(public_payload)
+        or getattr(pending, "owner", None) != owner.strip().casefold()
+        or getattr(pending, "session_id", None) != session_id
+    ):
+        # Foreign, expired or unknown approvals are indistinguishable.
+        raise HTTPException(status_code=404, detail="Approval not found")
+    payload = public_payload()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=503, detail="Approval display unavailable")
+    return payload
+
+
+@router.patch("/sessions/{session_id}")
+async def update_session(
+    session_id: str, body: SessionUpdateBody, request: Request,
+) -> dict:
+    """Owner-scoped session preference update (name, model, endpoint).
+
+    Model and endpoint hints are validated against the server registry;
+    raw endpoint URLs and API keys are never accepted on this API.
+    """
+    _admission, session = _admit(request, session_id)
+    manager = _session_manager(request)
+    name = (body.name or "").strip()
+    if name:
+        manager.update_session_name(session_id, name)
+    endpoint_id = (body.endpoint_id or "").strip() or None
+    model_hint = (body.model or "").strip() or None
+    if model_hint or endpoint_id:
+        from core.database import SessionLocal
+        from src.endpoint_resolver import build_chat_url, build_headers, normalize_base
+
+        db = SessionLocal()
+        try:
+            endpoint_row = _resolve_endpoint_row(db, _require_owner(request), endpoint_id)
+        finally:
+            db.close()
+        endpoint_url = build_chat_url(normalize_base(endpoint_row.base_url or ""))
+        model = _validated_session_model(endpoint_row, _require_owner(request), model_hint)
+        session.model = model
+        session.endpoint_url = endpoint_url
+        session.endpoint_id = getattr(endpoint_row, "id", None)
+        session.headers = (
+            build_headers(endpoint_row.api_key, endpoint_row.base_url or "")
+            if endpoint_row.api_key else {}
+        )
+        if getattr(session, "thinking_mode", "").startswith("effort:"):
+            from src.chatgpt_subscription import get_chatgpt_model_metadata
+
+            meta = get_chatgpt_model_metadata(model)
+            current_effort = session.thinking_mode[7:]
+            if not meta or current_effort not in [
+                lvl.lower() for lvl in meta.get("supported_reasoning_levels", [])
+            ]:
+                session.thinking_mode = "off"
+        # Persist through the same DB-backed metadata the Web writer uses.
+        from core.database import Session as DbSession
+        from core.database import utcnow_naive
+
+        db = SessionLocal()
+        try:
+            db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+            if db_session is not None:
+                db_session.model = model
+                db_session.endpoint_url = endpoint_url
+                db_session.endpoint_id = session.endpoint_id
+                db_session.headers = session.headers or {}
+                db_session.thinking_mode = getattr(session, "thinking_mode", "off") or "off"
+                db_session.updated_at = utcnow_naive()
+                db.commit()
+        finally:
+            db.close()
+    return {
+        "id": session.id,
+        "name": getattr(session, "name", None),
+        "model": getattr(session, "model", None),
+        "mode": getattr(session, "mode", "chat"),
+    }
 
 
 @router.get("/models")
