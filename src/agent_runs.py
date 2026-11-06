@@ -347,15 +347,27 @@ def start(
     mode: str = "sse", outcome: Optional[TurnOutcome] = None,
     web_strict_text: bool = False,
     web_native_notes: bool = False,
+    run_id: str | None = None,
 ) -> _Run:
     """Start a detached run draining `agen` for a session. If a run is already in
-    flight for this session (e.g. a rapid double-send), it's cancelled first."""
+    flight for this session (e.g. a rapid double-send), it's cancelled first.
+
+    ``run_id`` (exactly 32 hex chars) lets a durable Gateway turn and its
+    process-local run share one identity; callers without a durable turn
+    keep the generated id.
+    """
+    if run_id is not None and (
+        type(run_id) is not str or re.fullmatch(r"[0-9a-f]{32}", run_id) is None
+    ):
+        raise ValueError("Invalid detached run id")
     # Validate the new run before cancelling an active one.
     run = _Run(
         session_id, mode=mode, outcome=outcome,
         web_strict_text=web_strict_text,
         web_native_notes=web_native_notes,
     )
+    if run_id is not None:
+        run.run_id = run_id
     prev = _RUNS.get(session_id)
     prev_task: Optional[asyncio.Task] = None
     if prev:

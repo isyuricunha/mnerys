@@ -89,8 +89,13 @@ class TurnService:
         outcome: TurnOutcome, *,
         web_strict_text: bool = False,
         web_native_notes: bool = False,
+        run_id: str | None = None,
     ) -> TypedTurnStream:
-        """Use the original detached run manager for trusted typed events."""
+        """Use the original detached run manager for trusted typed events.
+
+        ``run_id`` (exactly 32 hex chars) makes a durable turn and its
+        process-local run share one identity.
+        """
         if (
             not isinstance(outcome, TurnOutcome)
             or outcome.state != "pending"
@@ -101,6 +106,7 @@ class TurnService:
             session_id, events, mode="typed", outcome=outcome,
             web_strict_text=web_strict_text,
             web_native_notes=web_native_notes,
+            run_id=run_id,
         )
         return TypedTurnStream(
             run_id=run.run_id, outcome=outcome,
