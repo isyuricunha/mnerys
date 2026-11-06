@@ -73,9 +73,11 @@ A base installation without the extra answers `mnerys tui` with the
 installation hint above and exit code 3. The shell shows the real Gateway
 connection state (endpoint, version, discovery counts); the conversation
 screen loads the session's persisted history and streams turns, with `q`
-quit, `?` help, `r` refresh, `enter` send, `alt+enter` newline and
-`escape` cancelling the active turn. Sessions, tools and approvals arrive
-with the recorded M4 submilestones.
+quit, `?` help, `r` refresh, `ctrl+s` sessions, `enter` send,
+`alt+enter` newline and `escape` cancelling the active turn. Tool activity
+renders as human-readable status lines and pending approvals show a card
+whose `a` (approve) and `d` (deny) keys submit the decision through the
+sealed server store; the displayed outcome is always the server's.
 
 ## Profiles and credentials
 

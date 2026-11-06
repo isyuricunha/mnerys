@@ -184,22 +184,22 @@ commits are not milestones.
   graceful exit, optional `mnerys-cli[tui]` extra. *Gate:* headless
   `run_test` boots the installed wheel's TUI; base install stays
   lightweight.
-- **M4.3 Conversation experience:** persisted history rendering, streamed
-  turns with ordered, idempotent event application, cancellation,
+- **M4.3 Conversation experience:** DONE. Persisted history rendering,
+  streamed turns with ordered, idempotent event application, cancellation,
   reconnection with cursor replay, multiline compose, safe Markdown/code
-  blocks. *Gate:* streaming, cancellation and replay matrix rows pass and
-  escape-injection payloads render inert.
-- **M4.4 Sessions and discovery:** session list/create/switch, history
-  reload, agent/model selection within server permissions. *Gate:* Web/TUI
-  continuity rows pass against the real router in isolation.
-- **M4.5 Tools and approvals:** tool status rendering, human-readable
+  blocks. *Gate passed:* streaming, cancellation and replay matrix rows and
+  the escape-injection tests (see M4_ACCEPTANCE.md).
+- **M4.4 Sessions and discovery:** DONE. Session list/create/switch with
+  history reload and server-validated model selection. *Gate passed:* Web/TUI
+  continuity rows against the real router in isolation (see M4_ACCEPTANCE.md).
+- **M4.5 Tools and approvals:** DONE. Tool status rendering, human-readable
   approval cards, decisions through the sealed server store, denial/expiry/
-  replay handling. *Gate:* approval matrix rows pass with server authority
-  intact.
-- **M4.6 Acceptance, packaging and publication:** full acceptance matrix
-  evidence, cross-platform CI results, packaging, docs, website and the
-  release. *Gate:* every M4 exit requirement evidenced; release published
-  with version-matched artifacts; website updated.
+  replay handling. *Gate passed:* approval matrix rows with server authority
+  intact (see M4_ACCEPTANCE.md).
+- **M4.6 Acceptance, packaging and publication:** IN PROGRESS. Full
+  acceptance matrix evidence, cross-platform CI results, packaging, docs,
+  website and the release. *Gate:* every M4 exit requirement evidenced;
+  release published with version-matched artifacts; website updated.
 
 The TUI uses the same Gateway/session/event contracts as CLI and Web, the
 Mnerys visual language (initially **Eclipse**) with terminal-appropriate
