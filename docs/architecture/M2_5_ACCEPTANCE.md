@@ -22,8 +22,14 @@ tables are installed only by the explicit, approval-gated migrations.
 
 - Final green CI on the last published batch (in progress at the time of
   writing) and the final report.
-- Real browser Web verification (desktop/mobile) on the updated revision
-  when the preview deployment is authorized.
+- The photo-editor browser release-gate suite was not run in this local
+  environment (it requires the full development environment boot of the
+  application); it is not part of the CI jobs either. The gateway-notes
+  browser suites (5 desktop/mobile renderer tests) and the
+  browser-to-HTTP integration suite (3 tests through the real route
+  handlers with sealed-format fixtures) pass in installed Chromium.
+- Real browser Web verification on the updated revision against the
+  preview deployment when the deployment is authorized.
 - The production preview migration/deployment are NOT authorized yet; the
   exact release scope, verified backup/restore, health checks and rollback
   plan are prepared in `docs/deployment/NATIVE_PREVIEW.md`.
