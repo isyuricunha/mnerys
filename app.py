@@ -799,6 +799,8 @@ from src.turn_service import turn_service
 
 def _gateway_model_snapshot() -> list[dict]:
     """Deterministic model discovery: enabled endpoints, names only."""
+    import json as _json
+
     items: list[dict] = []
     try:
         with SessionLocal() as db:
@@ -807,7 +809,18 @@ def _gateway_model_snapshot() -> list[dict]:
             ).all()
         for row in rows:
             host = str(row.base_url or "").split("//")[-1].split("/")[0]
-            items.append({"id": str(row.model or ""), "host": host})
+            cached = row.cached_models
+            if isinstance(cached, str):
+                try:
+                    cached = _json.loads(cached)
+                except ValueError:
+                    cached = None
+            names = cached if isinstance(cached, list) else None
+            if not names and row.model:
+                names = [str(row.model)]
+            for name in names or ():
+                if str(name).strip():
+                    items.append({"id": str(name), "host": host})
     except Exception:
         logger.warning("Gateway model discovery snapshot failed", exc_info=True)
     return items
