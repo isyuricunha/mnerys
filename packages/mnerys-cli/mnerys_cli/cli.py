@@ -8,10 +8,29 @@ authenticated Gateway API v1.
 import argparse
 import sys
 
-from mnerys_cli import __version__
 from mnerys_cli.errors import MnerysCliError
+from mnerys_cli.version import distribution_version
 
 DESCRIPTION = "Mnerys: authenticated turns against the shared Gateway."
+
+
+class _VersionAction(argparse.Action):
+    """Print the installed distribution version when the flag is used.
+
+    Resolution happens only on ``--version`` so a broken or missing
+    installation still allows ``--help`` and every other command, while the
+    version flag itself fails loudly (exit 6) instead of reporting a wrong
+    release.
+    """
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        try:
+            version = distribution_version()
+        except MnerysCliError as exc:
+            print(f"mnerys: {exc}", file=sys.stderr)
+            raise SystemExit(exc.exit_code) from None
+        print(f"mnerys {version}")
+        raise SystemExit(0)
 
 
 def _common_parser(subparsers, name: str, help_text: str) -> argparse.ArgumentParser:
@@ -29,7 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "--version", action="version", version=f"mnerys {__version__}",
+        "--version", action=_VersionAction, nargs=0,
+        help="print the installed mnerys-cli version and exit",
     )
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
 

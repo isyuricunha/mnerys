@@ -3,7 +3,8 @@
 Exit code contract:
 0 success, 1 runtime/network/server error, 2 usage error,
 3 configuration error, 4 authentication/authorization error (401/403),
-5 cancelled by the user.
+5 cancelled by the user, 6 version metadata unavailable (broken
+installation).
 """
 
 
@@ -25,3 +26,9 @@ class AuthError(MnerysCliError):
 
 class Cancelled(MnerysCliError):
     exit_code = 5
+
+
+class VersionMetadataError(MnerysCliError):
+    """The installed distribution carries no usable version metadata."""
+
+    exit_code = 6

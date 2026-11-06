@@ -11,7 +11,7 @@ import os
 import subprocess
 import sys
 
-from mnerys_cli import __version__
+from mnerys_cli.version import distribution_version
 from mnerys_cli.client import GatewayClient
 from mnerys_cli.config import (
     ConfigError as ProfileConfigError,
@@ -61,7 +61,12 @@ def cmd_connect(args: argparse.Namespace) -> int:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     problems: list[str] = []
-    print(f"mnerys cli version: {__version__}")
+    try:
+        cli_version = distribution_version()
+    except MnerysCliError as exc:
+        problems.append(str(exc))
+        cli_version = "unavailable"
+    print(f"mnerys cli version: {cli_version}")
     print(f"python: {sys.version.split()[0]} on {sys.platform}")
     try:
         profiles = load_profiles()

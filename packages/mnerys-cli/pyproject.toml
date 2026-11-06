@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+requires = ["hatchling>=1.25", "hatch-vcs>=0.5"]
 build-backend = "hatchling.build"
 
 [project]
 name = "mnerys-cli"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Mnerys command line client: authenticated turns against the shared Gateway."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -26,6 +26,18 @@ dependencies = [
 
 [project.scripts]
 mnerys = "mnerys_cli.cli:main"
+
+# One unified release version: semantic-release Git tags (vX.Y.Z) are the
+# authoritative source and the distribution derives its version from them.
+[tool.hatch.version]
+source = "vcs"
+tag-pattern = '^v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+
+[tool.hatch.version.raw-options]
+# The package lives in a monorepo subdirectory; the release tags point at
+# the repository root. Without a fallback, builds without Git metadata or
+# PKG-INFO fail loudly instead of inventing a version.
+root = "../.."
 
 [tool.hatch.build.targets.wheel]
 packages = ["mnerys_cli"]
