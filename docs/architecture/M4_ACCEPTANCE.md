@@ -1,10 +1,11 @@
 # M4 acceptance: first-party terminal UI (TUI)
 
-**Status: VERIFIED IN IMPLEMENTATION (November 6, 2026).** The M4
-submilestones passed their gates in the local suite and the full CI matrix;
-the release and the published artifacts are verified separately. Everything
-in this matrix is backed by a real test or a real command result; nothing
-is claimed from code reading alone.
+**Status: COMPLETE (November 6, 2026).** All M4 submilestones passed
+their gates; the full CI matrix is green; release v0.15.1 was published
+with version-matched wheel and sdist artifacts, the tag is synchronized
+on GitHub, GitLab and Forgejo, and the installed CLI reports the release
+version with the TUI booting from the installed wheel. Everything in this
+matrix is backed by a real test or a real command result.
 
 Scope reminder: the TUI shares the existing Gateway, Agent Core, sessions,
 events, authentication and tool permissions with the Web and the CLI. It is
@@ -73,7 +74,7 @@ lightweight (httpx only).
 | Replayed or expired decisions show the server rejection | same suite: 409 renders "rejected by the Gateway" |
 | Invalid credentials | same suite: 401 renders the auth error |
 
-### M4.6 Acceptance and publication (in progress)
+### M4.6 Acceptance and publication (complete)
 
 - Web/TUI continuity: `tests/test_mnerys_tui_continuity.py` runs the real
   production router with a real SQLite database and durable records: a
@@ -81,6 +82,10 @@ lightweight (httpx only).
   durable store with ordered event replay, and Web reads show no duplicated
   messages. The reverse direction is covered by the same shared store: the
   Web adapter reads what the TUI wrote.
+- Independent review: three review rounds over the M4 diff cleared every
+  substantive finding (router boundary, authentication masking in the test
+  suite, terminal control-character and markup injection, double-submit
+  race, tag-time packaging test); the final sweep returned APROVADO.
 - Packaging, versions and release follow the unified policy (release
   workflow builds/verifies/attaches the wheel and sdist).
 - Cross-platform: Linux is verified in CI and locally; the Windows/macOS
