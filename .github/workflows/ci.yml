@@ -128,6 +128,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
+          # The mnerys-cli packaging tests derive the distribution version
+          # from the release tags (hatch-vcs); keep every tag available.
+          fetch-tags: true
           persist-credentials: false
 
       # Detect whether this PR only touches repository prose outside the Pages site.

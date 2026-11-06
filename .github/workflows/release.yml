@@ -124,3 +124,85 @@ jobs:
     uses: ./.github/workflows/docker-publish.yml
     with:
       release_tag: ${{ needs.release.outputs.release_tag }}
+
+  cli-package:
+    name: Publish the mnerys-cli wheel and sdist
+    needs: release
+    if: needs.release.outputs.release_tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      # The ref is safe: it is the tag this same run detected on the exact
+      # validated main HEAD (strict vX.Y.Z match in the release job), never
+      # attacker-controlled event payload data.
+      - name: Check out the released tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.release_tag }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Set up Python for the verification script
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Install the pinned uv build tool
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.5"
+
+      - name: Build the wheel and sdist from the release tag
+        run: uv build --out-dir "$RUNNER_TEMP/dist" packages/mnerys-cli
+
+      - name: Verify distribution metadata against the release tag
+        env:
+          RELEASE_TAG: ${{ needs.release.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          python scripts/verify_cli_release.py \
+            --tag "$RELEASE_TAG" \
+            --dist-dir "$RUNNER_TEMP/dist" \
+            --require-sdist
+
+      - name: Install the wheel in a fresh environment and verify the CLI version
+        env:
+          RELEASE_TAG: ${{ needs.release.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/venv-check"
+          "$RUNNER_TEMP/venv-check/bin/pip" install --no-deps \
+            "$RUNNER_TEMP"/dist/mnerys_cli-*.whl
+          reported="$("$RUNNER_TEMP/venv-check/bin/mnerys" --version)"
+          echo "installed CLI reports: $reported"
+          test "$reported" = "mnerys ${RELEASE_TAG#v}"
+
+      - name: Rebuild the wheel from the sdist without Git metadata
+        env:
+          RELEASE_TAG: ${{ needs.release.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sdist-tree" "$RUNNER_TEMP/sdist-dist"
+          tar -xzf "$RUNNER_TEMP"/dist/mnerys_cli-*.tar.gz \
+            -C "$RUNNER_TEMP/sdist-tree" --strip-components=1
+          test ! -e "$RUNNER_TEMP/sdist-tree/.git"
+          (cd "$RUNNER_TEMP/sdist-tree" && uv build --wheel --out-dir "$RUNNER_TEMP/sdist-dist")
+          python scripts/verify_cli_release.py \
+            --tag "$RELEASE_TAG" \
+            --dist-dir "$RUNNER_TEMP/sdist-dist"
+
+      - name: Attach the distributions to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.release.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" \
+            "$RUNNER_TEMP"/dist/mnerys_cli-*.whl \
+            "$RUNNER_TEMP"/dist/mnerys_cli-*.tar.gz \
+            --clobber
+          echo 'Release assets now:'
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name'
