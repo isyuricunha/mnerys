@@ -265,7 +265,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
             "installed application directory (remote-only installs do not "
             "include the server).",
         )
-    python = sys.executable
+    python = os.environ.get("MNERYS_APP_PYTHON") or sys.executable
     command = [
         python, "-m", "uvicorn", "app:app",
         "--host", args.host, "--port", str(args.port),

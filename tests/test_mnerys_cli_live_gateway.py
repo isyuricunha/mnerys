@@ -93,7 +93,8 @@ def live_env(tmp_path_factory):
             server.kill()
 
 
-def _cli(live_env, *args, token="test-token", env=None, timeout=120, check=True):
+def _cli(live_env, *args, token: str | None = "test-token",
+         env=None, timeout=120, check=True):
     merged = {"MNERYS_ENDPOINT": live_env["endpoint"]}
     if token is not None:
         merged["MNERYS_TOKEN"] = token
@@ -168,3 +169,60 @@ def test_live_json_output_after_completion(live_env):
     assert result.returncode == 0, result.stderr
     assert '"turn_id"' in result.stdout
     assert '"status"' in result.stdout
+
+
+def test_local_serve_and_local_chat_share_the_gateway_contract(live_env, tmp_path):
+    """mnerys serve boots the local runtime; local chat talks to it."""
+    (tmp_path / "app.py").write_text(
+        "from tests.remote_gateway.cli_fixture_server import app\n",
+        encoding="utf-8",
+    )
+    port = _free_port()
+    serve = subprocess.Popen(
+        [live_env["entry"], "serve", "--port", str(port)],
+        cwd=live_env["root"],
+        env={
+            **os.environ,
+            "MNERYS_APP_DIR": str(tmp_path),
+            "MNERYS_APP_PYTHON": sys.executable,
+            "PYTHONPATH": str(REPO),
+        },
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    try:
+        ready = False
+        for _ in range(40):
+            import urllib.request
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/api/health", timeout=2,
+                ) as response:
+                    if response.status == 200:
+                        ready = True
+                        break
+            except OSError:
+                pass
+            time.sleep(0.5)
+        assert ready, "mnerys serve did not become ready"
+        local = _cli(
+            live_env, "chat", "hello", "--session", "session-1",
+            env={"MNERYS_ENDPOINT": f"http://127.0.0.1:{port}"},
+        )
+        assert local.returncode == 0, local.stderr
+        assert "Olá, CLI!" in local.stdout
+    finally:
+        serve.terminate()
+        try:
+            serve.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            serve.kill()
+
+
+def test_serve_refuses_without_a_local_runtime(live_env):
+    result = _cli(
+        live_env, "serve", "--port", "7999", token=None,
+        env={"MNERYS_APP_DIR": ""},
+        check=False,
+    )
+    assert result.returncode == 3
+    assert "MNERYS_APP_DIR" in result.stderr
