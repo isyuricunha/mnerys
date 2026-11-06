@@ -121,7 +121,10 @@ def fixture(credential="browser"):
         context_owner=principal.owner_id,
         request=TextTurnRequest("Explain how a queue works"),
         ports=ports,
-        chat_handler=SimpleNamespace(upload_handler=None),
+        chat_handler=SimpleNamespace(upload_handler=None,
+        validate_and_extract_preset=lambda _preset: (
+            0.8, 256, "", "", {}, None,
+        )),
         chat_processor=SimpleNamespace(),
         settings=TrustedTextTurnSettings(),
     )

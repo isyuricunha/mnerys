@@ -60,7 +60,10 @@ def web_build(monkeypatch):
             "global_disabled_tools": (),
             "browser_tools": frozenset(),
             "ports": ports,
-            "chat_handler": SimpleNamespace(upload_handler=None),
+            "chat_handler": SimpleNamespace(upload_handler=None,
+        validate_and_extract_preset=lambda _preset: (
+            0.8, 256, "", "", {}, None,
+        )),
             "chat_processor": SimpleNamespace(),
             "allowed_models": None,
         }
