@@ -62,18 +62,24 @@ def build_parser() -> argparse.ArgumentParser:
     agents = _common_parser(
         subparsers, "agents", "list authorized agents",
     )
+    agents.add_argument("action", nargs="?", choices=("list",),
+                        help=argparse.SUPPRESS)
     agents.add_argument("--json", action="store_true")
     agents.set_defaults(handler=lambda args: commands._discover(args, "agents"))
 
     models = _common_parser(
         subparsers, "models", "list available models",
     )
+    models.add_argument("action", nargs="?", choices=("list",),
+                        help=argparse.SUPPRESS)
     models.add_argument("--json", action="store_true")
     models.set_defaults(handler=lambda args: commands._discover(args, "models"))
 
     tools = _common_parser(
         subparsers, "tools", "list discoverable tools",
     )
+    tools.add_argument("action", nargs="?", choices=("list",),
+                       help=argparse.SUPPRESS)
     tools.add_argument("--json", action="store_true")
     tools.set_defaults(handler=lambda args: commands._discover(args, "tools"))
 
