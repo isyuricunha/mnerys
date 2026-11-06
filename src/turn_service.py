@@ -88,6 +88,7 @@ class TurnService:
         self, session_id: str, events: AsyncIterator[TurnEvent],
         outcome: TurnOutcome, *,
         web_strict_text: bool = False,
+        web_native_notes: bool = False,
     ) -> TypedTurnStream:
         """Use the original detached run manager for trusted typed events."""
         if (
@@ -99,6 +100,7 @@ class TurnService:
         run = agent_runs.start(
             session_id, events, mode="typed", outcome=outcome,
             web_strict_text=web_strict_text,
+            web_native_notes=web_native_notes,
         )
         return TypedTurnStream(
             run_id=run.run_id, outcome=outcome,
@@ -109,8 +111,10 @@ class TurnService:
         self, session_id: str, expected_run_id: str, *,
         after_cursor: str | None = None,
         web_strict_text: bool = False,
+        web_native_notes: bool = False,
+        replay_from_start: bool = False,
     ) -> Optional[TypedTurnStream]:
-        """Resume only the same in-process typed run, never another modality."""
+        """Resume exactly one typed run; optionally rebuild a review timeline."""
         if (
             type(expected_run_id) is not str or not expected_run_id
             or len(expected_run_id) > 80
@@ -121,18 +125,29 @@ class TurnService:
         )
         if (
             run is None or not isinstance(run.outcome, TurnOutcome)
+            or type(web_strict_text) is not bool
+            or type(web_native_notes) is not bool
+            or type(replay_from_start) is not bool
+            or (web_strict_text and web_native_notes)
             or run.web_strict_text is not web_strict_text
+            or run.web_native_notes is not web_native_notes
+            or (replay_from_start and not web_native_notes)
         ):
             return None
+        # Even when the serializer needs the full original event prefix to
+        # reconstruct a pending review, validate the requested cursor against
+        # this *exact* run before subscribing to any buffered events.
         prior_saved = agent_runs.typed_saved_receipt_precedes_cursor(
             session_id, expected_run_id, after_cursor,
         )
         return TypedTurnStream(
             run_id=run.run_id, outcome=run.outcome,
             events=agent_runs.subscribe(
-                session_id, run, after_cursor=after_cursor, typed=True,
+                session_id, run,
+                after_cursor=None if replay_from_start else after_cursor,
+                typed=True,
             ),
-            prior_saved_receipt=prior_saved,
+            prior_saved_receipt=False if replay_from_start else prior_saved,
         )
 
     def resume_active(self, session_id: str) -> Optional[TurnStream]:

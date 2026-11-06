@@ -27,14 +27,20 @@ logger = logging.getLogger(__name__)
 
 
 class _Run:
-    __slots__ = ("session_id", "buffer", "subscribers", "status", "task", "evict_task", "run_id", "finish_requested", "finish_event", "mode", "outcome", "started", "web_strict_text")
+    __slots__ = ("session_id", "buffer", "subscribers", "status", "task", "evict_task", "run_id", "finish_requested", "finish_event", "mode", "outcome", "started", "web_strict_text", "web_native_notes")
 
     def __init__(
         self, session_id: str, *, mode: str = "sse",
         outcome: Optional[TurnOutcome] = None,
         web_strict_text: bool = False,
+        web_native_notes: bool = False,
     ) -> None:
-        if type(web_strict_text) is not bool or (web_strict_text and mode != "typed"):
+        if (
+            type(web_strict_text) is not bool
+            or type(web_native_notes) is not bool
+            or ((web_strict_text or web_native_notes) and mode != "typed")
+            or (web_strict_text and web_native_notes)
+        ):
             raise ValueError("Invalid trusted Web typed-run provenance")
         if mode not in {"sse", "typed"}:
             raise ValueError("Unsupported process-local run mode")
@@ -43,6 +49,7 @@ class _Run:
         self.session_id = session_id
         self.mode = mode
         self.web_strict_text = web_strict_text
+        self.web_native_notes = web_native_notes
         self.outcome = outcome
         self.started = False
         self.buffer: list = []          # original SSE frames or sanitized typed events
@@ -163,6 +170,27 @@ def get_active_run(session_id: str) -> Optional[_Run]:
     """Return the exact active run currently registered for a session."""
     r = _RUNS.get(session_id)
     return r if r and r.status == "running" else None
+
+
+
+def get_recoverable_notes_review(session_id: str) -> Optional[_Run]:
+    """Locate one paused notes-origin run for an authenticated Web recovery.
+
+    Only the owner-admitted HTTP adapter may call this. There is no token,
+    status flag or new authority issued here; the caller must recheck the
+    original sealed approval before exposing a card. This is process-local.
+    """
+    if type(session_id) is not str or not session_id:
+        return None
+    run = _RUNS.get(session_id)
+    return run if (
+        run is not None
+        and run.web_native_notes is True
+        and run.mode == "typed"
+        and run.status == "done"
+        and isinstance(run.outcome, TurnOutcome)
+        and run.outcome.state == "awaiting_approval"
+    ) else None
 
 
 def get_matching_run(
@@ -318,6 +346,7 @@ def start(
     session_id: str, agen: AsyncGenerator[str | TurnEvent, None], *,
     mode: str = "sse", outcome: Optional[TurnOutcome] = None,
     web_strict_text: bool = False,
+    web_native_notes: bool = False,
 ) -> _Run:
     """Start a detached run draining `agen` for a session. If a run is already in
     flight for this session (e.g. a rapid double-send), it's cancelled first."""
@@ -325,6 +354,7 @@ def start(
     run = _Run(
         session_id, mode=mode, outcome=outcome,
         web_strict_text=web_strict_text,
+        web_native_notes=web_native_notes,
     )
     prev = _RUNS.get(session_id)
     prev_task: Optional[asyncio.Task] = None

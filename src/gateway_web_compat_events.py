@@ -5,8 +5,10 @@ serializes *already filtered* Gateway turn events to the existing browser's
 plain-chat SSE subset for no-HTTP parity tests. It performs no admission,
 tool execution, message saves, background work or network I/O.
 
-Do not use it for tool/approval/editor turns until their full Web payloads
-and authorization contracts have accepted parity tests.
+The restricted manage_notes preview also accepts original, store-verified
+review cards and filtered status metadata. Detached replay reconstructs
+the exact typed run prefix before filtering acknowledged SSE cursor frames.
+Neither mode authorizes a tool or enables production Web routing.
 """
 
 from collections.abc import AsyncIterator, Callable
@@ -22,6 +24,8 @@ _MAX_TEXT_CHARS = 4 * 1024 * 1024
 _MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}")
 _SAVED_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 _RUN_ID_RE = re.compile(r"[0-9a-f]{32}")
+_REVIEW_CURSOR_RE = re.compile(r"[0-9a-f]{32}:(?:0|[1-9][0-9]*)")
+_TYPED_HEARTBEAT_RE = re.compile(r": heartbeat [1-9][0-9]*\n\n")
 _SAFE_METRICS = frozenset({"input_tokens", "output_tokens", "total_tokens"})
 _SAFE_FAILURE_CODES = frozenset({
     "provider_error", "agent_terminal", "incomplete_stream",
@@ -224,6 +228,8 @@ async def serialize_plain_text_web_sse(
     prior_saved_receipt: bool = False,
     tool_status_preview: frozenset[str] = frozenset(),
     approval_card_resolver: Callable[[str], SealedReviewCard] | None = None,
+    replay_review: bool = False,
+    after_cursor: str | None = None,
 ) -> AsyncIterator[str]:
     """Serialize an approved text-only stream; never authorize a tool turn.
 
@@ -236,12 +242,20 @@ async def serialize_plain_text_web_sse(
         or type(replay) is not bool
         or type(prior_saved_receipt) is not bool
         or (prior_saved_receipt and not replay)
+        or type(replay_review) is not bool
+        or (replay_review and (
+            not replay or prior_saved_receipt or approval_card_resolver is None
+        ))
+        or (after_cursor is not None and (
+            not replay_review or type(after_cursor) is not str
+            or _REVIEW_CURSOR_RE.fullmatch(after_cursor) is None
+        ))
         or type(tool_status_preview) is not frozenset
         or not tool_status_preview <= _TOOL_STATUS_PREVIEW
         or (approval_card_resolver is not None and (
             not callable(approval_card_resolver)
             or not tool_status_preview
-            or replay
+            or (replay and not replay_review)
         ))
     ):
         raise TypeError("Invalid Web compatibility serialization options")
@@ -254,8 +268,26 @@ async def serialize_plain_text_web_sse(
     pending_review: SealedReviewCard | None = None
     awaiting_tool_notice = False
     pending_terminal = False
+    pending_terminal_cursor: str | None = None
+    requested_run_id, _, requested_seq = (
+        after_cursor.partition(":") if after_cursor is not None else ("", "", "")
+    )
+    requested_index = int(requested_seq) if requested_seq else -1
+
+    def emit_cursor(cursor: str | None) -> bool:
+        if after_cursor is None:
+            return True
+        if cursor is None or cursor.split(":", 1)[0] != requested_run_id:
+            raise ValueError("Review cursor does not match the exact replayed run")
+        return int(cursor.rsplit(":", 1)[1]) > requested_index
+
     async with aclosing(events) as source:
         async for item in source:
+            # The original detached subscription injects only SSE comments
+            # while a provider is idle. They carry no event ID or authority.
+            if type(item) is str and replay and _TYPED_HEARTBEAT_RE.fullmatch(item):
+                yield item
+                continue
             event, cursor = _event_identity(item)
             if pending_terminal:
                 raise ValueError("Unexpected event after awaiting-review terminal")
@@ -267,6 +299,8 @@ async def serialize_plain_text_web_sse(
             mode = has_cursor
             if has_cursor:
                 current_run = item.run_id
+                if after_cursor is not None and current_run != requested_run_id:
+                    raise ValueError("Review replay switched its run identity")
                 if run_id is not None and run_id != current_run:
                     raise ValueError("Typed replay switched run identity")
                 run_id = current_run
@@ -319,7 +353,8 @@ async def serialize_plain_text_web_sse(
                     raise ValueError("Pending or unresolved approval cannot be rendered")
                 if cursor is not None:
                     frame = "id: " + cursor + "\n" + frame
-                yield frame
+                if emit_cursor(cursor):
+                    yield frame
                 continue
             if event.type == "turn.awaiting_approval":
                 if (
@@ -333,6 +368,7 @@ async def serialize_plain_text_web_sse(
                 # Await the original stream's normal completion and cleanup
                 # before exposing any actionable review card or [DONE].
                 pending_terminal = True
+                pending_terminal_cursor = cursor
                 continue
             if event.type == "message.saved":
                 if receipt_seen:
@@ -357,7 +393,8 @@ async def serialize_plain_text_web_sse(
             frame, terminal = serialize_plain_text_turn_event(event)
             if cursor is not None:
                 frame = "id: " + cursor + "\n" + frame
-            yield frame
+            if emit_cursor(cursor):
+                yield frame
             if terminal:
                 terminal_seen = True
                 return
@@ -372,8 +409,12 @@ async def serialize_plain_text_web_sse(
             or current.payload != pending_review.payload
         ):
             raise ValueError("Pending review changed before display")
-        yield _data_frame({"type": "ask_user", "data": current.payload})
-        yield "data: [DONE]\n\n"
+        if emit_cursor(pending_terminal_cursor):
+            frame = _data_frame({"type": "ask_user", "data": current.payload})
+            if pending_terminal_cursor is not None:
+                frame = "id: " + pending_terminal_cursor + "\n" + frame
+            yield frame
+            yield "data: [DONE]\n\n"
         return
     # Replayed subscriptions can intentionally begin *after* the previously
     # acknowledged terminal event. They have nothing further to send.

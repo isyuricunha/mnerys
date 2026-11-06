@@ -2972,6 +2972,83 @@ function _updateRailNotifs() {
 }
 
 /**
+ * Non-actionable recovery hint from the durable notes decision ledger.
+ * No approval ID, model text or tool inputs are received or reconstructed.
+ * Unlike the original ask_user card, this notice cannot authorize anything.
+ */
+export function renderNotesRecoveryNotice(sessionId, recovery) {
+  if (!sessionId || currentSessionId !== sessionId) return false;
+  const messages = {
+    interrupted: 'The previous notes review is no longer available in this process. No action can be approved from this notice. Submit a new request if needed.',
+    expired: 'The previous notes review expired and can no longer be approved. Submit a new request if needed.',
+    indeterminate: 'The previous notes action may already have run. Check your notes before making another request. It will not run again automatically.',
+  };
+  if (!Object.prototype.hasOwnProperty.call(messages, recovery)) return false;
+  const box = document.getElementById('chat-history');
+  if (!box) return false;
+  let notice = [...box.querySelectorAll('.notes-recovery-notice')]
+    .find(item => item.dataset.sessionId === sessionId);
+  if (!notice) {
+    notice = document.createElement('div');
+    // Reuse the existing themed read-only card surface; no option buttons.
+    notice.className = 'notes-recovery-notice ask-user-card';
+    notice.setAttribute('role', 'status');
+    notice.dataset.sessionId = sessionId;
+    box.appendChild(notice);
+  }
+  notice.textContent = messages[recovery];
+  return true;
+}
+
+/**
+ * Show the server's persisted notes milestones alongside the original
+ * non-actionable recovery notice. The decision fence remains authoritative;
+ * journal cursors and events never become an approval, tool input or SSE replay.
+ */
+export async function renderNotesRecoveryWithJournal(sessionId, recovery) {
+  if (!renderNotesRecoveryNotice(sessionId, recovery)) return false;
+  const box = document.getElementById('chat-history');
+  const notice = [...box.querySelectorAll('.notes-recovery-notice')]
+    .find(item => item.dataset.sessionId === sessionId);
+  const milestones = {
+    review_registered: 'Review registered',
+    decision_reserved: 'Decision reserved (execution not confirmed)',
+    decision_denied: 'Denial recorded',
+    assistant_committed: 'Assistant response saved',
+  };
+  try {
+    const response = await fetch(
+      `${API_BASE}/api/chat/notes_journal/${encodeURIComponent(sessionId)}?limit=50`,
+      { cache: 'no-store' },
+    );
+    if (!response.ok) return true;
+    const journal = await response.json();
+    // Never render late responses into a different session or a replaced card.
+    if (currentSessionId !== sessionId || !notice.isConnected
+        || journal?.gateway_profile !== 'notes_v1'
+        || !Array.isArray(journal.events) || journal.events.length > 50) {
+      return true;
+    }
+    // The journal is untrusted display data, even though the HTTP endpoint
+    // constrains it. Only fixed labels may reach the DOM via textContent.
+    const labels = journal.events
+      .filter(event => event && typeof event.kind === 'string'
+        && Object.prototype.hasOwnProperty.call(milestones, event.kind))
+      .slice(-4)
+      .map(event => milestones[event.kind]);
+    if (labels.length) {
+      const detail = document.createElement('p');
+      detail.className = 'notes-recovery-milestones';
+      detail.textContent = `Recorded activity: ${labels.join(' · ')}. These records cannot approve or retry an action.`;
+      notice.appendChild(detail);
+    }
+  } catch (_) {
+    // Journal outages must not hide the decision-fence recovery warning.
+  }
+  return true;
+}
+
+/**
  * Check server for an active stream (survives page refresh).
  * If the server is still streaming for this session, show a spinner
  * and poll until done, then reload the session.
@@ -2996,7 +3073,19 @@ async function _checkServerStream(sessionId) {
       return; // 404 = no active stream
     }
     const info = await res.json();
-    if (info.status !== 'streaming') {
+    // A notes_v1 review is a completed Agent turn with no assistant
+    // message persisted yet. It can only be restored from the original
+    // owner-admitted, process-local Gateway buffer while still pending.
+    const pendingNotesReview = info.status === 'awaiting_approval'
+      && info.gateway_profile === 'notes_v1';
+    if (info.status === 'review_unavailable'
+        && info.gateway_profile === 'notes_v1') {
+      await renderNotesRecoveryWithJournal(sessionId, info.recovery);
+      _serverStreamAbsentUntil.set(sessionId, Date.now() + SERVER_STREAM_ABSENT_TTL_MS);
+      _clearRunningState(sessionId);
+      return;
+    }
+    if (info.status !== 'streaming' && !pendingNotesReview) {
       _serverStreamAbsentUntil.set(sessionId, Date.now() + SERVER_STREAM_ABSENT_TTL_MS);
       _clearRunningState(sessionId);
       return;
@@ -3052,7 +3141,20 @@ async function _checkServerStream(sessionId) {
       }
       try {
         const r = await fetch(`${API_BASE}/api/chat/stream_status/${sessionId}`);
-        if (!r.ok || (await r.json()).status !== 'streaming') {
+        const check = r.ok ? await r.json() : null;
+        if (check?.status === 'review_unavailable'
+            && check.gateway_profile === 'notes_v1') {
+          clearInterval(pollId);
+          spinner.destroy();
+          if (holder.parentNode) holder.remove();
+          await renderNotesRecoveryWithJournal(sessionId, check.recovery);
+          _clearRunningState(sessionId);
+          return;
+        }
+        if (!check || (
+          check.status !== 'streaming'
+          && !(check.status === 'awaiting_approval' && check.gateway_profile === 'notes_v1')
+        )) {
           clearInterval(pollId);
           spinner.destroy();
           if (holder.parentNode) holder.remove();

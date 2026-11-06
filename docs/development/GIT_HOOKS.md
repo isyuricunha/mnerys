@@ -26,7 +26,9 @@ The repository must not configure a global `core.hooksPath`.
 The `pre-commit` hook checks:
 - Staged whitespace with `git diff --cached --check`.
 - Python syntax from the exact **staged blobs**, not unstaged replacements.
-- JavaScript and shell syntax for staged files.
+- JavaScript and shell syntax for staged files. Browser-side and Playwright
+  ES modules are parsed explicitly as modules when read from stdin; legacy
+  CommonJS files retain their existing syntax mode.
 - The existing frontend build check when relevant frontend or builder
   files changed.
 

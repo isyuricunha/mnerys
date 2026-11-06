@@ -40,6 +40,24 @@ if TYPE_CHECKING:
 DEFAULT_APPROVAL_TTL_SECONDS = 10 * 60
 DEFAULT_MAX_PENDING_APPROVALS = 2048
 
+# This profile is assigned only by a trusted Gateway run at task creation.
+# An asyncio child inherits the ContextVar, while callers and later runs do
+# not. It is part of the existing sealed digest, not a client approval field.
+_active_gateway_approval_origin: ContextVar[str] = ContextVar(
+    "gateway_approval_origin", default="",
+)
+
+
+@contextmanager
+def bind_gateway_approval_origin(profile: str):
+    if type(profile) is not str or profile not in {"", "notes_v1"}:
+        raise ValueError("Invalid trusted approval origin")
+    token = _active_gateway_approval_origin.set(profile)
+    try:
+        yield
+    finally:
+        _active_gateway_approval_origin.reset(token)
+
 
 def _normalized_owner(owner: Any) -> str:
     return str(owner or "").strip().casefold()
@@ -133,11 +151,13 @@ def _binding_payload(
     owned_operation=None,
     process_operation=None,
     browser_operation=None,
+    origin_profile: str = "",
 ) -> dict[str, Any]:
     return {
         "owner": _normalized_owner(owner),
         "session_id": str(session_id or ""),
         "origin_run_id": str(origin_run_id or ""),
+        "origin_profile": origin_profile,
         "tool_name": str(tool_name or ""),
         "content": str(content or ""),
         "workspace": _normalized_workspace(workspace),
@@ -187,6 +207,9 @@ class PendingToolApproval:
     # The originating user request is internal continuation context only; it
     # is never displayed or treated as authorization for the sealed action.
     request_text: str = ""
+    # Internal Gateway provenance; bound in the canonical exact-action digest.
+    # Never trust this value if received in a browser payload.
+    origin_profile: str = ""
     request_authority: RequestAuthority | None = None
     # Server-resolved targets at proposal time; never read from the approval UI.
     resource_operation: BoundFilesystemOperation | None = None
@@ -308,6 +331,7 @@ class ExactToolApproval:
             owned_operation=self.pending.owned_operation,
             process_operation=self.pending.process_operation,
             browser_operation=self.pending.browser_operation,
+            origin_profile=self.pending.origin_profile,
         )
         return _canonical_digest(expected) == self.pending.digest
 
@@ -495,6 +519,7 @@ class ToolApprovalStore:
             owned_operation=owned_operation,
             process_operation=process_operation,
             browser_operation=browser_operation,
+            origin_profile=_active_gateway_approval_origin.get(),
         )
         pending = PendingToolApproval(
             approval_id=secrets.token_urlsafe(32),
@@ -518,6 +543,7 @@ class ToolApprovalStore:
             selected_tools=tuple(payload["selected_tools"]),
             continuation_query=payload["continuation_query"],
             request_text=str(request_text or ""),
+            origin_profile=payload["origin_profile"],
             request_authority=request_authority,
             resource_operation=resource_operation,
             backend_operation=backend_operation,

@@ -38,6 +38,13 @@ class TrustedTextPersistence:
     # No new scheduler or persistence implementation is introduced.
     after_user_saved: Callable[[], None] | None = None
     after_assistant_saved: Callable[[str, dict[str, Any] | None], None] | None = None
+    # Only an admitted trusted notes adapter may register the verified review
+    # *before* its actionable card leaves the original typed stream.
+    after_review_prepared: Callable[[str], None] | None = None
+    # A one-use SQL fence is reserved immediately before the original Core
+    # consumes and dispatches the exact first action. An inconclusive reserve
+    # must never be automatically retried after a process crash.
+    before_approval_consume: Callable[[Any, str, str], None] | None = None
 
 
 class LegacyWriteNotConfirmed(RuntimeError):
@@ -89,6 +96,36 @@ def require_new_session_receipt(
     return receipt
 
 
+def require_persisted_native_review_origin(session: Any, pending: Any) -> str:
+    """Require the pending note review to follow its confirmed original user.
+
+    This is deliberately process-local, using the existing legacy receipt.
+    It does not claim a durable run/message fence or authorize the tool.
+    """
+    history = getattr(session, "history", None)
+    request_text = getattr(pending, "request_text", None)
+    if (
+        not isinstance(history, list) or not history
+        or type(request_text) is not str or not request_text.strip()
+    ):
+        raise AdmissionDenied(409, "Persisted native review has no original message")
+    original = history[-1]
+    metadata = getattr(original, "metadata", None)
+    receipt = metadata.get("_db_id") if isinstance(metadata, dict) else None
+    if (
+        getattr(original, "role", None) != "user"
+        or getattr(original, "content", None) != request_text
+        or type(receipt) is not str or not receipt.strip()
+        or any(
+            isinstance(getattr(item, "metadata", None), dict)
+            and item.metadata.get("_db_id") == receipt
+            for item in history[:-1]
+        )
+    ):
+        raise AdmissionDenied(409, "Persisted native review origin is stale or unconfirmed")
+    return receipt
+
+
 def require_trusted_text_persistence(value: Any) -> TrustedTextPersistence:
     if (
         not isinstance(value, TrustedTextPersistence)
@@ -97,6 +134,8 @@ def require_trusted_text_persistence(value: Any) -> TrustedTextPersistence:
         or type(value.emit_message_saved_events) is not bool
         or (value.after_user_saved is not None and not callable(value.after_user_saved))
         or (value.after_assistant_saved is not None and not callable(value.after_assistant_saved))
+        or (value.after_review_prepared is not None and not callable(value.after_review_prepared))
+        or (value.before_approval_consume is not None and not callable(value.before_approval_consume))
         or (
             value.interrupted_writer is not None
             and not callable(value.interrupted_writer)
@@ -285,6 +324,22 @@ async def persist_completed_text_events(
                         yield event
                     return
                 elif event.type == "turn.awaiting_approval":
+                    # The optional durable fence is written by the original
+                    # detached run, not by a browser subscriber. A disconnected
+                    # client cannot skip registration, and a failed journal
+                    # write cannot display an actionable approval card.
+                    if writer.after_review_prepared is not None:
+                        review_id = event.payload.get("approval_id")
+                        if type(review_id) is not str or not review_id:
+                            terminal_seen = True
+                            yield persistence_failure()
+                            return
+                        try:
+                            writer.after_review_prepared(review_id)
+                        except Exception:
+                            terminal_seen = True
+                            yield persistence_failure()
+                            return
                     # A sealed pending review is not a completed answer.
                     # Drop the unsaved final text and do not misclassify this
                     # orderly pause as an interrupted assistant write.

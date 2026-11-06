@@ -782,8 +782,9 @@ user append, assistant writer, and fresh database message receipt all
 remain mandatory.
 
 The profile denies every other offered tool, client/tool-controlled
-workspace, active document, file upload, approval continuation, and missing
-persistence writer. Normal successful tool turns emit only filtered native
+workspace, active document, file upload, unsupported approval continuation,
+and missing persistence writer. Sealed notes-only continuations are separately
+admitted as described below. Normal successful tool turns emit filtered native
 status, the original confirmed message receipt, final answer and completion.
 When the original Loop requests a sealed approval, the turn instead ends
 in turn.awaiting_approval after the approval/tool observation, without
@@ -797,8 +798,506 @@ duplicate writes, and fail-closed configuration. They use synthetic
 effects and an in-memory writer; they do **not** prove a live model or
 production DB transaction.
 
-**Exit status remains PARTIAL.** No Web tool routing or actionable HTTP
-approval UI is enabled. In particular, approval continuation with
-persistence, tool-side-effect idempotence, durable receipts, restart replay,
-and full Web/CLI/Telegram parity remain open. Never treat a persisted
-user message as proof that an earlier tool effect can be repeated safely.
+**Exit status remains PARTIAL.** Default Web tool routing remains legacy.
+A restricted HTTP notes route is now available behind a disabled-by-default
+server opt-in, but the Web UI does not select it automatically. Transactional
+tool-side-effect idempotence, durable receipts, restart replay and
+full Web/CLI/Telegram parity remain open. The narrowly scoped, process-local
+persisted continuation is described below. Never treat a persisted user
+message as proof that an earlier tool effect can be repeated safely.
+
+
+## Persisted native notes approval round-trip — November 5, 2026
+
+The existing **server-selected, in-process** `manage_notes` persistence
+profile now supports the original sealed approval continuation. It runs
+through the **same Gateway composer, inherited Agent Loop, tool dispatcher,
+ToolApprovalStore and assistant writer** as the initial request. The trusted
+profile still permits only `manage_notes` in Agent mode without uploads,
+workspaces or active documents. Only the trusted adapter can select this
+profile; HTTP inputs never select tool authority directly.
+
+A pending review pauses after **one confirmed user message**, without
+fabricating an assistant save. Before consuming an approval or denial,
+the composer requires the most recent legacy session message to have the
+original exact request text, user role, a nonempty, unique post-commit
+`_db_id`, and a matching sealed review. An approval also repeats this
+check **after asynchronous context preprocessing** to reject a newer
+session write or altered receipt before the one-use decision is consumed.
+Neither approval/denial labels nor provider text grant tool authority.
+The original account policy, immutable contract and sealed exact action
+are revalidated on continuation.
+
+A denied action never executes the model or tool and writes its visible
+denial response through the existing admitted assistant writer. An approved
+action proceeds through the original Loop and dispatcher **at most once**,
+without writing the original user message again. A final reply is emitted
+as completed only after the legacy assistant save has a fresh receipt.
+If a writer fails after an effect, the stream reports a generic persistence
+error and **does not retry** the consumed approval or tool action.
+
+[Persisted review regression tests](../../tests/test_mnerys_gateway_persisted_native_review.py)
+cover request/pause/approval/denial, actual original Loop and dispatcher,
+one-use effect, missing/duplicate/changed receipts, newer messages during
+context preprocessing, policy revocation, saved response ordering, writer
+failure and replay denial.
+[Disposable SQL writer acceptance](../../tests/test_mnerys_gateway_text_sqlite_integration.py)
+verifies the same paused/resumed lifecycle against the original SQLite and
+PostgreSQL 17 writers and confirms one committed user message and one
+assistant response. The existing tool-approval and required-read regressions
+were also rerun. Local focused validation passed **127**, skipped **8**
+PostgreSQL-only parametrizations when the disposable DB was absent; a
+separate temporary PostgreSQL 17 container passed **61** cross-backend
+tests and was removed afterward. These suites overlap.
+
+**Exit status remains PARTIAL:** the origin check is a **process-local,
+legacy receipt check**, not a durable association between a pending tool
+effect and an immutable transaction. It cannot protect against an
+unfenced DB owner transfer racing a write, guarantee idempotence after
+process restart, or recover a consumed effect if its reply save fails.
+Default Web tool routing, complete interactive UI parity, Telegram/CLI
+clients, multimodal requests, durable event/approval journals,
+real-model acceptance and transactional effect recovery remain open.
+No production database, provider, preview deployment or default Web
+configuration was changed.
+
+
+### Persisted native-notes Web SSE and future HTTP input selection — November 5, 2026
+
+The [existing Gateway facade](../../src/gateway_turns.py) now offers
+`preview_persisted_native_notes_web_sse` as a **server-only, process-local,
+non-detached preview**. It reuses the original admitted composer and
+legacy writers for one `manage_notes` tool turn and converts the filtered
+native events to browser-understood SSE using the existing
+[Web compatibility serializer](../../src/gateway_web_compat_events.py).
+The status timeline exposes only vetted tool names, rounds and outcomes,
+never tool input/output. A pending review card is read twice from the
+**original sealed ToolApprovalStore**, under the same admitted owner,
+session, action and digest, before it becomes a browser `ask_user`.
+The review remains unconsumed until the separately admitted continuation.
+Approved and denied continuations reuse the persisted original user
+receipt; a completed answer requires the **original assistant-save receipt**
+before `message_saved`, `final_response` and `[DONE]`. A failed
+writer after a tool effect emits only a sanitized error without a false save
+acknowledgement or automatic replay.
+
+The [HTTP input selector](../../src/gateway_web_notes_profile.py) is
+a **pure parser**, not a route or permission. It is now used only by the
+restricted, server-gated Web branch; it requires an exact `notes_v1`
+profile with a server-matched session,
+Agent mode, no memory/RAG or editor context, and a single bounded question
+or an opaque approval ID with a valid decision. It rejects repeated form
+fields, mixed form/JSON values, unexpected feature toggles, supplied
+endpoints, tool grants and typed JSON coercion. It never reads or consumes
+the sealed store and cannot mint a principal, authority or policy.
+The production `/api/chat_stream` route calls this selector only when the
+client explicitly requests `notes_v1` and the dedicated server switch
+is enabled; malformed `notes_v1` inputs are rejected, not passed to legacy.
+
+[Persisted Web notes SSE acceptance](../../tests/test_mnerys_gateway_persisted_web_notes_preview.py)
+uses the real composer, in-memory original writer, sealed pending records
+and a **test-only** FastAPI/ASGI endpoint to verify complete approval cards,
+one-use approval and denial, tool-output suppression, write acknowledgements,
+writer failure and forged/unsupported contexts.
+[Profile selection negatives](../../tests/test_mnerys_gateway_web_notes_profile.py)
+pin the exact permitted request fields, server opt-in, session equality
+and rejection of ambiguous/unsupported controls. Combined focused
+SSE, profile, native-tool and prior approval suites passed **108 tests**.
+
+**Not a general production cutover:** the initial, direct preview
+is **non-detached**; the separately tested detached implementation is used
+only by the dedicated, disabled-by-default HTTP branch described below.
+It reuses the existing interactive-human approval requirement, account/model
+admission, current policy and one-use decisions without consuming a
+review in the legacy route. The default Web route behavior remains unchanged.
+
+
+### Detached persisted notes SSE and exact-run review replay — November 5, 2026
+
+The restricted `manage_notes` Web-format candidate now supports a
+**process-local detached lifecycle** through the *existing*
+[agent_runs](../../src/agent_runs.py),
+[TurnService](../../src/turn_service.py), and
+[GatewayTurns](../../src/gateway_turns.py). It is not an alternate
+Agent Loop, client transport, approval database or replay journal.
+`web_native_notes` is a mutually exclusive, server-issued typed-run
+provenance marker; `text_v1`, internal typed runs and inherited SSE cannot
+resume as native-notes Web runs or inherit their Stop authorization.
+
+`start_detached_persisted_notes_web_sse` admits an owner-scoped, persisted
+single-tool request, and preflights a sealed review plus its existing
+committed user-message receipt before a continuation can replace a run.
+Delegated API-token principals cannot approve; those decisions require
+interactive human authorization. An active run is never replaced by this
+preview while still executing. Each issued run carries its own opaque
+ID, one in-memory typed-event buffer, and an exact sequence cursor.
+Disconnecting an SSE subscriber leaves the original execution running;
+reconnecting through
+`resume_detached_persisted_notes_web_sse` does **not** call the model,
+re-execute a tool, or write a message.
+
+Pending-review replay deliberately processes the **full original typed
+prefix** to reconstruct and revalidate the same sealed pending card, then
+suppresses frames at or before a validated `Last-Event-ID` cursor.
+The `ask_user` card carries the original `turn.awaiting_approval`
+cursor, but the terminal `[DONE]` is never an acknowledgment of an
+executed action. Reconnecting after that cursor does not redisplay the
+card. If the stored review was consumed, retired, tampered or expired,
+the original replay **fails closed**; a dead card is never resurrected.
+The resumed authorized action runs as a **new, separate** detached
+turn under its one-use exact-action proof; the previous run becomes
+non-replayable after replacement.
+
+An exact-provenance Stop method refuses stale/foreign run IDs.
+Provider-idle heartbeats are permitted only as narrowly formatted,
+actionless SSE comments: they receive no event ID, receipt or authority.
+The inherited writer still gates `message.saved` and completion;
+a failed writer after an effect emits only a generic error and is
+never automatically retried.
+
+[Detached notes replay tests](../../tests/test_mnerys_gateway_detached_persisted_notes_web.py)
+cover SSE disconnect/reconnect, cursor suppression, unchanged run identity,
+completed turn replay, pending-review cursor, one approved effect, denial
+of cross-provenance access, delegated-token approval, unauthorized owner,
+stale/invalid cursor, Stop and active-run replacement veto, stale-review
+replay, sanitized writer failure and heartbeat filtering. A test-only
+FastAPI/ASGI endpoint also verifies the detached run ID and HTTP SSE cursor
+reconnection without a repeated effect. The local suite passed **10 tests**;
+the older direct preview and HTTP selector tests remain separate. All tests
+use synthetic models, in-memory sessions and the original Gateway/Loop —
+no production remote endpoint is enabled.
+
+**Still open:** the general authenticated Web route, full existing
+browser UI parity, durable post-restart replay, a transactional effect
+ledger, multi-worker fencing, event journaling and real-provider acceptance
+are not complete. The restricted HTTP branch below is not enabled by
+default. The M2.1 exit gate remains **PARTIAL**.
+
+### Guarded notes_v1 HTTP route admission — November 5, 2026
+
+The original [Web chat routes](../../routes/chat_routes.py) now contain a
+strict, **disabled-by-default** `notes_v1` branch controlled by the
+**server-only** `MNERYS_M21_WEB_NATIVE_NOTES_ROUTING=1` setting.
+This is a narrow, real HTTP integration using the
+[notes adapter](../../routes/gateway_notes_adapter.py), not a replacement
+for the inherited Web chat handler. The current browser does not
+automatically choose this profile; a client must explicitly opt in,
+and the server switch is off unless an operator enables it.
+
+The opt-in is intercepted **before** the legacy Web code can consume an
+approval or retire a pending review. Unknown, malformed, duplicated,
+mixed-source or unsupported `notes_v1` requests return HTTP 400/403
+rather than falling back to a broader legacy tool route. The branch
+uses the existing chat-scope requirement, admitted session ownership,
+server-owned route reconciliation, post-reconciliation allowed-model and
+message-quota checks, session credential resolution, and both
+owner privileges and server-global disabled tools. It rejects internal
+tool requests, unsupported workspaces, uploads, RAG/memory, Web search,
+other tool families, client model/endpoint overrides and paid model
+fallbacks. `manage_notes` remains the sole offered tool, subject to
+the **original Core tool policy, inventory, request authority and
+dispatcher checks** — the profile name never grants permission.
+
+For approval/denial, the route first applies the inherited
+interactive-human requirement and refuses delegated bearer credentials.
+The server-issued pending review, original committed user receipt and
+one-use exact action are then revalidated by the shared Gateway composer.
+The legacy approval consumer is **not called** on `notes_v1` requests,
+so it cannot consume the same approval a second time. A continued action
+has its own detached run and does not save a second user message.
+The dedicated SSE envelope returns the original
+`X-Odysseus-Run-Id`; `GET /api/chat/resume/{session_id}` uses this
+exact run ID and an optional `Last-Event-ID` to replay only the remaining
+typed events, including during the bounded **completed** in-memory window.
+`POST /api/chat/stop/{session_id}` stops only the owner-admitted,
+matching native-notes run. A pending approval is checked against the
+original sealed store before the resume response is created, as well as
+before an actionable card is emitted.
+
+The strict form or JSON initial request has the following fields:
+`gateway_profile=notes_v1`, `session` (the owned session ID),
+`mode=agent`, `no_memory=true`, `use_rag=false`,
+`active_doc_state=none`, and a nonempty `message`.
+A decision uses the same base fields with `tool_approval_id` and
+`tool_approval_decision` (`approve`, `approve_task`, or `deny`)
+instead of a new user message. Form booleans are the lowercase strings
+`"true"` and `"false"`; JSON booleans must be actual booleans.
+The client cannot supply a Principal, tool contract, approval store or
+server-disabled-tool override.
+
+[Production-route selection tests](../../tests/test_mnerys_gateway_web_native_notes_route.py)
+verify explicit opt-in, authorization ordering, model rechecking,
+invalid-input rejection, server-disable propagation, delegated-token
+review denial and bypass prevention for legacy approval consumption.
+[HTTP route lifecycle and ASGI tests](../../tests/test_mnerys_gateway_web_native_notes_integration.py)
+exercise the actual `/api/chat_stream`, `/resume` and `/stop`
+handlers with synthetic model and writer observations, one-use approval,
+confirmed original user and assistant receipts, exact cursor replay,
+stale-run behavior and global tool-disable rejection. These tests do
+**not** use the live provider or the production database.
+
+**Remaining M2.1 work:** the generic Web/CLI/TUI/Telegram clients still
+require complete adapter parity and contract coverage. The Web frontend
+does not automatically **start** a `notes_v1` conversation. It can now
+restore an existing, admitted notes review while the original process-local
+run remains available; recovery after buffer eviction or server restart
+is not implemented. There is no durable approval journal, multi-worker/run
+fencing, transactional tool-effect ledger, restart recovery or real-model
+acceptance. The inherited post-response handoff has been added for notes,
+but its full behavior on a real configured account remains unverified.
+Keep the opt-in off for production use until browser/desktop/mobile,
+provider and durability cases are accepted. No production instance,
+database schema or default UI behavior was changed.
+
+
+### Notes Web post-response, pending-card recovery and sealed origin — November 5, 2026
+
+The [restricted Web notes adapter](../../routes/gateway_notes_adapter.py)
+now dispatches the **same inherited Gateway post-response runner** as the
+existing `text_v1` adapter, **once only after** the original assistant
+writer's confirmed receipt and Agent Loop cleanup. It uses the original,
+owner-admitted request text; a continuation restores that text from the
+sealed pending review rather than the browser button. For this narrow
+tool-enabled profile, memory/skill background extraction is disabled;
+the inherited runner retains its token accounting, permitted notifications
+and automatic chat naming. A failing optional runner never undoes or
+retries the assistant write, and typed SSE replay never dispatches a job.
+
+The [original Web session status route](../../routes/chat_routes.py) can
+report a paused `notes_v1` review as `awaiting_approval` **only** for
+an already-authenticated, interactive owner while
+`MNERYS_M21_WEB_NATIVE_NOTES_ROUTING=1`. It identifies the original
+completed typed run in the existing [agent_runs](../../src/agent_runs.py)
+registry, revalidates its one still-pending sealed card and returns
+no approval content through the status endpoint. An exact-run replay
+reconstructs and rechecks the original card, without running a model
+or tool or saving a second message. The
+[existing browser stream](../../static/js/chat.js) recognizes the
+server-origin `X-Mnerys-Gateway-Profile: notes_v1` response header
+and renders the pending card using the **existing ask_user renderer**,
+without a fabricated assistant bubble. Session re-entry uses the
+[existing sessions module](../../static/js/sessions.js) to query the
+read-only paused status and resume after navigation or refresh. A
+review button sends only the strictly allowed notes form fields, and
+the server still requires interactive human consent and the current
+sealed exact-action authorization. The ordinary chat composer, old
+approval cards and `text_v1` flow retain their inherited behavior.
+
+**Cross-profile isolation:** a run-origin `notes_v1` marker is assigned
+by a trusted context binding when the original detached Agent task is
+created. The [original ToolApprovalStore](../../src/tool_approvals.py)
+stores it in the **canonical digest-bound pending record**, not in an
+untrusted client field or a separate registry. The old Web approval
+consumer refuses a notes-origin record *before* calling its existing
+destructive approval operation, **even if the run registry was evicted**.
+Conversely, the restricted notes continuation refuses legacy-origin
+approvals. A changed marker invalidates the exact-action digest.
+Neither the HTTP profile flag nor the browser response header confers
+authority to execute a tool.
+
+[Post-response regression](../../tests/test_mnerys_gateway_web_notes_post_response.py)
+verifies commit/Agent-cleanup/job ordering, one-time replay, failed
+writer, failed optional runner and sanitized failures.
+[Browser recovery route tests](../../tests/test_mnerys_gateway_web_notes_ui_recovery.py)
+cover restore without a client run ID, exact cursor, delegation denial,
+retired-card denial and no duplicate assistant persistence.
+[HTTP tool approval lifecycle tests](../../tests/test_mnerys_gateway_web_native_notes_integration.py)
+and [detached review tests](../../tests/test_mnerys_gateway_detached_persisted_notes_web.py)
+cover the provenance marker, two-way cross-profile denial, digest binding
+and prevention of legacy consumption after a run buffer is removed.
+The [isolated Playwright Chromium browser contract](../../tests/e2e/gateway-notes/browser-ui.spec.js)
+tests the actual `chat.js`, `chatRenderer.js` and `sessions.js` modules:
+a paused notes SSE restores exactly one review card with no phantom assistant
+bubble; the card renders safely on desktop and mobile without approving via
+digit shortcuts; approval/denial use the strict eight-field form; a
+`notes_v1`-tagged non-notes review cannot become a tool card. JavaScript
+syntax is also checked with Node. The [test harness](../../tests/e2e/gateway-notes/serve.py)
+binds only loopback, exposes public static files and injects synthetic
+HTTP/SSE responses; it does **not** initialize the application's configured
+MCPs, memory store, model providers, scheduler or database. This is a
+**browser UI contract**, not a full authenticated app/provider acceptance
+or a restart-recovery test. The normal Web UI still does not automatically
+start a `notes_v1` conversation.
+
+### Browser-to-Gateway HTTP acceptance with synthetic model — November 5, 2026
+
+The [isolated Gateway browser integration](../../tests/e2e/gateway-notes/integrated-browser.spec.js)
+runs Chromium against a [test-only ASGI fixture](../../tests/e2e/gateway-notes/gateway_fixture.py)
+that mounts the **real** restricted `/api/chat_stream` and
+`/api/chat/resume/{session_id}` route callbacks, the original Gateway
+composer, sealed pending store, in-memory typed-run buffer, inherited
+assistant writer and post-response hooks. It explicitly does **not** start
+`app:app`, perform real account authentication, contact a model or
+external MCP, or connect to the production database. Its fake principal,
+session and response streams are confined to the fixture process.
+
+Two browser-to-route tests verify that a real browser can recover the
+pending `ask_user`, click its approval option, submit the exactly admitted
+`notes_v1` form and receive the writer-confirmed SSE answer. A repeated
+claim is rejected; the original user message, effect, assistant response
+and post-response hook are each recorded **once**. The second test uses
+the actual production HTML markup with the automatic bootstrap scripts
+removed, and calls the original exported `handleChatSubmit` while
+the normal composer button is disabled. That exposed and fixed a UI
+coupling in [chat.js](../../static/js/chat.js): notes approval decisions
+now invoke the existing single-flight submission handler directly,
+independent of the composer button's visual enabled state. Legacy cards
+retain their existing button behavior.
+
+Run via `npm run test:gateway-notes-http` (override
+`MNERYS_NOTES_E2E_PYTHON` when using a non-default virtual environment).
+The fixture server binds only loopback, refuses startup without its
+test-only flag, and receives no application provider secrets. Playwright
+configuration and output follow the
+[browser test documentation](../../tests/e2e/README.md).
+This closes the **synthetic browser-to-HTTP** integration gap, not the
+real-user/real-provider acceptance gate. Full authenticated application
+startup, actual provider invocation, persistence across restart and
+multi-worker behavior remain unverified.
+
+**Durability limitation:** the typed run's bounded replay window is
+currently **180 seconds**, whereas the shared pending approval TTL is
+**600 seconds**. After the run buffer disappears, its notes-origin
+approval still **cannot be consumed by the legacy adapter**, but the
+browser cannot reconstruct the card through the process-local replay.
+Neither an interrupted server process nor a worker switch can restore
+the action. A metadata-only transactional decision fence is now staged as
+an explicitly migrated component (see below), but durable serialized
+review/approval recovery and event replay remain open M2.1 work.
+The HTTP switch stays off by default.
+
+
+### SQL notes decision fence — November 5, 2026
+
+The original persisted notes path now has an **explicitly installed,
+metadata-only SQL decision ledger** in
+[the fence module](../../src/gateway_notes_decision_fence.py), separate
+from the inherited in-memory ToolApprovalStore and Agent run buffer.
+Both SQLite and PostgreSQL 17 implement a partial unique index limiting
+pending reviews to one per owner/session and conditional transactional
+updates limiting each sealed approval to one decision.
+
+For a notes_v1 HTTP request, the [Web adapter](../../routes/gateway_notes_adapter.py)
+checks the reviewed schema before the original user can be persisted.
+An approval can become actionable only after the original, owner-admitted
+pending store and confirmed user-message receipt have been revalidated,
+then the pending review has been **registered in SQL**. A separate server
+callback executes **after all fallible policy/context preparation and before**
+the original ToolApprovalStore consumes its one-use approval. It reserves
+the exact owner, session, approval ID, sealed digest and original user
+receipt transactionally. Invalid, expired, foreign, superseded or
+previously reserved decisions fail closed. The inherited writer's
+confirmed assistant receipt is recorded afterward; a failed callback
+cannot cause automatic re-execution. Denied approvals are terminal
+without a tool effect.
+
+The guarded status/replay handlers also check the SQL registration before
+exposing a pending card. The production route does not auto-create the
+table: an absent or incompatible migration returns a sanitized HTTP 503
+before any new user message or tool action. Installation is a separate,
+authorized operation, **not** part of app startup or this test run.
+
+[Decision fence tests](../../tests/test_mnerys_gateway_notes_decision_fence.py),
+[migration tests](../../tests/test_mnerys_gateway_notes_fence_migration.py)
+and [real route integration tests](../../tests/test_mnerys_gateway_notes_decision_http.py)
+exercise isolated SQLite and disposable PostgreSQL 17, cross-owner and
+digest checks, two-connection atomic one-use claims, expiry, supersession,
+migration failure, and registration-before-card/reservation-before-effect
+ordering. The [operator deployment and rollback plan](../deployment/notes-decision-fence.md)
+records backup/restore prerequisites and a deliberately manual migration.
+
+**Read-only restart classification:** on re-entry with no original process-local
+run, an interactive owner can query a durable notes-only status keyed by the
+original SQL user receipt. The Gateway returns `review_unavailable` with
+`interrupted`, `expired`, or `indeterminate`, never an approval ID or
+tool/content payload. The [session UI](../../static/js/sessions.js)
+shows one non-actionable, themed status notice with no approve/deny controls.
+The original [read-only SQL query](../../src/gateway_notes_decision_fence.py)
+prioritizes reserved/uncertain actions over a pending review from the same
+user receipt. Later messages and delegated credentials do not regain old
+review state. [Isolated route tests](../../tests/test_mnerys_gateway_notes_read_only_recovery.py)
+and [Chromium HTTP integration](../../tests/e2e/gateway-notes/integrated-browser.spec.js)
+simulate run eviction while preserving the original SQL ledger, confirming
+the safe notice without any new action.
+
+**Not yet durable recovery:** SQL stores metadata only, not the original
+signed/capability-bound pending approval or the typed event transcript.
+A process crash after reservation may leave an **uncertain** tool effect;
+that row cannot be reserved again, but no automatic resolution is
+available. A fresh process also cannot reconstruct an actionable card
+from the SQL row. Automated retention/deletion policy, multi-worker
+session leadership, **raw SSE event** durability, reconciliation and
+real-provider acceptance remain open. The notes_v1 feature flag stays off by default.
+
+### Restricted durable notes event journal — November 5, 2026
+
+The [metadata-only event journal](../../src/gateway_notes_event_journal.py)
+records only four server-origin lifecycle milestones: `review_registered`,
+`decision_reserved`, `decision_denied`, and `assistant_committed`.
+No model-generated text, private note, tool argument/output, credential,
+untrusted JSON or signed approval payload is stored. The restricted
+[notes HTTP adapter](../../routes/gateway_notes_adapter.py) writes the
+review marker after its already-verified one-use SQL fence and before the
+browser can see an actionable card. A reservation is journaled after SQL
+has irreversibly fenced the decision and before the original Core tool
+consumption. Confirmed assistant commits are journaled after the original
+writer receipt; journal failure there never re-executes a tool.
+
+The owner-admitted `GET /api/chat/notes_journal/{session_id}` endpoint
+provides **non-actionable** milestones for the current committed user
+receipt (or its immediately following confirmed assistant response),
+with `after_cursor` and `limit` (1–100). Only an opaque
+scope-bound cursor, event kind and server timestamp are returned. The
+internal database sequence, approval ID and all other private payloads
+are excluded. Delegated credentials, other owners,
+other sessions and stale user receipts cannot read another timeline.
+These database cursors are **not** SSE run cursors and cannot revive a
+signed approval, model response or tool effect.
+
+The journal schema is independent of the decision-fence table and is
+**never auto-installed**. The [explicit migration](../../scripts/migrations/notes_event_journal_v1.py)
+requires prior fence installation, an approved backup/restore and operator
+authorization. It is read-only by default. The journal uses a monotonic internal database sequence, but exposes
+only random 32-character opaque pagination tokens to avoid leaking
+cross-session event volume; SQLite uses AUTOINCREMENT so its internal
+sequence cannot recycle IDs after retention. A reviewed manual `prune_terminal` operation
+requires at least 30 days of retention, processes bounded batches, and
+deletes only events whose separate one-use fence is completed, denied or
+superseded. Reserved/uncertain and pending review events are preserved;
+the original fence table is never pruned by this method.
+
+[Storage and retention tests](../../tests/test_mnerys_gateway_notes_event_journal.py),
+[migration tests](../../tests/test_mnerys_gateway_notes_event_journal_migration.py),
+[HTTP lifecycle tests](../../tests/test_mnerys_gateway_notes_event_journal_http.py),
+and [synthetic Chromium integration](../../tests/e2e/gateway-notes/integrated-browser.spec.js)
+cover scoped replay, failure before an actionable card, reservation
+journaling failure, cross-worker uniqueness, SQLite and disposable
+PostgreSQL 17 migration installation/fresh-engine replay, terminal
+retention and blocked cursor reuse. The complete
+[operator plan](../deployment/notes-event-journal.md) documents migration,
+manual retention, rollback and limits. On `review_unavailable`, the
+[Web session UI](../../static/js/sessions.js) now retains the original
+non-actionable warning and optionally displays up to four recent,
+allowlisted journal milestones as plain text. Browser integration tests
+cover expected readback, tampered event kinds/HTML and journal outages.
+It does not render a full SSE timeline, recover an approval card or
+replay a tool effect.
+
+### Independent process-restart regression — November 6, 2026
+
+The [fresh-interpreter restart test](../../tests/test_mnerys_gateway_notes_restart_process.py)
+creates a verified, disposable SQL review, then separately invokes brand-new
+Python interpreters to read the original record, reserve a one-use decision,
+observe the subsequent indeterminate state and reject a repeated decision.
+The test exercises file-backed SQLite and isolated disposable PostgreSQL 17,
+checks that delegated credentials cannot read the journal and rejects any
+unapproved or non-disposable test backend. No Agent Loop or tool dispatcher is
+restarted, and no signed approval is reconstituted. This verifies durable
+**metadata-only** recovery across process boundaries, not durable SSE delivery,
+resumable tool execution, multi-worker coordination or production restart.
+
+**Still not implemented:** durable raw SSE replay, signed approval-card
+restoration after process failure, multi-worker session leadership,
+transactional whole-turn persistence, approved retention automation,
+real-provider acceptance and the full four-shard CI gate. The feature
+switch stays disabled by default.

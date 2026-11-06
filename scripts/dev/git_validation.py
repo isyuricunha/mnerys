@@ -65,6 +65,19 @@ def staged_blob(path: str) -> bytes:
     return git_capture("show", f":{path}")
 
 
+def staged_js_syntax_command(path: str) -> list[str]:
+    """Parse staged browser/Playwright ES modules using their actual syntax.
+
+    Node treats stdin independently of the file's on-disk module context.
+    Other legacy .js files retain their previous CommonJS syntax check.
+    """
+    if path.endswith(".mjs") or path.startswith((
+        "frontend/src/", "static/js/", "tests/e2e/gateway-notes/",
+    )):
+        return ["node", "--check", "--input-type=module", "-"]
+    return ["node", "--check", "-"]
+
+
 def validate_staged() -> None:
     run(["git", "diff", "--cached", "--check"])
     paths = staged_paths()
@@ -80,12 +93,7 @@ def validate_staged() -> None:
             except (SyntaxError, ValueError, TypeError) as exc:
                 raise ValidationError(f"Staged Python syntax failed: {path}: {exc}") from exc
         elif path.endswith((".js", ".mjs", ".cjs")):
-            options = (
-                ["node", "--check", "--input-type=module", "-"]
-                if path.endswith(".mjs") or path.startswith("frontend/src/")
-                else ["node", "--check", "-"]
-            )
-            run(options, input_bytes=blob)
+            run(staged_js_syntax_command(path), input_bytes=blob)
         elif (
             path.startswith(".githooks/")
             or path.endswith(".sh")

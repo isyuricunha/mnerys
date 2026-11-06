@@ -99,6 +99,29 @@ def test_staged_javascript_syntax_blocks_invalid_index(
         module.validate_staged()
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node unavailable")
+@pytest.mark.parametrize("path", [
+    "static/js/chat.js",
+    "tests/e2e/gateway-notes/browser-ui.spec.js",
+    "frontend/src/main.js",
+    "example.mjs",
+])
+def test_staged_browser_es_modules_use_explicit_node_module_parser(module, path):
+    command = module.staged_js_syntax_command(path)
+    assert command == ["node", "--check", "--input-type=module", "-"]
+    module.run(
+        command, input_bytes=b"import { readFile } from 'node:fs';\nexport { readFile };\n",
+    )
+    with pytest.raises(module.ValidationError, match="node"):
+        module.run(command, input_bytes=b"export const invalid = ;\n")
+
+
+def test_legacy_staged_commonjs_keeps_existing_node_syntax_check(module):
+    assert module.staged_js_syntax_command("legacy/fixture.js") == [
+        "node", "--check", "-",
+    ]
+
+
 def test_opt_in_full_validation_refuses_dirty_tree_before_tests(
     module, monkeypatch, tmp_path,
 ):

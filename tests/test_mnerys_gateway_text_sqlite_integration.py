@@ -6,6 +6,7 @@ for PostgreSQL. Never connect to the configured Mnerys primary database.
 
 import os
 from types import SimpleNamespace
+from dataclasses import replace
 
 import pytest
 from sqlalchemy import create_engine, event, text
@@ -18,11 +19,16 @@ from core.models import ChatMessage, Session
 import core.session_manager as manager_module
 from routes import chat_helpers
 from src import turn_service as turn_module
-from src.gateway_turn_composer import TextTurnRequest, TrustedTextTurnSettings
+from src.gateway_turn_composer import (
+    TextTurnRequest, ToolApprovalTurnRequest, TrustedTextTurnSettings,
+)
+from src.agent_tool_events import approval_requested_event, tool_event_frame
+from src.tool_approvals import ToolApprovalStore
+from src.tool_capabilities import capabilities_for_action
 from src.gateway_text_persistence import TrustedTextPersistence
 from src.gateway_turns import GatewayTurns
 from src.turn_service import TurnService
-from src.gateway_admission import GatewayAdmission, Principal, SessionOwnership
+from src.gateway_admission import AdmissionDenied, GatewayAdmission, Principal, SessionOwnership
 from test_mnerys_gateway_turn_composer import FakePorts
 
 
@@ -206,6 +212,104 @@ async def test_disposable_db_real_legacy_completion_and_reload(
     assert [item.content for item in loaded.history] == [
         "Explain transaction safety", "Committed answer",
     ]
+
+
+@pytest.mark.asyncio
+async def test_disposable_db_persisted_native_approval_has_one_confirmed_user_and_reply(
+    isolated_legacy_session_database, monkeypatch,
+):
+    """Exercise the original SQL writers across a paused, resumed notes turn."""
+    session, _manager, _engine, admission, ports, kwargs, persisted = (
+        isolated_legacy_session_database
+    )
+    kwargs["request"] = TextTurnRequest("List my notes")
+    kwargs["settings"] = replace(
+        kwargs["settings"],
+        offered_tools=frozenset({"manage_notes"}),
+        interaction_mode="agent",
+        persist_verified_native_tools=True,
+    )
+    store = ToolApprovalStore()
+    kwargs["approval_store"] = store
+    pending = []
+
+    async def awaiting_model(_url, _model, _messages, **options):
+        action = '{"action":"list"}'
+        approval = store.create(
+            owner="alice", session_id=session.id,
+            origin_run_id="disposable-sql-review",
+            tool_name="manage_notes", content=action, workspace=None,
+            request_text="List my notes", continuation_query="List my notes",
+            external_untrusted_context_seen=True,
+            capabilities=capabilities_for_action("manage_notes", action),
+            selected_tools={"manage_notes"},
+            request_authority=options["request_authority"],
+        )
+        pending.append(approval)
+        yield approval_requested_event(approval)
+        yield tool_event_frame({
+            "type": "tool_output", "tool": "manage_notes",
+            "round": 1, "exit_code": None, "output": "PRIVATE",
+        }, result={"ask_user": approval.public_payload()})
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(turn_module, "stream_agent_loop", awaiting_model)
+    gateway = GatewayTurns(TurnService())
+    first = gateway.open_composed_text_events(admission, session, **kwargs)
+    first_events = await collect(first)
+    assert first.outcome.state == "awaiting_approval"
+    assert first_events[-1].type == "turn.awaiting_approval"
+    first_rows, first_count = persisted()
+    assert [(row[0], row[1]) for row in first_rows] == [
+        ("user", "List my notes"),
+    ]
+    assert first_count == 1
+    assert pending and store.peek(pending[0].approval_id) is pending[0]
+    assert session.history[0].metadata["_db_id"] == first_rows[0][3]
+    assert ports.operations.count("append_user") == 1
+
+    effects = []
+
+    async def accepted_model(_url, _model, _messages, **options):
+        exact = options["exact_approval"]
+        assert exact.pending is pending[0]
+        assert exact.claim(
+            owner="alice", session_id=session.id, tool_name="manage_notes",
+            content=pending[0].content, workspace=None,
+        )
+        effects.append("one previously approved tool")
+        yield tool_event_frame({
+            "type": "tool_start", "tool": "manage_notes", "round": 1,
+        })
+        yield tool_event_frame({
+            "type": "tool_output", "tool": "manage_notes",
+            "round": 1, "exit_code": 0, "output": "PRIVATE",
+        })
+        yield 'data: {"delta":"Confirmed notes response"}\n\n'
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(turn_module, "stream_agent_loop", accepted_model)
+    kwargs["request"] = ToolApprovalTurnRequest(pending[0].approval_id, "approve")
+    resumed = gateway.open_composed_text_events(admission, session, **kwargs)
+    resumed_events = await collect(resumed)
+    assert resumed.outcome.state == "completed"
+    assert resumed_events[-1].type == "turn.completed"
+    assert effects == ["one previously approved tool"]
+    assert store.peek(pending[0].approval_id) is None
+    assert ports.operations.count("append_user") == 1
+    rows, count = persisted()
+    assert [(row[0], row[1]) for row in rows] == [
+        ("user", "List my notes"),
+        ("assistant", "Confirmed notes response"),
+    ]
+    assert count == 2
+    assert [item.metadata["_db_id"] for item in session.history] == [
+        row[3] for row in rows
+    ]
+    with pytest.raises(AdmissionDenied):
+        replay = gateway.open_composed_text_events(admission, session, **kwargs)
+        await collect(replay)
+    assert effects == ["one previously approved tool"]
 
 
 @pytest.mark.asyncio

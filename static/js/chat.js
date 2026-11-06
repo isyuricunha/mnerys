@@ -226,6 +226,17 @@ import { invalidateSettings } from './appConfig.js';
     if (input) {
       _pendingToolApproval.draft = input.value || '';
     }
+    if (_pendingToolApproval.gateway_profile === 'notes_v1') {
+      // An approval is a control-plane decision, not a composer message.
+      // The send button may be disabled when the draft is empty or the
+      // mobile composer is in microphone mode. Invoke the same inherited
+      // handler directly without bypassing its single-flight guard.
+      handleChatSubmit({ preventDefault() {} }).catch(error => {
+        console.error('Notes review submission failed', error);
+        try { uiModule.showError?.('Could not submit the notes review.'); } catch (_) {}
+      });
+      return;
+    }
     const sendButton = document.querySelector('.send-btn');
     if (sendButton) sendButton.click();
   }
@@ -238,9 +249,68 @@ import { invalidateSettings } from './appConfig.js';
       approval_id: String(detail.approval_id),
       decision,
       document_id: String(detail.document_id || ''),
+      // This label comes from a server-provenance Web review card, not an
+      // authority token. The HTTP route still validates the sealed action.
+      gateway_profile: detail.gateway_profile === 'notes_v1' ? 'notes_v1' : null,
     };
     _submitToolApprovalWhenIdle(_pendingToolApproval.approval_id);
   });
+
+  // Exact browser serialization of the restricted review control-plane.
+  // This constructs a request; it does not authorize a tool. The server
+  // rechecks owner, interactive credentials, original seal and tool policy.
+  export function buildRestrictedNotesApprovalForm(sessionId, approval) {
+    const id = approval?.approval_id;
+    const decision = approval?.decision;
+    if (
+      typeof sessionId !== 'string' || !sessionId.trim()
+      || approval?.gateway_profile !== 'notes_v1'
+      || typeof id !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(id)
+      || !['approve', 'approve_task', 'deny'].includes(decision)
+    ) {
+      throw new TypeError('Invalid notes review submission');
+    }
+    const data = new FormData();
+    data.append('gateway_profile', 'notes_v1');
+    data.append('session', sessionId);
+    data.append('mode', 'agent');
+    data.append('no_memory', 'true');
+    data.append('use_rag', 'false');
+    data.append('active_doc_state', 'none');
+    data.append('tool_approval_id', id);
+    data.append('tool_approval_decision', decision);
+    return data;
+  }
+
+  function _renderNotesAwareApprovalCard(payload, profile, options = {}) {
+    if (
+      profile !== 'notes_v1'
+      || payload?.kind !== 'tool_approval'
+      || payload?.action?.tool !== 'manage_notes'
+      || !payload.approval_id
+    ) {
+      return chatRenderer.renderAskUserCard(payload, options);
+    }
+    return chatRenderer.renderAskUserCard(payload, {
+      ...options,
+      onSubmit: (selection) => {
+        const decision = String(selection?.decision || '').toLowerCase();
+        if (
+          selection?.kind !== 'tool_approval'
+          || selection.approval_id !== payload.approval_id
+          || !['approve', 'approve_task', 'deny'].includes(decision)
+        ) return false;
+        document.dispatchEvent(new CustomEvent('odysseus:tool-approval', {
+          detail: {
+            approval_id: payload.approval_id,
+            decision,
+            gateway_profile: 'notes_v1',
+          },
+        }));
+        return true;
+      },
+    });
+  }
 
   window.addEventListener('odysseus:notes-context-selected', (event) => {
     const noteIds = event.detail?.noteIds;
@@ -2844,10 +2914,20 @@ import { invalidateSettings } from './appConfig.js';
         try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }
         catch { return ''; }
       })();
+      // A notes_v1 human approval is a sealed control-plane continuation,
+      // not a regular composer message. Send only the exact restricted schema.
+      // The browser profile is never authority; the server independently
+      // checks the original sealed approval and current account policy.
+      let requestBody = fd;
+      if (approvalForSend?.gateway_profile === 'notes_v1') {
+        requestBody = buildRestrictedNotesApprovalForm(
+          streamSessionId, approvalForSend,
+        );
+      }
       _sendPerf.mark('chat_stream_post_begin');
       const res = await fetch(`${API_BASE}/api/chat_stream`, {
         method: 'POST',
-        body: fd,
+        body: requestBody,
         headers: { 'X-Tz-Offset': String(_tzOffsetMin), 'X-Tz-Name': _tzName },
         signal: abortCtrl.signal
       });
@@ -2892,6 +2972,7 @@ import { invalidateSettings } from './appConfig.js';
         return;
       }
       const streamRunId = res.headers.get('X-Odysseus-Run-Id') || '';
+      const streamGatewayProfile = res.headers.get('X-Mnerys-Gateway-Profile') || '';
       if (streamRunId) _rememberStreamRunId(streamSessionId, streamRunId, streamGeneration);
 
       // Mark the chat log busy while streaming so screen readers wait for the
@@ -5096,7 +5177,7 @@ import { invalidateSettings } from './appConfig.js';
                 // versions have identical behavior.
                 _cancelThinkingTimer();
                 _removeThinkingSpinner();
-                chatRenderer.renderAskUserCard(json.data || {});
+                _renderNotesAwareApprovalCard(json.data || {}, streamGatewayProfile);
 
               } else if (json.type === 'plan_update') {
                 if (_isBg) continue;
@@ -6315,6 +6396,7 @@ import { invalidateSettings } from './appConfig.js';
     }
     if (!res.ok || !res.body) return false;
     const resumeRunId = res.headers.get('X-Odysseus-Run-Id') || '';
+    const resumeGatewayProfile = res.headers.get('X-Mnerys-Gateway-Profile') || '';
     if (resumeRunId) _streamRunIds.set(sessionId, resumeRunId);
 
     const box = document.getElementById('chat-history');
@@ -6360,6 +6442,7 @@ import { invalidateSettings } from './appConfig.js';
     let roundText = '';
     let replayThinking = '';
     let replayMessageId = '';
+    let pendingNotesReview = null;
     let docFenceOpened = false;
     let gotDelta = false;
     let leftSession = false;
@@ -6542,6 +6625,19 @@ import { invalidateSettings } from './appConfig.js';
             }
           } else if (json.type === 'message_saved') {
             replayMessageId = String(json.id || '');
+          } else if (
+            json.type === 'ask_user'
+            && resumeGatewayProfile === 'notes_v1'
+            && json.data?.kind === 'tool_approval'
+            && json.data?.action?.tool === 'manage_notes'
+            && typeof json.data?.approval_id === 'string'
+          ) {
+            // The server reconstructed and reverified this sealed, pending
+            // action before emitting the card. Do not fabricate an assistant
+            // response from the paused turn or replay tools on this client.
+            rich = true;
+            pendingNotesReview = json.data;
+            try { spinner.destroy(); } catch (_) {}
           } else if (json.type === 'fallback') {
             // Replay can attach after the selected route has already failed.
             // Reflect the fallback immediately, then reload the canonical
@@ -6649,6 +6745,17 @@ import { invalidateSettings } from './appConfig.js';
       && replayMarker.parentNode === box
       && (!resumeRunId || _streamRunIds.get(sessionId) === resumeRunId);
     if (!onThisSession || !isReplayCurrent()) { removeReplayNodes(); return true; }
+    if (resumeGatewayProfile === 'notes_v1' && pendingNotesReview
+        && !replayMessageId && !replayError) {
+      // A review pause commits the user request, not an assistant message.
+      // Discard only this replay's temporary UI nodes and show the verified
+      // card using the same renderer as the foreground Web stream.
+      removeReplayNodes();
+      _renderNotesAwareApprovalCard(pendingNotesReview, resumeGatewayProfile, {
+        focus: false,
+      });
+      return true;
+    }
     const scrollSnapshot = uiModule.captureHistoryScroll?.();
     // Reconcile only this saved answer. Rebuilding history would discard open
     // tool cards and resurrect drafts in clients with older history renderers.

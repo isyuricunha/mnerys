@@ -42,6 +42,14 @@ from routes.gateway_text_adapter import (
     start_strict_text_web_response, resume_strict_text_web_response,
 )
 from src.gateway_admission import AdmissionDenied
+from src.gateway_web_notes_profile import select_restricted_notes_web_input
+from src.gateway_turn_composer import ToolApprovalTurnRequest
+from routes.gateway_notes_adapter import (
+    start_restricted_notes_web_response, resume_restricted_notes_web_response,
+    server_notes_decision_fence, require_pending_notes_fence,
+    read_lost_notes_review_status, server_notes_event_journal,
+    read_admitted_notes_event_journal,
+)
 from src.gateway_execution_policy import execution_limits_for_admission
 from src.model_context import estimate_tokens
 from src.context_compactor import apply_compaction_state
@@ -2276,6 +2284,127 @@ def setup_chat_routes(
         _set_user_time_from_request(request)
 
         form_data = await request.form()
+        # Isolated, server-opted native-notes path. Run it before the legacy
+        # branch consumes a review or retires a still-pending approval. Invalid
+        # notes_v1 requests fail closed instead of falling into legacy tools.
+        _native_notes_profile = (
+            form_data.get("gateway_profile") == "notes_v1"
+            or (
+                hasattr(form_data, "getlist")
+                and "notes_v1" in form_data.getlist("gateway_profile")
+            )
+            or (
+                type(body) is dict
+                and body.get("gateway_profile") == "notes_v1"
+            )
+        )
+        if _native_notes_profile:
+            if os.environ.get("MNERYS_M21_WEB_NATIVE_NOTES_ROUTING") != "1":
+                raise HTTPException(403, "Native notes Web profile is disabled")
+            _native_session_id = (
+                body.get("session") if type(body) is dict
+                else form_data.get("session")
+            )
+            if (
+                type(_native_session_id) is not str
+                or not _native_session_id.strip()
+            ):
+                raise HTTPException(400, "Invalid native notes session")
+            _native_admission = _verify_session_owner(request, _native_session_id)
+            try:
+                _native_session = session_manager.get_session(_native_session_id)
+            except KeyError as exc:
+                raise HTTPException(404, "Session not found") from exc
+            _native_input = select_restricted_notes_web_input(
+                server_enabled=True,
+                form_values=form_data, json_values=body,
+                admitted_session_id=_native_session_id,
+            )
+            if _native_input is None:
+                raise HTTPException(400, "Unsupported native notes Web request")
+            if isinstance(_native_input, ToolApprovalTurnRequest):
+                # An opaque button label is never authority. Match the
+                # existing Web-only interactive approval checks *before*
+                # invoking the original, one-use Gateway approval store.
+                _reject_delegated_tool_approval(request)
+                from src.agent_runtime.authority import require_user_approval_request
+                require_user_approval_request(request)
+            _native_owner = effective_user(request)
+            _native_privileges = _request_privileges(request, _native_owner)
+            if is_internal_tool_request(request):
+                raise HTTPException(403, "Internal tool requests cannot select notes_v1")
+            if not execution_limits_for_admission(
+                _native_admission, _native_privileges,
+                browser_tools=frozenset(),
+            ).allow_agent:
+                raise HTTPException(403, "Agent turns are not allowed for this account")
+            _reconcile_selected_route_from_request(
+                request, _native_session, _native_session_id,
+                form_data, owner=_native_owner,
+            )
+            if _clear_orphaned_session_endpoint(
+                _native_session, owner=_native_owner,
+            ):
+                raise HTTPException(
+                    400, "Selected model endpoint was removed. Pick another model in Settings.",
+                )
+            _recover_empty_session_model(
+                _native_session, _native_session_id, owner=_native_owner,
+            )
+            if not str(getattr(_native_session, "model", "") or "").strip():
+                raise HTTPException(400, "No model selected for this chat")
+            if not str(getattr(_native_session, "endpoint_url", "") or "").strip():
+                raise HTTPException(400, "Selected model endpoint is not configured")
+            # Match the inherited order: privileges/allowed-model restrictions
+            # are checked after any server-owned route reconciliation.
+            _enforce_chat_privileges(request, _native_session)
+            resolve_session_auth(
+                _native_session, _native_session_id, owner=_native_owner,
+            )
+            from src.settings import get_setting
+            _native_disabled_tools = get_setting("disabled_tools", [])
+            if (
+                type(_native_disabled_tools) not in (list, tuple)
+                or any(type(name) is not str for name in _native_disabled_tools)
+            ):
+                raise HTTPException(403, "Invalid server tool restrictions")
+            try:
+                # An explicit, reviewed SQL schema is required for this
+                # opt-in profile. Never create tables or consume an approval
+                # if its durable one-use fence is not installed.
+                try:
+                    _native_decision_fence = server_notes_decision_fence()
+                    _native_event_journal = server_notes_event_journal()
+                except Exception as exc:
+                    # Never leak the configured connection string or attempt
+                    # a database migration during an HTTP request.
+                    raise HTTPException(
+                        503, "Native notes decision ledger is not installed",
+                    ) from exc
+                return start_restricted_notes_web_response(
+                    gateway=gateway_turns,
+                    admission=_native_admission, session=_native_session,
+                    request=_native_input, session_manager=session_manager,
+                    decision_fence=_native_decision_fence,
+                    event_journal=_native_event_journal,
+                    chat_handler=chat_handler, chat_processor=chat_processor,
+                    privileges=_native_privileges,
+                    global_disabled_tools=tuple(_native_disabled_tools),
+                    assistant_writer=save_assistant_response,
+                    interrupted_writer=append_interrupted_assistant_response,
+                    approval_store=tool_approval_store,
+                    post_response_runner=run_post_response_tasks,
+                    memory_manager=memory_manager,
+                    memory_vector=memory_vector,
+                    webhook_manager=webhook_manager,
+                    after_user_saved=lambda: fire_message_event(
+                        request, webhook_manager, _native_session_id,
+                        _native_session, _native_input.message,
+                        compare_mode=False,
+                    ),
+                )
+            except AdmissionDenied as exc:
+                raise HTTPException(exc.status_code, exc.detail) from exc
         message = form_data.get("message")
         session = form_data.get("session")
         selected_note_ids = _parse_selected_note_ids(form_data.get("selected_note_ids"))
@@ -2567,6 +2696,19 @@ def setup_chat_routes(
             selected_notes_context = _format_selected_notes_context(selected_notes)
 
             if tool_approval_id:
+                # The pending record's *digest-bound server origin*, not a
+                # client gateway_profile hint or a short-lived run buffer,
+                # decides which adapter may consume its one-use grant.
+                # A notes_v1 approval must never pass through the legacy
+                # tool executor even after the detached run was evicted.
+                _approval_origin = tool_approval_store.peek(tool_approval_id)
+                if (
+                    _approval_origin is not None
+                    and _approval_origin.origin_profile == "notes_v1"
+                ):
+                    raise HTTPException(
+                        409, "Approval requires its original Gateway notes route",
+                    )
                 _reject_delegated_tool_approval(request)
                 from src.agent_runtime.authority import require_user_approval_request
                 require_user_approval_request(request)
@@ -4611,23 +4753,60 @@ def setup_chat_routes(
     @router.get("/api/chat/resume/{session_id}")
     async def chat_resume(request: Request, session_id: str) -> StreamingResponse:
         admission = _verify_session_owner(request, session_id)
-        native_run = agent_runs.get_active_run(session_id)
-        if (
-            native_run is not None and native_run.mode == "typed"
-            and native_run.web_strict_text
-        ):
+        expected = request.headers.get("X-Odysseus-Run-Id")
+        # Exact process-local run lookup also covers the bounded completed
+        # replay window. Do not select another run on a stale/foreign ID.
+        native_run = (
+            agent_runs.get_matching_run(session_id, expected, mode="typed")
+            if expected else agent_runs.get_active_run(session_id)
+        )
+        if native_run is None and not expected:
+            # Only a completed, review-paused native-notes run can be
+            # discovered without a client run ID. This allows an owned Web
+            # session to restore its pending card after a page reload.
+            native_run = agent_runs.get_recoverable_notes_review(session_id)
+        if native_run is not None and native_run.mode == "typed":
             sess = session_manager.get_session(session_id)
-            expected = request.headers.get("X-Odysseus-Run-Id") or native_run.run_id
-            response = resume_strict_text_web_response(
-                gateway=gateway_turns,
-                admission=admission,
-                session=sess,
-                expected_run_id=expected,
-                after_cursor=request.headers.get("Last-Event-ID"),
-            )
-            if response is None:
-                raise HTTPException(404, "No matching active typed run")
-            return response
+            if native_run.web_native_notes:
+                if not expected:
+                    # Browser recovery is read-only; no tool claim or approval
+                    # decision is inferred from owning an active run. A bearer
+                    # integration cannot discover pending human review cards.
+                    if (
+                        os.environ.get("MNERYS_M21_WEB_NATIVE_NOTES_ROUTING") != "1"
+                        or admission.principal.delegated
+                    ):
+                        raise HTTPException(404, "No matching notes run")
+                    expected = native_run.run_id
+                try:
+                    response = resume_restricted_notes_web_response(
+                        gateway=gateway_turns,
+                        admission=admission, session=sess,
+                        expected_run_id=expected,
+                        after_cursor=request.headers.get("Last-Event-ID"),
+                        approval_store=tool_approval_store,
+                        decision_fence=server_notes_decision_fence(),
+                    )
+                except AdmissionDenied as exc:
+                    raise HTTPException(exc.status_code, exc.detail) from exc
+                except ValueError as exc:
+                    raise HTTPException(400, "Invalid replay cursor") from exc
+                except Exception as exc:
+                    raise HTTPException(503, "Native notes decision ledger is unavailable") from exc
+                if response is None:
+                    raise HTTPException(404, "No matching notes run")
+                return response
+            if native_run.web_strict_text:
+                response = resume_strict_text_web_response(
+                    gateway=gateway_turns,
+                    admission=admission,
+                    session=sess,
+                    expected_run_id=expected or native_run.run_id,
+                    after_cursor=request.headers.get("Last-Event-ID"),
+                )
+                if response is None:
+                    raise HTTPException(404, "No matching active typed run")
+                return response
         _active_run = gateway_turns.resume_active(admission)
         if _active_run is None:
             raise HTTPException(404, "No active run for this session")
@@ -4649,7 +4828,22 @@ def setup_chat_routes(
     async def chat_stop(request: Request, session_id: str) -> Dict[str, Any]:
         admission = _verify_session_owner(request, session_id)
         _expected_run_id = request.headers.get("X-Odysseus-Run-Id")
-        stopped = gateway_turns.stop(admission, _expected_run_id)
+        _typed = (
+            agent_runs.get_matching_run(
+                session_id, _expected_run_id, mode="typed",
+            ) if _expected_run_id else None
+        )
+        if _typed is not None and _typed.web_native_notes:
+            sess = session_manager.get_session(session_id)
+            try:
+                stopped = gateway_turns.stop_detached_persisted_notes_web_sse(
+                    admission, sess, context_owner=effective_user(request),
+                    expected_run_id=_expected_run_id,
+                )
+            except AdmissionDenied as exc:
+                raise HTTPException(exc.status_code, exc.detail) from exc
+        else:
+            stopped = gateway_turns.stop(admission, _expected_run_id)
         return {"stopped": stopped}
 
     @router.post("/api/chat/finish/{session_id}")
@@ -4659,6 +4853,65 @@ def setup_chat_routes(
         expected_run_id = request.headers.get("X-Odysseus-Run-Id")
         accepted = gateway_turns.finish(admission, expected_run_id)
         return {"accepted": accepted}
+
+    # ------------------------------------------------------------------ #
+    # GET /api/chat/notes_journal — safe, read-only metadata event replay.
+    # This is NOT a signed review, SSE transcript or executable run cursor.
+    # ------------------------------------------------------------------ #
+    @router.get("/api/chat/notes_journal/{session_id}")
+    async def chat_notes_journal(request: Request, session_id: str) -> Dict[str, Any]:
+        admission = _verify_session_owner(request, session_id)
+        if (
+            os.environ.get("MNERYS_M21_WEB_NATIVE_NOTES_ROUTING") != "1"
+            or admission.principal.delegated
+        ):
+            raise HTTPException(404, "No available notes event journal")
+        params = getattr(request, "query_params", {})
+        if hasattr(params, "getlist") and any(
+            len(params.getlist(k)) > 1 for k in ("after_cursor", "limit")
+        ):
+            raise HTTPException(400, "Duplicate journal pagination")
+        raw_cursor = params.get("after_cursor", "")
+        raw_limit = params.get("limit", "50")
+        if (
+            type(raw_cursor) is not str
+            or type(raw_limit) is not str
+            or (raw_cursor and re.fullmatch(r"[A-Za-z0-9_-]{32}", raw_cursor) is None)
+            or re.fullmatch(r"(?:[1-9][0-9]{0,2})", raw_limit) is None
+        ):
+            raise HTTPException(400, "Invalid journal pagination")
+        cursor, limit = raw_cursor, int(raw_limit)
+        if limit > 100:
+            raise HTTPException(400, "Invalid journal page size")
+        try:
+            session = session_manager.get_session(session_id)
+            journal = server_notes_event_journal()
+            events = read_admitted_notes_event_journal(
+                admission=admission, session=session, journal=journal,
+                after_cursor=cursor, limit=limit,
+            )
+        except (KeyError, SessionNotFoundError):
+            raise HTTPException(404, "Session not found") from None
+        except AdmissionDenied as exc:
+            raise HTTPException(exc.status_code, exc.detail) from exc
+        except ValueError as exc:
+            # An unknown, expired, foreign or malformed opaque cursor is a
+            # bad pagination request, not a server outage. Never echo it.
+            raise HTTPException(400, "Invalid journal cursor") from exc
+        except Exception as exc:
+            raise HTTPException(503, "Native notes event journal unavailable") from exc
+        return {
+            "gateway_profile": "notes_v1",
+            "events": [
+                {
+                    "cursor": item.cursor,
+                    "kind": item.kind,
+                    "recorded_at": item.recorded_at,
+                }
+                for item in events
+            ],
+            "next_cursor": events[-1].cursor if events else cursor,
+        }
 
     # ------------------------------------------------------------------ #
     # GET /api/chat/stream_status — check if a stream is active for a session
@@ -4675,6 +4928,81 @@ def setup_chat_routes(
         if rec is None:
             if gateway_turns.is_active(admission):
                 return {"status": "streaming", "detached": True}
+            # Only an owner-admitted interactive Web session may discover
+            # a *completed* notes turn waiting on a human action. Unlike a
+            # finished assistant answer, that turn has no assistant message
+            # in history, so a page reload needs one read-only card replay.
+            native_review = agent_runs.get_recoverable_notes_review(session_id)
+            if (
+                native_review is not None
+                and os.environ.get("MNERYS_M21_WEB_NATIVE_NOTES_ROUTING") == "1"
+                and not admission.principal.delegated
+            ):
+                from src.gateway_web_approval_cards import read_admitted_pending_review
+                review_ids = [
+                    item.payload.get("approval_id")
+                    for item in tuple(native_review.buffer)
+                    if item.type == "approval.requested"
+                ]
+                if len(review_ids) == 1:
+                    original_review = tool_approval_store.peek(review_ids[0])
+                    if (
+                        original_review is None
+                        or original_review.origin_profile != "notes_v1"
+                    ):
+                        raise HTTPException(404, "No pending notes review")
+                    sess = session_manager.get_session(session_id)
+                    try:
+                        read_admitted_pending_review(
+                            admission, sess, tool_approval_store, review_ids[0],
+                            context_owner=effective_user(request),
+                        )
+                        require_pending_notes_fence(
+                            owner=effective_user(request),
+                            session=sess, approval_id=review_ids[0],
+                            approval_store=tool_approval_store,
+                            decision_fence=server_notes_decision_fence(),
+                        )
+                    except AdmissionDenied:
+                        raise HTTPException(404, "No pending notes review") from None
+                    except Exception as exc:
+                        raise HTTPException(
+                            503, "Native notes decision ledger is unavailable",
+                        ) from exc
+                    return {
+                        "status": "awaiting_approval",
+                        "gateway_profile": "notes_v1",
+                        "detached": True,
+                    }
+            if (
+                os.environ.get("MNERYS_M21_WEB_NATIVE_NOTES_ROUTING") == "1"
+                and not admission.principal.delegated
+                and native_review is None
+            ):
+                try:
+                    sess = session_manager.get_session(session_id)
+                    recovery = read_lost_notes_review_status(
+                        admission=admission, session=sess,
+                        decision_fence=server_notes_decision_fence(),
+                    )
+                except (KeyError, SessionNotFoundError):
+                    raise HTTPException(404, "Session not found") from None
+                except AdmissionDenied as exc:
+                    raise HTTPException(exc.status_code, exc.detail) from exc
+                except Exception as exc:
+                    raise HTTPException(
+                        503, "Native notes recovery metadata is unavailable",
+                    ) from exc
+                if recovery is not None:
+                    # Status is a safe, non-actionable UI notice only.
+                    # Never return a sealed grant, approval ID or replay cursor
+                    # after the original process-local run has disappeared.
+                    return {
+                        "status": "review_unavailable",
+                        "gateway_profile": "notes_v1",
+                        "recovery": recovery,
+                        "detached": False,
+                    }
             raise HTTPException(404, "No active stream for this session")
         return rec
 

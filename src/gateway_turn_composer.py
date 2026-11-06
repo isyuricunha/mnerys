@@ -7,8 +7,10 @@ server-selected session workspace can accompany native-only tools and sealed
 native approvals; filesystem actions require the original sealed resource
 snapshot and matching admitted workspace. Unbound effects remain unsupported.
 Conversation persistence is separately opt-in for plain text and one tightly
-scoped native manage_notes profile; approval resumptions remain outside the
-persisted profile. The Web production tool cutover is not enabled.
+scoped native manage_notes profile. That profile now accepts a sealed,
+process-local approval continuation only after checking the original confirmed
+user receipt; no second user append or durable approval fence is implied.
+The Web production tool cutover is not enabled.
 This is not a remote client entry point.
 """
 
@@ -60,6 +62,7 @@ from src.gateway_document_context import (
 from src.gateway_text_persistence import (
     TrustedTextPersistence, require_trusted_text_persistence,
     snapshot_session_receipts, require_new_session_receipt,
+    require_persisted_native_review_origin,
 )
 
 logger = logging.getLogger(__name__)
@@ -109,9 +112,11 @@ class TrustedTextTurnSettings:
     # The HTTP Web adapter alone may persist a verified text-only upload
     # after a second owner/hash read, without storing the upload as user prose.
     persist_verified_text_attachments: bool = False
-    # A server-created, non-HTTP M2.1 profile may persist a single native
-    # manage_notes turn through the inherited writers. Tool permissions and
+    # A server-selected M2.1 profile may persist a single native manage_notes
+    # turn through the inherited writers. Tool permissions and
     # approval consumption remain owned by the Agent Loop and dispatcher.
+    # Continuations require the original committed user receipt and a current
+    # sealed, one-use review bound to this admitted session.
     persist_verified_native_tools: bool = False
 
 
@@ -269,7 +274,7 @@ async def stream_composed_text_turn(
         not native_tool_persistence
         or settings.offered_tools != frozenset({"manage_notes"})
         or settings.interaction_mode != "agent"
-        or continuation or attachment_ids
+        or attachment_ids
         or settings.workspace is not None
         or settings.active_document_id is not None
     ):
@@ -278,7 +283,8 @@ async def stream_composed_text_turn(
         require_trusted_text_persistence(persistence)
         if (
             (tools_enabled and not native_tool_persistence)
-            or continuation or settings.workspace is not None
+            or (continuation and not native_tool_persistence)
+            or settings.workspace is not None
             or settings.active_document_id is not None
         ):
             raise AdmissionDenied(403, "Persisted direct turns require plain text without tools or approvals")
@@ -299,6 +305,11 @@ async def stream_composed_text_turn(
             admission, request.approval_id, request.decision,
             plan_mode=False, internal_tool_request=False, store=store,
         )
+        if native_tool_persistence:
+            # The origin was persisted on the previous (paused) turn. Never
+            # write a second user message for the approval button. Reject
+            # missing/stale receipts before consuming even a denial.
+            require_persisted_native_review_origin(session, pending)
         if decision == "deny":
             resolution = consume_admitted_tool_approval(
                 admission, request.approval_id, decision,
@@ -521,7 +532,7 @@ async def stream_composed_text_turn(
         allow_tool_preprocessing=False,
         # Validate uploaded text *after* asynchronous preprocessing and
         # before any irreversible user write; ordinary plain text is unchanged.
-        persist_user_message=persistence is not None and not attachment_ids,
+        persist_user_message=persistence is not None and not attachment_ids and not continuation,
         interaction_mode=settings.interaction_mode if persistence is not None else None,
         require_text_user_content=persistence is not None,
         on_user_message_persisted=(
@@ -683,6 +694,20 @@ async def stream_composed_text_turn(
             require_sealed_filesystem_approval(
                 pending, owner=owner, session_id=session_id, workspace=workspace,
             )
+        if native_tool_persistence:
+            # Context preprocessing can yield control. A subsequent session
+            # append, replacement or receipt change must not let a stale card
+            # consume an approval against a different original user turn.
+            confirmed_user_receipt = require_persisted_native_review_origin(
+                session, pending,
+            )
+            if persistence is not None and persistence.before_approval_consume is not None:
+                # Atomic, irreversible SQL reservation happens only AFTER all
+                # fallible preflight and BEFORE the original one-use approval
+                # store can hand a tool action to the Agent Loop.
+                persistence.before_approval_consume(
+                    pending, confirmed_user_receipt, decision,
+                )
         # All fallible context preparation completed. The store rechecks
         # expiry/owner/session and consumes exactly once, immediately before
         # yielding the decision and handing off to the existing Agent Loop.

@@ -20,6 +20,8 @@ This index is the entry point for **current Mnerys documentation**. Documents in
 - [Release automation](deployment/RELEASE_AUTOMATION.md) — CI-gated semantic-release, initial 0.1.0, notes and GHCR version tags.
 - [Release notes](releases/README.md) — reviewed initial notes and publication status.
 - [PostgreSQL 17 support](deployment/POSTGRESQL17.md) — optional primary database, compatibility and migration boundaries. SQLite remains the product default.
+- [M2.1 native-notes decision fence](deployment/notes-decision-fence.md) — metadata-only SQL reservation, explicit migration, uncertain-effect handling and rollback boundaries; not restart-safe approval recovery.
+- [M2.1 restricted event journal](deployment/notes-event-journal.md) — server-written metadata milestones, bounded owner-scoped replay, explicit retention and separate schema migration; never a tool approval or raw SSE transcript.
 - [Historical volume-migration guide](deployment/migrations/README.md) — guidance only for applicable older ChromaDB deployments.
 - [Security documentation](security/README.md) — inherited threat model and transport/trust notes; verify facts before applying.
 - [Maintainer handbook](maintainers/README.md) — contributor and review guidance, some inherited from Odysseus.

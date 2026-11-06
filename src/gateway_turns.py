@@ -26,7 +26,10 @@ from src.gateway_prompt_preparation import (
 from src.gateway_approval_decisions import ToolApprovalDecision, consume_admitted_tool_approval
 from src.gateway_turn_authority import authority_for_admitted_turn
 from src.tool_policy import ToolPolicy
-from src.tool_approvals import ExactToolApproval, ToolApprovalStore, tool_approval_store
+from src.tool_approvals import (
+    ExactToolApproval, ToolApprovalStore, tool_approval_store,
+    bind_gateway_approval_origin,
+)
 from src.gateway_web_approval_cards import read_admitted_pending_review
 from src.turn_service import TurnService, TurnStream, TypedTurnStream, turn_service
 from src.gateway_stream_delivery import TurnDelivery, open_admitted_stream
@@ -64,6 +67,7 @@ from src.gateway_turn_composer import (
 from src.gateway_text_persistence import (
     TrustedTextPersistence, persist_completed_text_events,
     require_trusted_text_persistence,
+    require_persisted_native_review_origin,
 )
 from src.gateway_web_compat_events import serialize_plain_text_web_sse
 from src.gateway_context_ports import ChatContextPorts
@@ -105,6 +109,65 @@ from src.gateway_execution_policy import (
     FinalTurnToolPolicy,
     finalize_admitted_turn_tool_policy,
 )
+
+
+
+def _require_persisted_notes_web_profile(
+    admission: AdmittedSession,
+    session: Any,
+    *,
+    context_owner: str | None,
+    request: TextTurnRequest | ToolApprovalTurnRequest,
+    settings: TrustedTextTurnSettings,
+    persistence: TrustedTextPersistence,
+    approval_store: ToolApprovalStore | None,
+) -> tuple[str, TrustedTextPersistence, ToolApprovalStore]:
+    """Preflight a trusted notes adapter before replacing an in-flight run.
+
+    This checks only the sealed review and original receipt; the composer
+    still rechecks account policy, request authority and one-use consumption.
+    """
+    session_id = require_admitted_session(admission)
+    owner = owner_for_admitted_context(admission, session, session_id)
+    if owner != context_owner:
+        raise AdmissionDenied(403, "Persisted notes preview owner mismatch")
+    if (
+        not isinstance(request, (TextTurnRequest, ToolApprovalTurnRequest))
+        or (isinstance(request, TextTurnRequest) and
+            (type(request.message) is not str or not request.message.strip()
+             or request.attachment_ids != ()))
+        or not isinstance(settings, TrustedTextTurnSettings)
+        or settings.offered_tools != frozenset({"manage_notes"})
+        or settings.interaction_mode != "agent"
+        or settings.persist_verified_native_tools is not True
+        or settings.workspace is not None
+        or settings.active_document_id is not None
+        or settings.persist_verified_text_attachments
+        or settings.enable_model_fallback
+        or settings.allowed_fallback_models
+    ):
+        raise AdmissionDenied(403, "Unsupported persisted notes Web preview")
+    writer = require_trusted_text_persistence(persistence)
+    store = tool_approval_store if approval_store is None else approval_store
+    if not isinstance(store, ToolApprovalStore):
+        raise AdmissionDenied(403, "Invalid persisted review store")
+    if isinstance(request, ToolApprovalTurnRequest):
+        if type(request.decision) is not str or request.decision not in {
+            "approve", "approve_task", "deny",
+        }:
+            raise AdmissionDenied(403, "Invalid persisted review decision")
+        if admission.principal.delegated:
+            raise AdmissionDenied(403, "A delegated token cannot approve an action")
+        read_admitted_pending_review(
+            admission, session, store, request.approval_id,
+            context_owner=context_owner,
+        )
+        pending = store.peek(request.approval_id)
+        if pending is None:
+            raise AdmissionDenied(409, "Pending review no longer exists")
+        require_persisted_native_review_origin(session, pending)
+    return owner, writer, store
+
 
 
 class GatewayTurns:
@@ -437,6 +500,197 @@ class GatewayTurns:
             ),
         )
 
+    def preview_persisted_native_notes_web_sse(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        request: TextTurnRequest | ToolApprovalTurnRequest,
+        ports: ChatContextPorts,
+        chat_handler: Any,
+        chat_processor: Any,
+        settings: TrustedTextTurnSettings,
+        persistence: TrustedTextPersistence,
+        approval_store: ToolApprovalStore | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """Web-format acceptance of a persisted native notes turn; not routed.
+
+        This process-local preview deliberately has no detached run/replay or
+        production HTTP selection. Do not expose it until those lifecycles
+        and the interactive approval binding have their own acceptance.
+        """
+        owner, writer, store = _require_persisted_notes_web_profile(
+            admission, session,
+            context_owner=context_owner, request=request,
+            settings=settings, persistence=persistence,
+            approval_store=approval_store,
+        )
+        delivery = self.open_composed_text_events(
+            admission, session,
+            context_owner=context_owner, request=request, ports=ports,
+            chat_handler=chat_handler, chat_processor=chat_processor,
+            settings=settings, approval_store=store,
+            persistence=replace(writer, emit_message_saved_events=True),
+        )
+        return serialize_plain_text_web_sse(
+            delivery.events,
+            require_saved_receipt=True,
+            tool_status_preview=frozenset({"manage_notes"}),
+            approval_card_resolver=lambda approval_id: read_admitted_pending_review(
+                admission, session, store, approval_id, context_owner=context_owner,
+            ),
+        )
+
+
+    def start_detached_persisted_notes_web_sse(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        request: TextTurnRequest | ToolApprovalTurnRequest,
+        ports: ChatContextPorts,
+        chat_handler: Any,
+        chat_processor: Any,
+        settings: TrustedTextTurnSettings,
+        persistence: TrustedTextPersistence,
+        approval_store: ToolApprovalStore | None = None,
+    ) -> TurnStream:
+        """Detach one admitted persisted notes turn with exact-run Web cursors.
+
+        The guarded notes_v1 HTTP route may select this method; it remains
+        disabled by default. The original run manager owns its lifecycle.
+        """
+        from src import agent_runs
+
+        owner, writer, store = _require_persisted_notes_web_profile(
+            admission, session,
+            context_owner=context_owner, request=request,
+            settings=settings, persistence=persistence,
+            approval_store=approval_store,
+        )
+        if isinstance(request, ToolApprovalTurnRequest):
+            original_review = store.peek(request.approval_id)
+            if (
+                original_review is None
+                or original_review.origin_profile != "notes_v1"
+            ):
+                raise AdmissionDenied(
+                    409, "The approval was not issued by this Gateway profile",
+                )
+        if agent_runs.get_active_run(session.id) is not None:
+            raise AdmissionDenied(409, "A session turn is already running")
+        delivery = self.open_composed_detached_text_events(
+            admission, session, context_owner=owner,
+            request=request, ports=ports,
+            chat_handler=chat_handler, chat_processor=chat_processor,
+            settings=settings, approval_store=store,
+            persistence=replace(writer, emit_message_saved_events=True),
+            web_native_notes=True,
+        )
+        return TurnStream(
+            run_id=delivery.run_id,
+            events=serialize_plain_text_web_sse(
+                delivery.events, require_saved_receipt=True,
+                replay=True, replay_review=True,
+                tool_status_preview=frozenset({"manage_notes"}),
+                approval_card_resolver=lambda approval_id: read_admitted_pending_review(
+                    admission, session, store, approval_id,
+                    context_owner=owner,
+                ),
+            ),
+        )
+
+    def resume_detached_persisted_notes_web_sse(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        expected_run_id: str,
+        after_cursor: str | None = None,
+        approval_store: ToolApprovalStore | None = None,
+    ) -> TurnStream | None:
+        """Reconstruct the original sealed review from the exact run buffer.
+
+        The full typed prefix is validated, but only SSE frames newer than the
+        already acknowledged cursor are sent. No model, writer or tool restarts.
+        """
+        session_id = require_admitted_session(admission)
+        owner = owner_for_admitted_context(admission, session, session_id)
+        if owner != context_owner:
+            raise AdmissionDenied(403, "Persisted notes replay owner mismatch")
+        store = tool_approval_store if approval_store is None else approval_store
+        if not isinstance(store, ToolApprovalStore):
+            raise AdmissionDenied(403, "Invalid persisted review store")
+        delivery = self.resume_composed_detached_text_events(
+            admission, session, context_owner=owner,
+            expected_run_id=expected_run_id, after_cursor=after_cursor,
+            web_native_notes=True, replay_from_start=True,
+        )
+        if delivery is None:
+            return None
+        # A terminal pending card might already have expired or been retired
+        # before a browser subscribes. Preflight before returning HTTP 200;
+        # the serializer still rechecks when it actually emits the card.
+        from src import agent_runs
+        original = agent_runs.get_matching_run(
+            session_id, delivery.run_id, mode="typed",
+        )
+        if original is None or original.web_native_notes is not True:
+            return None
+        pending_ids = [
+            event.payload.get("approval_id")
+            for event in tuple(original.buffer)
+            if event.type == "approval.requested"
+        ]
+        if len(pending_ids) > 1:
+            raise AdmissionDenied(409, "Invalid pending review history")
+        if pending_ids:
+            source_review = store.peek(pending_ids[0])
+            if (
+                source_review is None
+                or source_review.origin_profile != "notes_v1"
+            ):
+                raise AdmissionDenied(409, "Review is not from this Gateway run")
+            read_admitted_pending_review(
+                admission, session, store, pending_ids[0],
+                context_owner=owner,
+            )
+        return TurnStream(
+            run_id=delivery.run_id,
+            events=serialize_plain_text_web_sse(
+                delivery.events, require_saved_receipt=True,
+                replay=True, replay_review=True, after_cursor=after_cursor,
+                tool_status_preview=frozenset({"manage_notes"}),
+                approval_card_resolver=lambda approval_id: read_admitted_pending_review(
+                    admission, session, store, approval_id,
+                    context_owner=owner,
+                ),
+            ),
+        )
+
+    def stop_detached_persisted_notes_web_sse(
+        self,
+        admission: AdmittedSession,
+        session: Any,
+        *,
+        context_owner: str | None,
+        expected_run_id: str,
+    ) -> bool:
+        """Stop only an exact owner-admitted, notes-origin detached run."""
+        session_id = require_admitted_session(admission)
+        owner = owner_for_admitted_context(admission, session, session_id)
+        if owner != context_owner:
+            raise AdmissionDenied(403, "Persisted notes stop owner mismatch")
+        if self._turns.resume_typed(
+            session_id, expected_run_id, web_native_notes=True,
+        ) is None:
+            return False
+        return self._turns.stop(session_id, expected_run_id)
+
+
     def open_composed_detached_text_events(
         self,
         admission: AdmittedSession,
@@ -451,6 +705,7 @@ class GatewayTurns:
         approval_store: ToolApprovalStore | None = None,
         persistence: TrustedTextPersistence | None = None,
         web_strict_text: bool = False,
+        web_native_notes: bool = False,
     ) -> TypedTurnStream:
         """Run the same direct composer behind the inherited detach/replay manager.
 
@@ -466,10 +721,22 @@ class GatewayTurns:
             raise AdmissionDenied(403, "Invalid server turn lifecycle")
         if not isinstance(settings, TrustedTextTurnSettings):
             raise AdmissionDenied(403, "Invalid trusted direct turn settings")
-        if type(web_strict_text) is not bool:
+        if (
+            type(web_strict_text) is not bool
+            or type(web_native_notes) is not bool
+            or (web_strict_text and web_native_notes)
+        ):
             raise AdmissionDenied(403, "Invalid trusted run origin")
         if not isinstance(request, (TextTurnRequest, ToolApprovalTurnRequest)):
             raise AdmissionDenied(403, "Invalid direct turn request")
+        if web_native_notes:
+            # This provenance can only mark the restricted trusted profile,
+            # including the live, unconsumed review and confirmed origin.
+            _require_persisted_notes_web_profile(
+                admission, session, context_owner=context_owner,
+                request=request, settings=settings,
+                persistence=persistence, approval_store=approval_store,
+            )
         delivery = self.open_composed_text_events(
             admission, session,
             context_owner=context_owner,
@@ -480,10 +747,15 @@ class GatewayTurns:
             approval_store=approval_store,
             persistence=persistence,
         )
-        return self._turns.start_detached_typed(
-            session_id, delivery.events, delivery.outcome,
-            web_strict_text=web_strict_text,
-        )
+        # start_detached_typed creates the inherited drain task immediately.
+        # ContextVars are copied into that task, sealing its approvals as
+        # notes-origin without changing unrelated direct/legacy turns.
+        with bind_gateway_approval_origin("notes_v1" if web_native_notes else ""):
+            return self._turns.start_detached_typed(
+                session_id, delivery.events, delivery.outcome,
+                web_strict_text=web_strict_text,
+                web_native_notes=web_native_notes,
+            )
 
     def resume_composed_detached_text_events(
         self,
@@ -494,8 +766,10 @@ class GatewayTurns:
         expected_run_id: str,
         after_cursor: str | None = None,
         web_strict_text: bool = False,
+        web_native_notes: bool = False,
+        replay_from_start: bool = False,
     ) -> TypedTurnStream | None:
-        """Replay a single admitted typed run without crossing owner or run IDs."""
+        """Replay one admitted run without crossing owner, modality or cursor."""
         session_id = require_admitted_session(admission)
         owner = owner_for_admitted_context(admission, session, session_id)
         if context_owner != owner:
@@ -505,6 +779,8 @@ class GatewayTurns:
         return self._turns.resume_typed(
             session_id, expected_run_id, after_cursor=after_cursor,
             web_strict_text=web_strict_text,
+            web_native_notes=web_native_notes,
+            replay_from_start=replay_from_start,
         )
 
     def stop_composed_detached_text_turn(
