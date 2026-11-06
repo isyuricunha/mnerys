@@ -19,7 +19,7 @@ const { extractThemeBootstrap } = require('./helpers/theme_bootstrap.cjs');
     assert.match(await page.title(), /^Mnerys/);
     assert(await page.getByRole('heading', { name: /built to be yours/i }).isVisible());
     assert.equal(await page.locator('#platform .feature-card').count(), 6);
-    assert.equal(await page.locator('#roadmap .milestone').count(), 3);
+    assert.equal(await page.locator('#roadmap .milestone').count(), 5);
     assert(await page.locator('#architecture .architecture-diagram').isVisible());
     assert.equal(await page.locator('.tcard, .preview-panel, video').count(), 0);
     assert.equal(mediaRequests.length, 0, 'Legacy demo videos must not load');

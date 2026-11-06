@@ -69,13 +69,17 @@ def test_landing_has_mnerys_identity_and_no_upstream_marketing():
 
 def test_feature_and_roadmap_status_remain_truthful():
     html, _ = load()
-    assert "Inherited foundation" in html
-    assert "Design complete" in html
-    assert "Planned" in html
-    assert "not shipped yet" in html
-    assert "Architecture target, not a diagram of deployed services" in html
+    assert "Implemented" in html
+    assert "M2 complete" in html
+    assert "Complete" in html and "Planned" in html
+    assert "CENTRAL AUTHORITY / IMPLEMENTED" in html
+    assert "SHARED RUNTIME / IMPLEMENTED" in html
+    assert "not shipped yet" not in html
+    assert "Inherited foundation" not in html
     assert "This is a static screenshot, not a live session" in html
     assert "Gateway" in html and "CLI" in html and "TUI" in html
+    assert "Telegram" in html
+    assert "private preview" in html
 
 
 def test_local_page_assets_and_anchor_links_are_valid():
