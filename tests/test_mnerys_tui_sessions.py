@@ -183,8 +183,10 @@ async def test_create_failure_with_control_characters_renders_inert_in_the_place
             await pilot.pause(0.05)
             if "create failed" in input_box.placeholder:
                 break
-        assert "create failed: badname" in input_box.placeholder
+        # The rejection stays visible and readable, with zero control bytes.
+        assert "create failed: Gateway error 400:" in input_box.placeholder
         assert "\x1b" not in input_box.placeholder
+        assert "bad" in input_box.placeholder and "name" in input_box.placeholder
 
 
 async def test_open_switches_to_the_selected_session():
