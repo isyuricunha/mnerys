@@ -1,0 +1,194 @@
+"""The conversation screen: persisted history, streamed turns, cancellation.
+
+One session at a time. History loads from the owner-scoped Gateway detail
+endpoint; every sent message becomes a Gateway turn whose typed events the
+pump applies exactly once. All input is untrusted; nothing renders raw.
+"""
+
+import logging
+import uuid
+
+from textual.binding import Binding
+from textual.containers import Vertical, VerticalScroll
+from textual.message import Message
+from textual.screen import Screen
+from textual.widgets import TextArea
+
+from mnerys_cli.errors import MnerysCliError
+from mnerys_cli.tui.events import TurnTracker
+from mnerys_cli.tui.pump import TurnPump
+from mnerys_cli.tui.widgets import (
+    AssistantMessage,
+    SystemNotice,
+    UserMessage,
+    tracker_status_line,
+    tool_line,
+)
+
+logger = logging.getLogger("mnerys.tui.chat")
+
+
+class ChatInput(TextArea):
+    """A multiline composer: Enter sends, Alt+Enter inserts a newline."""
+
+    BINDINGS = [
+        Binding("enter", "send", "Send", priority=True, show=False),
+        Binding("alt+enter", "newline", "Newline", priority=True, show=False),
+    ]
+
+    class Submitted(Message):
+        """The user finished composing one message."""
+
+        def __init__(self, text: str) -> None:
+            super().__init__()
+            self.text = text
+
+    def action_send(self) -> None:
+        text = self.text.strip()
+        if text:
+            self.post_message(self.Submitted(text))
+        self.clear()
+
+    def action_newline(self) -> None:
+        self.insert("\n")
+
+
+class ChatScreen(Screen[None]):
+    """One Gateway session's conversation."""
+
+    BINDINGS = [
+        Binding("escape", "cancel_turn", "Cancel turn", priority=True, show=False),
+    ]
+
+    def __init__(self, client, session_id: str, *, session_name: str = ""):
+        super().__init__()
+        self.client = client
+        self.session_id = session_id
+        self.session_name = session_name
+        self.active_pump: TurnPump | None = None
+        self._active_message: AssistantMessage | None = None
+        self._active_tracker: TurnTracker | None = None
+
+    def compose(self):
+        with Vertical():
+            self.conversation = VerticalScroll(id="conversation")
+            yield self.conversation
+            yield ChatInput(
+                id="composer", placeholder="Message the Gateway… (Enter sends, Alt+Enter newline)",
+                soft_wrap=True,
+            )
+
+    async def on_mount(self) -> None:
+        await self.reload_history()
+
+    async def reload_history(self) -> None:
+        """Load the persisted conversation from the Gateway (never local)."""
+        await self.conversation.remove_children()
+        try:
+            detail = await self.client.session_detail(self.session_id)
+        except MnerysCliError as exc:
+            await self.conversation.mount(
+                SystemNotice(f"could not load history: {exc}", tone="error"),
+            )
+            return
+        for entry in detail.get("history", []):
+            await self._mount_history_entry(entry)
+        self.conversation.scroll_end(animate=False, force=True)
+
+    async def _mount_history_entry(self, entry: dict) -> None:
+        role = str(entry.get("role", ""))
+        content = entry.get("content", "")
+        if not isinstance(content, str) or not content.strip():
+            return
+        if role == "user":
+            await self.conversation.mount(UserMessage(content))
+        elif role == "assistant":
+            block = AssistantMessage()
+            await self.conversation.mount(block)
+            block.set_text(content)
+
+    async def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
+        await self.send_user_message(event.text)
+
+    async def send_user_message(self, text: str) -> None:
+        """Start one Gateway turn and stream its typed events."""
+        if self.active_pump is not None and self._tracker_is_live():
+            await self.conversation.mount(SystemNotice(
+                "a turn is already streaming; cancel it first (Ctrl+C)",
+                tone="pending",
+            ))
+            return
+        await self.conversation.mount(UserMessage(text))
+        self.conversation.scroll_end(animate=False, force=True)
+        try:
+            created = await self.client.create_turn(
+                self.session_id, text, mode="chat",
+                idempotency_key=uuid.uuid4().hex,
+            )
+        except MnerysCliError as exc:
+            await self.conversation.mount(SystemNotice(str(exc), tone="error"))
+            return
+        turn_id = str(created.get("turn_id") or "")
+        if not turn_id:
+            await self.conversation.mount(SystemNotice(
+                "the Gateway accepted the turn without a turn id", tone="error",
+            ))
+            return
+        tracker = TurnTracker()
+        self._active_tracker = tracker
+        block = AssistantMessage()
+        self._active_message = block
+        await self.conversation.mount(block)
+        notice = SystemNotice("turn streaming…", tone="pending")
+        await self.conversation.mount(notice)
+        self.conversation.scroll_end(animate=False, force=True)
+
+        async def on_event(kind: str) -> None:
+            if kind.startswith("tool."):
+                await self.conversation.mount(SystemNotice(
+                    tool_line(kind, tracker.tool_events[-1][1]),
+                ))
+            elif kind == "message.delta":
+                block.set_text(tracker.rendered_text)
+                self.conversation.scroll_end(animate=False, force=True)
+            elif kind == "message.final":
+                block.set_text(tracker.rendered_text)
+
+        pump = TurnPump(self.client, turn_id, self.session_id, tracker, on_event)
+        self.active_pump = pump
+
+        async def finish() -> None:
+            try:
+                status = await pump.run()
+            except MnerysCliError as exc:
+                notice.set_tone("error")
+                notice.update(f"stream lost: {exc}")
+                return
+            finally:
+                self.active_pump = None
+            notice.set_tone("ok" if status == "completed" else "pending")
+            notice.update(tracker_status_line(tracker))
+            block.set_text(tracker.rendered_text)
+            self.conversation.scroll_end(animate=False, force=True)
+
+        self.run_worker(finish, exclusive=True, group=f"turn-{turn_id}")
+
+    def _tracker_is_live(self) -> bool:
+        return self.active_pump is not None and not self.active_pump._cancel_requested
+
+    async def action_cancel_turn(self) -> None:
+        """Cancel the exact active turn; the server remains the authority.
+
+        A silent no-op when nothing streams, so closing screens and help
+        navigation never produce noise.
+        """
+        pump = self.active_pump
+        if pump is None:
+            return
+        pump.request_cancel()
+        try:
+            await self.client.cancel_turn(pump.turn_id, pump.session_id)
+        except MnerysCliError as exc:
+            await self.conversation.mount(SystemNotice(
+                f"cancel request failed: {exc}", tone="error",
+            ))

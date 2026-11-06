@@ -70,10 +70,12 @@ uv tool install --force --with textual <mnerys_cli wheel URL>
 ```
 
 A base installation without the extra answers `mnerys tui` with the
-installation hint above and exit code 3. The current shell shows the real
-Gateway connection state (endpoint, version, discovery counts) with `q`
-quit, `?` help and `r` refresh; sessions, conversation streaming, tools and
-approvals arrive with the recorded M4 submilestones.
+installation hint above and exit code 3. The shell shows the real Gateway
+connection state (endpoint, version, discovery counts); the conversation
+screen loads the session's persisted history and streams turns, with `q`
+quit, `?` help, `r` refresh, `enter` send, `alt+enter` newline and
+`escape` cancelling the active turn. Sessions, tools and approvals arrive
+with the recorded M4 submilestones.
 
 ## Profiles and credentials
 

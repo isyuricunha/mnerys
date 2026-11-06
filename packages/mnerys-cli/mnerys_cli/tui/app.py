@@ -101,11 +101,16 @@ class HelpScreen(ModalScreen[None]):
         from textual.widgets import Label
 
         with Vertical(id="help-panel"):
-            yield Label("Mnerys keyboard shortcuts", id="help-title", markup=True)
+            yield Label(
+                "Mnerys keyboard shortcuts", classes="help-title", markup=True,
+            )
             for keys, description in (
-                ("q", "exit Mnerys"),
+                ("q / ctrl+q", "exit Mnerys (cancels an active turn first)"),
                 ("?", "show this help"),
                 ("r", "re-check the Gateway connection"),
+                ("enter", "send the composed message"),
+                ("alt+enter", "insert a newline in the composer"),
+                ("escape", "cancel the streaming turn"),
             ):
                 yield Label(
                     f"[class='help-keys']{keys}[/]  [class='help-line']{description}[/]",
@@ -113,7 +118,7 @@ class HelpScreen(ModalScreen[None]):
                 )
             yield Label(
                 "[class='help-line']More surfaces arrive with each M4 "
-                "submilestone: sessions, conversation, tools and approvals.[/]",
+                "submilestone: sessions, tools and approvals.[/]",
                 classes="help-line", markup=True,
             )
             yield Label(
@@ -185,8 +190,43 @@ class MnerysTui(App[None]):
             f"[b]Endpoint[/b] {self.endpoint}\n"
             f"[b]Version[/b] {self._version()}\n"
             f"[b]Models[/b] {len(models)} visible  "
-            f"[b]Agents[/b] {', '.join(str(a.get('id')) for a in agents) or 'none'}\n"
-            f"[b]Next[/b] sessions and conversation surfaces land with M4.3/M4.4",
+            f"[b]Agents[/b] {', '.join(str(a.get('id')) for a in agents) or 'none'}",
+        )
+        await self._open_conversation()
+
+    async def _open_conversation(self) -> None:
+        """Open the most recent session, or create one when none exists."""
+        from mnerys_cli.errors import MnerysCliError
+        from mnerys_cli.tui.chat import ChatScreen
+
+        if self.screen is not self.default_screen:
+            return  # a conversation screen already leads the stack
+        try:
+            sessions = await self.client.sessions()
+        except MnerysCliError as exc:
+            await self._notify(str(exc))
+            return
+        try:
+            if sessions:
+                session_id = str(sessions[0].get("id") or "")
+                name = str(sessions[0].get("name") or "")
+            else:
+                created = await self.client.create_session(name="TUI")
+                session_id = str(created.get("id") or "")
+                name = str(created.get("name") or "")
+        except MnerysCliError as exc:
+            await self._notify(f"could not open a session: {exc}")
+            return
+        if not session_id:
+            await self._notify("the Gateway returned no session id")
+            return
+        await self.push_screen(ChatScreen(self.client, session_id, session_name=name))
+
+    async def _notify(self, text: str) -> None:
+        from textual.widgets import Static
+
+        self.query_one("#dashboard-detail", Static).update(
+            f"[b]Connection problem[/b] {text}",
         )
 
     def _version(self) -> str:
@@ -194,6 +234,15 @@ class MnerysTui(App[None]):
             return distribution_version()
         except Exception:
             return "unavailable"
+
+    async def action_quit(self) -> None:
+        """Quit after asking the Gateway to cancel any active turn."""
+        from mnerys_cli.tui.chat import ChatScreen
+
+        for screen in self.screen_stack:
+            if isinstance(screen, ChatScreen):
+                await screen.action_cancel_turn()
+        self.exit()
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
