@@ -9,7 +9,7 @@ import json
 
 import httpx
 from textual.app import App
-from textual.widgets import Static
+from textual.widgets import Input, Static
 
 from mnerys_cli.async_client import AsyncGatewayClient
 from mnerys_cli.tui.chat import ChatScreen
@@ -148,6 +148,40 @@ async def test_session_names_with_control_characters_render_inert():
             for s in screen.query(Static)
         )
         assert "\x1b" not in after
+
+
+async def test_create_failure_with_control_characters_renders_inert_in_the_placeholder():
+    """A rejected create keeps its message visible but never raw controls."""
+
+    def handler(request):
+        path = request.url.path
+        if path == "/api/v1/sessions" and request.method == "POST":
+            return _ok({"detail": "bad\x1b]52;c;QUJDRA==\x1b\\name"}, 400)
+        if path == "/api/v1/sessions" and request.method == "GET":
+            return _ok({"sessions": [{"id": "s1", "name": "Alpha", "model": "m1", "mode": "chat"}]})
+        if path == "/api/v1/sessions/s1":
+            return _ok({
+                "session": {"id": "s1", "name": "Alpha", "model": "m1", "mode": "chat"},
+                "history": [], "total": 0, "offset": 0, "limit": 200,
+                "has_more_before": False, "has_more_after": False,
+            })
+        return _ok({}, 404)
+
+    client = AsyncGatewayClient(
+        "http://gateway.test", "tok", transport=httpx.MockTransport(handler),
+    )
+    app = _Harness(client)
+    async with app.run_test(size=(110, 36)) as pilot:
+        await _settle(pilot, "model m1")
+        await pilot.press("ctrl+s")
+        await _settle(pilot, "enter open")
+        await pilot.press("n")
+        await pilot.press("N", "a", "m", "e")
+        await pilot.press("enter")
+        await _settle(pilot, "create failed: bad")
+        input_box = app.screen.query_one("#new-session-input", Input)
+        assert "\x1b" not in input_box.placeholder
+        assert "badname" in input_box.placeholder
 
 
 async def test_open_switches_to_the_selected_session():

@@ -15,7 +15,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView
 
 from mnerys_cli.errors import MnerysCliError
-from mnerys_cli.tui.widgets import safe_markup
+from mnerys_cli.tui.widgets import safe_markup, strip_control
 
 logger = logging.getLogger("mnerys.tui.sessions")
 
@@ -132,7 +132,7 @@ class SessionsScreen(ModalScreen[str]):
         try:
             created = await self.client.create_session(name=name)
         except MnerysCliError as exc:
-            name_box.placeholder = f"create failed: {exc}"
+            name_box.placeholder = f"create failed: {strip_control(exc)}"
             return
         session_id = str(created.get("id") or "")
         if not session_id:
