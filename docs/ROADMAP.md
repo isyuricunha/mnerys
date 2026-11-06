@@ -43,8 +43,9 @@ The diagram is a **target architecture**, not a claim that all components are al
 | Private native development preview | Running | Versioned source, systemd and a stable private gateway, with deploy validation and rollback |
 | Persistence | Partially implemented | SQLite remains the installation default; PostgreSQL 17 is supported for the primary database and used by the maintainer preview; auxiliary stores remain separate |
 | Unified release versioning | Implemented | One version authority: semantic-release tags drive the CLI distribution at build time, and every release attaches a verified, version-matched CLI wheel and sdist |
-| Global `mnerys` executable | Planned | No public installation contract or packaged command yet |
-| Mnerys CLI and TUI | Planned | Command examples below are proposals, **not currently available** |
+| Global `mnerys` executable | Implemented | The `mnerys` CLI is packaged (`packages/mnerys-cli`) and every release publishes a verified, version-matched wheel and sdist; install from GitHub Release assets or the repository |
+| Mnerys CLI | Implemented | Real console-script package with profiles, remote Gateway turns, a local `serve` mode and explicit exit codes; see [cli.md](cli.md) |
+| Mnerys TUI | Planned | Next client adapter on the shared Gateway contracts |
 | Unified Gateway and permissioned agent core | Planned | Existing interfaces/runtime must be audited and adapted |
 
 See [native preview deployment](deployment/NATIVE_PREVIEW.md) and [PostgreSQL 17 compatibility](deployment/POSTGRESQL17.md) for verified infrastructure details and limitations.
@@ -155,8 +156,8 @@ application; an installed CLI completed authenticated, provider-backed
 turns (including PT-BR and Unicode), cancellation, persistence, turn
 records, ownership isolation and idempotency checks against that live
 Gateway. Public PyPI publication remains a separate future decision;
-until then the package installs from the repository or its built
-distributions.
+until then the package installs from the repository or the release assets
+published with every release.
 
 **Done when:** a fresh user-level install exposes `mnerys` on the PATH,
 supports a real authenticated remote chat/agent turn, and uninstalls
