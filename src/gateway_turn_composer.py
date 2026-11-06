@@ -146,6 +146,19 @@ class TrustedTextTurnSettings:
     # bounded cached subject/from/preview). Resolved by the adapter from its
     # authenticated email cache; never deserialized from untrusted fields.
     active_email: Mapping[str, Any] | None = None
+    # Server-selected request options mirrored from the ordinary Web turn:
+    # preset, thinking controls, sampling temperature, tool budget and
+    # plan/compare modifiers. The adapter owns parsing/normalization; these
+    # are never deserialized from raw request fields by the composer.
+    preset_id: str | None = None
+    thinking_mode: str | None = None
+    reasoning_effort: str | None = None
+    temperature: float | None = None
+    max_tool_calls: int | None = None
+    plan_mode: bool = False
+    approved_plan: str = ""
+    compare_mode: bool = False
+    search_context: str | None = None
     # A server-selected M2.1 profile may persist a single native manage_notes
     # turn through the inherited writers. Tool permissions and
     # approval consumption remain owned by the Agent Loop and dispatcher.
@@ -354,6 +367,52 @@ async def stream_composed_text_turn(
         ):
             raise AdmissionDenied(403, "Invalid trusted active email context")
         active_email = dict(settings.active_email)
+    if (
+        settings.preset_id is not None
+        and (
+            type(settings.preset_id) is not str
+            or not settings.preset_id.strip()
+            or len(settings.preset_id) > 256
+        )
+        or settings.thinking_mode not in (None, "on", "off")
+        or (
+            settings.reasoning_effort is not None
+            and (
+                type(settings.reasoning_effort) is not str
+                or not 1 <= len(settings.reasoning_effort) <= 32
+                or settings.reasoning_effort != settings.reasoning_effort.strip().lower()
+            )
+        )
+        or (
+            settings.temperature is not None
+            and (
+                type(settings.temperature) is not float
+                or not 0.0 <= settings.temperature <= 2.0
+            )
+        )
+        or (
+            settings.max_tool_calls is not None
+            and (
+                type(settings.max_tool_calls) is not int
+                or not 1 <= settings.max_tool_calls <= 64
+            )
+        )
+    ):
+        raise AdmissionDenied(403, "Invalid trusted request options")
+    if (
+        type(settings.plan_mode) is not bool
+        or type(settings.compare_mode) is not bool
+        or type(settings.approved_plan) is not str
+        or len(settings.approved_plan) > 8192
+        or settings.plan_mode and (settings.approved_plan or settings.interaction_mode != "agent")
+        or settings.compare_mode and settings.interaction_mode != "chat"
+        or (settings.search_context is not None and (
+            type(settings.search_context) is not str
+            or not settings.search_context.strip()
+            or len(settings.search_context) > 65536
+        ))
+    ):
+        raise AdmissionDenied(403, "Invalid trusted turn mode modifiers")
     native_tool_persistence = bool(
         persistence is not None and settings.persist_verified_native_tools
     )
@@ -487,8 +546,8 @@ async def stream_composed_text_turn(
         workspace_agent_intent=bool(workspace),
         use_turn_contract=tools_enabled,
         allow_browser_for_web_turn=False,
-        compare_mode=False,
-        plan_mode=False,
+        compare_mode=settings.compare_mode,
+        plan_mode=settings.plan_mode,
     )
     policy = final.policy
     capabilities = frozenset()
@@ -612,6 +671,7 @@ async def stream_composed_text_turn(
         session, owner, chat_handler, chat_processor,
         message=message,
         session_id=session_id,
+        preset_id=settings.preset_id,
         att_ids=list(attachment_ids),
         ports=ports,
         continuation_context_message=message if attachment_ids else None,
@@ -620,6 +680,8 @@ async def stream_composed_text_turn(
         use_rag=settings.enable_rag,
         no_memory=not settings.enable_memory,
         incognito=settings.incognito,
+        search_context=settings.search_context,
+        compare_mode=settings.compare_mode,
         agent_mode=settings.interaction_mode == "agent",
         allow_tool_preprocessing=settings.allow_tool_preprocessing,
         # Validate uploaded text *after* asynchronous preprocessing and
@@ -839,6 +901,15 @@ async def stream_composed_text_turn(
         uploaded_files=[],
         active_document=active_document,
         active_email=active_email,
+        thinking_mode=settings.thinking_mode,
+        reasoning_effort=settings.reasoning_effort,
+        temperature=(
+            settings.temperature if settings.temperature is not None else 1.0
+        ),
+        plan_mode=settings.plan_mode,
+        approved_plan=settings.approved_plan or None,
+        **({"max_tool_calls": settings.max_tool_calls}
+           if settings.max_tool_calls is not None else {}),
         approval_store=store,
         **fallback_options,
         **({

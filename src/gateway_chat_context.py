@@ -34,7 +34,7 @@ async def assemble_chat_context(
     time_filter=None,
     incognito: bool = False,
     no_memory: bool = False,
-    search_context: str = None,
+    search_context: str | None = None,
     compare_mode: bool = False,
     use_enhanced_message: bool = False,
     agent_mode: bool = False,

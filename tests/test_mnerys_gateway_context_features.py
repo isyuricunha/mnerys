@@ -240,3 +240,106 @@ async def test_without_active_email_the_loop_receives_none(monkeypatch):
         admission, session, **kwargs,
     ))
     assert options_received["active_email"] is None
+
+
+class PresetPorts(ProbingPorts):
+    def __init__(self):
+        super().__init__()
+        self.preset_ids = []
+
+    def extract_preset(self, _handler, preset_id):
+        self.preset_ids.append(preset_id)
+        from src.gateway_chat_context_types import PresetInfo
+        return PresetInfo(None, None, None, None)
+
+
+@pytest.mark.asyncio
+async def test_preset_id_reaches_the_shared_context(monkeypatch):
+    admission, session, _ports, kwargs = feature_fixture(preset_id="coder")
+    ports = PresetPorts()
+    kwargs["ports"] = ports
+    monkeypatch.setattr(turn_module, "stream_agent_loop", options_model)
+    await gather(GatewayTurns(TurnService()).stream_composed_text_turn(
+        admission, session, **kwargs,
+    ))
+    assert ports.preset_ids == ["coder"]
+
+
+@pytest.mark.asyncio
+async def test_request_options_reach_the_agent_loop(monkeypatch):
+    admission, session, _ports, kwargs = feature_fixture(
+        thinking_mode="on",
+        reasoning_effort="high",
+        temperature=0.3,
+        max_tool_calls=7,
+    )
+    monkeypatch.setattr(turn_module, "stream_agent_loop", options_model)
+    await gather(GatewayTurns(TurnService()).stream_composed_text_turn(
+        admission, session, **kwargs,
+    ))
+    assert options_received["thinking_mode"] == "on"
+    assert options_received["reasoning_effort"] == "high"
+    assert options_received["temperature"] == 0.3
+    assert options_received["max_tool_calls"] == 7
+
+
+@pytest.mark.asyncio
+async def test_composed_temperature_defaults_match_the_web_turn(monkeypatch):
+    admission, session, _ports, kwargs = feature_fixture()
+    monkeypatch.setattr(turn_module, "stream_agent_loop", options_model)
+    await gather(GatewayTurns(TurnService()).stream_composed_text_turn(
+        admission, session, **kwargs,
+    ))
+    assert options_received["temperature"] == 1.0
+    assert options_received["thinking_mode"] is None
+    assert options_received["approved_plan"] is None
+
+
+@pytest.mark.asyncio
+async def test_plan_mode_reaches_policy_and_loop(monkeypatch):
+    admission, session, _ports, kwargs = feature_fixture(
+        interaction_mode="agent",
+        offered_tools=frozenset({"manage_notes"}),
+        plan_mode=True,
+    )
+    monkeypatch.setattr(turn_module, "stream_agent_loop", options_model)
+    await gather(GatewayTurns(TurnService()).stream_composed_text_turn(
+        admission, session, **kwargs,
+    ))
+    assert options_received["plan_mode"] is True
+
+
+@pytest.mark.asyncio
+async def test_approved_plan_is_pinned_into_the_loop(monkeypatch):
+    admission, session, _ports, kwargs = feature_fixture(
+        interaction_mode="agent",
+        offered_tools=frozenset({"manage_notes"}),
+        approved_plan="1. do this",
+    )
+    monkeypatch.setattr(turn_module, "stream_agent_loop", options_model)
+    await gather(GatewayTurns(TurnService()).stream_composed_text_turn(
+        admission, session, **kwargs,
+    ))
+    assert options_received["approved_plan"] == "1. do this"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_settings,match", [
+    ({"thinking_mode": "maybe"}, "request options"),
+    ({"reasoning_effort": "High"}, "request options"),
+    ({"temperature": 3.0}, "request options"),
+    ({"max_tool_calls": 0}, "request options"),
+    ({"preset_id": ""}, "request options"),
+    ({"plan_mode": True, "interaction_mode": "chat"}, "mode modifiers"),
+    ({"plan_mode": True, "interaction_mode": "agent", "approved_plan": "x"}, "mode modifiers"),
+    ({"approved_plan": "x" * 9000}, "mode modifiers"),
+    ({"compare_mode": True, "interaction_mode": "agent"}, "mode modifiers"),
+    ({"search_context": "x" * 70000}, "mode modifiers"),
+])
+async def test_invalid_request_options_are_rejected(monkeypatch, bad_settings, match):
+    admission, session, _ports, kwargs = feature_fixture(**bad_settings)
+    monkeypatch.setattr(turn_module, "stream_agent_loop", options_model)
+    with pytest.raises(AdmissionDenied, match=match):
+        [chunk async for chunk in GatewayTurns(TurnService()).stream_composed_text_turn(
+            admission, session, **kwargs,
+        )]
