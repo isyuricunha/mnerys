@@ -6134,7 +6134,7 @@ def setup_email_routes():
                         sent_folder = _detect_sent_folder(imap)
                         sent_uid = None
                         sent_append_ok = False
-                        append_st, append_data = imap.append(sent_folder, "\\Seen", None, outer_bytes)
+                        append_st, append_data = imap.append(_q(sent_folder), "\\Seen", None, outer_bytes)
                         sent_append_ok = append_st == "OK"
                         if append_st == "OK" and append_data:
                             m = re.search(rb"APPENDUID\s+\d+\s+(\d+)", append_data[0] or b"")
@@ -6279,7 +6279,7 @@ def setup_email_routes():
             try:
                 with _imap(_draft_acct, owner=owner) as imap:
                     drafts_folder = _detect_drafts_folder(imap)
-                    append_st, append_data = imap.append(drafts_folder, "\\Draft", None, msg.as_bytes())
+                    append_st, append_data = imap.append(_q(drafts_folder), "\\Draft", None, msg.as_bytes())
                     if append_st != "OK":
                         return (f"IMAP APPEND failed: {append_st}", None, None)
                     draft_uid = None
