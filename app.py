@@ -424,15 +424,15 @@ if AUTH_ENABLED:
                 if len(raw_token) < 12 or len(raw_token) > 100:
                     return JSONResponse(status_code=401, content={"error": "Invalid API token"})
                 prefix = raw_token[:8]
+                matched_id = None
+                matched_owner = None
+                matched_scopes = []
                 try:
                     if app.state._token_cache_dirty:
                         async with _token_cache_lock:
                             if app.state._token_cache_dirty:
                                 await _asyncio.to_thread(_refresh_token_cache)
                     candidates = list(_token_cache.get(prefix, ()))
-                    matched_id = None
-                    matched_owner = None
-                    matched_scopes = []
                     for tid, thash, owner, scopes in candidates:
                         if _bcrypt.checkpw(raw_token.encode(), thash.encode()):
                             matched_id = tid
@@ -458,17 +458,20 @@ if AUTH_ENABLED:
                             except Exception as _e:
                                 logger.debug("Failed to update token last_used_at", exc_info=_e)
                         _asyncio.create_task(_touch_last_used(matched_id))
-                        # Keep bearer-token callers out of normal cookie/user
-                        request.state.current_user = "api"
-                        request.state.api_token = True
-                        request.state.api_token_id = matched_id
-                        request.state.api_token_owner = matched_owner
-                        request.state.api_token_scopes = matched_scopes
-                        return await call_next(request)
                 except Exception:
                     logger.warning("API token auth error", exc_info=True)
-                # Invalid bearer token — reject immediately
-                return JSONResponse(status_code=401, content={"error": "Invalid API token"})
+                if matched_id is None:
+                    # Invalid bearer token — reject immediately
+                    return JSONResponse(status_code=401, content={"error": "Invalid API token"})
+                # Keep bearer-token callers out of normal cookie/user flows,
+                # then dispatch. Application errors below this line propagate
+                # as real 500s instead of being masked as auth failures.
+                request.state.current_user = "api"
+                request.state.api_token = True
+                request.state.api_token_id = matched_id
+                request.state.api_token_owner = matched_owner
+                request.state.api_token_scopes = matched_scopes
+                return await call_next(request)
 
             # --- Cookie-based session auth ---
             token = request.cookies.get(SESSION_COOKIE)

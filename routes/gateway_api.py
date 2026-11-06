@@ -135,11 +135,18 @@ async def create_turn(body: TurnCreateBody, request: Request) -> dict:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     try:
+        from routes.chat_helpers import LegacyChatContextPorts
+
+        ports = getattr(request.app.state, "chat_context_ports", None)
+        if ports is None:
+            ports = LegacyChatContextPorts()
+        if not callable(getattr(ports, "extract_preset", None)):
+            ports = LegacyChatContextPorts()
         delivered = gateway.open_composed_text_events(
             admission, session,
             context_owner=admission.principal.owner_id,
             request=TextTurnRequest(body.message),
-            ports=request.app.state.chat_context_ports,
+            ports=ports,
             chat_handler=request.app.state.chat_handler,
             chat_processor=request.app.state.chat_processor,
             settings=TrustedTextTurnSettings(interaction_mode=body.mode),
