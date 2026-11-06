@@ -5,7 +5,7 @@ agent loop, and it never renders decisions for approvals.
 """
 
 import json
-from typing import Any
+from typing import Any, Self
 
 import httpx
 
@@ -134,7 +134,7 @@ class GatewayClient:
     def close(self) -> None:
         self._client.close()
 
-    def __enter__(self) -> "GatewayClient":
+    def __enter__(self) -> Self:
         """Context-manager support: ``with GatewayClient(...) as client``."""
         return self
 

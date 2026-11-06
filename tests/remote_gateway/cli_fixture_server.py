@@ -6,7 +6,6 @@ the real detached run manager without a provider or a database. Binds
 loopback only; total test surface.
 """
 
-import asyncio
 from types import SimpleNamespace
 
 from fastapi import FastAPI

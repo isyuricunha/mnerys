@@ -15,14 +15,19 @@ from mnerys_cli import __version__
 from mnerys_cli.client import GatewayClient
 from mnerys_cli.config import (
     ConfigError as ProfileConfigError,
+)
+from mnerys_cli.config import (
     load_profiles,
     resolve_endpoint,
     save_profile,
 )
 from mnerys_cli.errors import (
-    AuthError, Cancelled, ConfigError, MnerysCliError, UsageError,
+    AuthError,
+    Cancelled,
+    ConfigError,
+    MnerysCliError,
+    UsageError,
 )
-
 
 # ---------------------------------------------------------------------------
 # connect
@@ -72,7 +77,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         endpoint, token = resolve_endpoint(profiles, args.profile)
         print(f"endpoint: {endpoint}")
         client = GatewayClient(endpoint, token)
-        status, body = client.health()
+        status, _body = client.health()
         print(f"health: HTTP {status}")
         if status != 200:
             problems.append(f"endpoint health returned HTTP {status}")

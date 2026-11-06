@@ -6,13 +6,13 @@ HTTP: chat streaming, discovery, doctor, auth failure and cancellation.
 """
 
 import os
-from pathlib import Path
 import shutil
 import signal
 import socket
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
 

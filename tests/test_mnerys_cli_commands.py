@@ -9,7 +9,6 @@ import json
 
 import httpx
 import pytest
-
 from mnerys_cli import commands
 from mnerys_cli.client import GatewayClient
 from mnerys_cli.config import load_profiles, profile_paths, save_profile

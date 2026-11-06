@@ -6,12 +6,11 @@ entry point. Nothing here touches the preview or any real server.
 """
 
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
-import sysconfig
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -45,7 +44,6 @@ def built_distributions(tmp_path_factory):
 
 
 def _fresh_venv(root: Path) -> Path:
-    python = sys.executable
     venv = root / f"venv-{uuid.uuid4().hex[:8]}"
     _run([sys.executable, "-m", "venv", str(venv)], root)
     bin_dir = venv / ("Scripts" if os.name == "nt" else "bin")

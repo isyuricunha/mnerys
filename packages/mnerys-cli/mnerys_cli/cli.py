@@ -43,7 +43,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--token-stdin", action="store_true",
         help="read the API token from stdin (avoid shell history)",
     )
-    connect.set_defaults(handler=lambda args: commands.cmd_connect(args))
 
     chat = subparsers.add_parser(
         "chat", help="run a non-interactive chat/agent turn",
@@ -57,7 +56,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     chat.add_argument("--idempotency-key", default=None)
     chat.add_argument("--json", action="store_true", help="structured output")
-    chat.set_defaults(handler=lambda args: commands.cmd_chat(args))
 
     agents = _common_parser(
         subparsers, "agents", "list authorized agents",
@@ -65,7 +63,6 @@ def build_parser() -> argparse.ArgumentParser:
     agents.add_argument("action", nargs="?", choices=("list",),
                         help=argparse.SUPPRESS)
     agents.add_argument("--json", action="store_true")
-    agents.set_defaults(handler=lambda args: commands._discover(args, "agents"))
 
     models = _common_parser(
         subparsers, "models", "list available models",
@@ -73,7 +70,6 @@ def build_parser() -> argparse.ArgumentParser:
     models.add_argument("action", nargs="?", choices=("list",),
                         help=argparse.SUPPRESS)
     models.add_argument("--json", action="store_true")
-    models.set_defaults(handler=lambda args: commands._discover(args, "models"))
 
     tools = _common_parser(
         subparsers, "tools", "list discoverable tools",
@@ -81,12 +77,10 @@ def build_parser() -> argparse.ArgumentParser:
     tools.add_argument("action", nargs="?", choices=("list",),
                        help=argparse.SUPPRESS)
     tools.add_argument("--json", action="store_true")
-    tools.set_defaults(handler=lambda args: commands._discover(args, "tools"))
 
-    doctor = _common_parser(
+    _doctor = _common_parser(
         subparsers, "doctor", "diagnose installation, configuration, Gateway",
     )
-    doctor.set_defaults(handler=lambda args: commands.cmd_doctor(args))
 
     serve = _common_parser(
         subparsers, "serve", "run a configured local server (local runtime required)",
@@ -94,7 +88,6 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=7021)
     serve.add_argument("--debug", action="store_true")
-    serve.set_defaults(handler=lambda args: commands.cmd_serve(args))
 
     return parser
 
@@ -102,8 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    handler = getattr(args, "handler", None)
-    if handler is None:
+    if args.command is None:
         parser.print_help()
         return 0
     # Commands import the network client lazily so --version/--help work
