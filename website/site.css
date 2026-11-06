@@ -190,6 +190,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--teal);outline-offse
 .milestone p{margin:0;max-width:680px;font-size:13px;color:var(--muted);line-height:1.75}
 .milestone-state{font:680 11px ui-monospace,monospace;justify-self:end;white-space:nowrap;padding:6px 11px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
 .milestone-state.done{border-color:rgba(70,194,179,.33);color:var(--teal-bright);background:rgba(70,194,179,.08)}
+.milestone-state.active{border-color:rgba(135,226,216,.45);color:var(--teal);background:rgba(70,194,179,.14);box-shadow:inset 0 0 0 1px rgba(70,194,179,.12)}
 
 /* Final CTA and footer */
 .section-cta{background:#17191c;padding:97px 0 110px}
