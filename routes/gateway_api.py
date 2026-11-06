@@ -66,11 +66,18 @@ def _admit(request: Request, session_id: str) -> tuple[Any, Any]:
     manager = _session_manager(request)
     if manager is None:
         raise HTTPException(status_code=503, detail="Session manager unavailable")
-    session = manager.sessions.get(session_id) if hasattr(
-        manager, "sessions",
-    ) else None
-    if session is None or getattr(session, "owner", None) != owner:
-        raise HTTPException(status_code=404, detail="Session not found")
+    getter = getattr(manager, "get_session", None)
+    if callable(getter):
+        try:
+            session = getter(session_id)
+        except KeyError:
+            session = None
+        if session is None or getattr(session, "owner", None) != owner:
+            raise HTTPException(status_code=404, detail="Session not found")
+    else:
+        session = manager.sessions.get(session_id)
+        if session is None or getattr(session, "owner", None) != owner:
+            raise HTTPException(status_code=404, detail="Session not found")
     admission = GatewayAdmission().admit(
         principal_for_chat_request(request), session_id,
         lambda _: SessionOwnership(owner_id=owner),
