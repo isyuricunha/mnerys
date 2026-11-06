@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#17191C">
-  <meta name="description" content="Mnerys is an open-source, self-hosted AI workspace built to adapt to you. Explore the existing Web foundation and the future Agent Core, Gateway, CLI, and TUI.">
+  <meta name="description" content="Mnerys is an open-source, self-hosted AI platform built to adapt to you. Shared Python Agent Core and authenticated Gateway, with the Web, CLI, TUI, and Telegram as client adapters.">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Mnerys — Built to be yours.">
   <meta property="og:description" content="Your AI workspace. Your models, tools, and workflows. Self-hosted and shaped around you.">
@@ -48,12 +48,12 @@
           <div class="eyebrow"><span class="signal-dot" aria-hidden="true"></span> Open source <span class="eyebrow-sep">/</span> Self-hosted <span class="eyebrow-sep">/</span> Your way</div>
           <h1 id="hero-title">Your AI workspace.<br><span class="accent-text">Built to be yours.</span></h1>
           <p class="hero-lead">A place for your conversations, models, tools, and knowledge—designed around one simple idea: <strong>software should adapt to you.</strong></p>
-          <p class="hero-detail">Mnerys is growing from a working Web foundation into an independent, modular AI platform. Own your setup today; follow the architecture as it takes shape.</p>
+          <p class="hero-detail">Mnerys is an independent, modular AI platform: a shared Python <strong>Agent Core</strong> and one authenticated <strong>Gateway</strong> now power the Web workspace, with durable sessions, events, and approvals. The CLI and TUI are the next milestones.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="#platform">Explore the platform <span aria-hidden="true">↗</span></a>
             <a class="button button-ghost" href="https://github.com/isyuricunha/mnerys" target="_blank" rel="noopener noreferrer">View the source <span aria-hidden="true">↗</span></a>
           </div>
-          <p class="hero-footnote"><span class="footnote-mark" aria-hidden="true">✳</span> Early development · Web workspace available as an inherited foundation</p>
+          <p class="hero-footnote"><span class="footnote-mark" aria-hidden="true">✳</span> M2 complete · Web turns run on the shared Agent Core/Gateway · CLI and TUI planned</p>
         </div>
         <div class="hero-visual" aria-label="Architecture illustration, not an application screenshot">
           <div class="orbit orbit-one" aria-hidden="true"></div>
@@ -66,8 +66,8 @@
           </div>
           <div class="visual-connection" aria-hidden="true"><span></span><span></span><span></span></div>
           <div class="module-row">
-            <div class="module"><span class="module-icon">◎</span><strong>Workspace</strong><small>Web foundation</small><span class="module-status current">Available</span></div>
-            <div class="module"><span class="module-icon">◇</span><strong>Gateway</strong><small>Shared authority</small><span class="module-status planned">Planned</span></div>
+            <div class="module"><span class="module-icon">◎</span><strong>Agent Core</strong><small>Shared Python runtime</small><span class="module-status current">Implemented</span></div>
+            <div class="module"><span class="module-icon">◇</span><strong>Gateway</strong><small>One authenticated control plane</small><span class="module-status current">Implemented</span></div>
             <div class="module"><span class="module-icon">⌘</span><strong>Clients</strong><small>CLI + TUI</small><span class="module-status planned">Planned</span></div>
           </div>
           <div class="visual-footer"><span class="visual-pulse" aria-hidden="true"></span> Designed to grow with you <span class="visual-footer-end">01 / ∞</span></div>
@@ -85,17 +85,17 @@
       <div class="shell">
         <div class="section-heading">
           <div><p class="kicker">01 / THE WORKSPACE</p><h2 id="platform-title">Everything starts with <em>your space.</em></h2></div>
-          <p>Mnerys already has an inherited workspace foundation. These are the capabilities we are refining, separating, and making our own.</p>
+          <p>The inherited workspace foundation is now owned by an independent Agent Core and Gateway. Web turns already run through the shared composition.</p>
         </div>
         <div class="feature-grid">
-          <article class="feature-card"><span class="feature-icon" aria-hidden="true">◈</span><h3>Chat and agents</h3><p>Conversations, model selection, agent execution, and tool-assisted tasks in the existing Web workspace.</p><span class="feature-label">Inherited foundation</span></article>
-          <article class="feature-card"><span class="feature-icon" aria-hidden="true">⌁</span><h3>Tools and MCP</h3><p>Built-in tools and optional MCP integrations, with server-side authorization and approval controls.</p><span class="feature-label">Inherited foundation</span></article>
-          <article class="feature-card"><span class="feature-icon" aria-hidden="true">▤</span><h3>Knowledge and notes</h3><p>Documents, research, notes, and memory features that bring more of your work into one place.</p><span class="feature-label">Inherited foundation</span></article>
-          <article class="feature-card"><span class="feature-icon" aria-hidden="true">⟳</span><h3>Tasks and workflows</h3><p>Scheduled jobs and automation capabilities that will eventually share the same agent authority.</p><span class="feature-label">Evolving foundation</span></article>
-          <article class="feature-card"><span class="feature-icon" aria-hidden="true">◇</span><h3>Your choice of models</h3><p>Connect configured local or remote model providers without tying your workspace to one model family.</p><span class="feature-label">Inherited foundation</span></article>
-          <article class="feature-card"><span class="feature-icon" aria-hidden="true">▦</span><h3>Make it yours</h3><p>Themes, modular integrations, and settings are the foundation for a more personal AI experience.</p><span class="feature-label">Evolving foundation</span></article>
+          <article class="feature-card"><span class="feature-icon" aria-hidden="true">◈</span><h3>Chat and agents</h3><p>Conversations, model selection, agent execution, and tool-assisted tasks, composed by the shared Agent Core.</p><span class="feature-label">Active Web path</span></article>
+          <article class="feature-card"><span class="feature-icon" aria-hidden="true">⌁</span><h3>Tools and MCP</h3><p>Built-in tools and optional MCP integrations, with server-side authorization, policies, and sealed approvals.</p><span class="feature-label">Implemented</span></article>
+          <article class="feature-card"><span class="feature-icon" aria-hidden="true">▤</span><h3>Knowledge and notes</h3><p>Documents, research, notes, and memory features that bring more of your work into one place.</p><span class="feature-label">Implemented</span></article>
+          <article class="feature-card"><span class="feature-icon" aria-hidden="true">⟳</span><h3>Tasks and workflows</h3><p>Scheduled jobs and automations that share the same agent authority, with fenced session delivery.</p><span class="feature-label">Implemented</span></article>
+          <article class="feature-card"><span class="feature-icon" aria-hidden="true">◇</span><h3>Your choice of models</h3><p>Connect configured local or remote model providers, with authorized fallback, without tying your workspace to one model family.</p><span class="feature-label">Implemented</span></article>
+          <article class="feature-card"><span class="feature-icon" aria-hidden="true">▦</span><h3>Make it yours</h3><p>Themes, modular integrations, and settings are the foundation for a more personal AI experience.</p><span class="feature-label">Implemented</span></article>
         </div>
-        <p class="section-note"><span aria-hidden="true">ⓘ</span> Features shown here originate from the imported application. Independent Gateway, Agent Core, CLI, and TUI are not shipped yet.</p>
+        <p class="section-note"><span aria-hidden="true">ⓘ</span> The Agent Core and Gateway are implemented and tested at the source level and verified in the private preview. The CLI, TUI, Telegram, and other client adapters remain planned.</p>
       </div>
     </section>
 
@@ -130,18 +130,18 @@
       <div class="shell">
         <div class="section-heading">
           <div><p class="kicker">03 / WHERE WE'RE HEADED</p><h2 id="architecture-title">One core.<br><em>Every way you work.</em></h2></div>
-          <p>We are building a unified platform, not three disconnected agents. The Gateway will own access, sessions, events, and permissions across every client.</p>
+          <p>A unified platform, not three disconnected agents. The Gateway owns access, sessions, events, and permissions across every client; the Web adapter already runs on it.</p>
         </div>
-        <div class="architecture-diagram" role="img" aria-label="Target architecture: Web, CLI, and TUI connect to one Gateway, which connects to a shared Python Agent Core and pluggable models and persistence. This architecture is planned, not fully implemented.">
-          <div class="architecture-clients"><span>WEB <small>existing foundation</small></span><span>CLI <small>planned</small></span><span>TUI <small>planned</small></span></div>
+        <div class="architecture-diagram" role="img" aria-label="Target architecture: Web, CLI, and TUI connect to one Gateway, which connects to a shared Python Agent Core and pluggable models and persistence. The Gateway and Agent Core are implemented and the Web adapter is active; CLI and TUI are planned.">
+          <div class="architecture-clients"><span>WEB <small>active adapter</small></span><span>CLI <small>planned</small></span><span>TUI <small>planned</small></span></div>
           <div class="architecture-line" aria-hidden="true"></div>
-          <div class="architecture-node gateway-node"><span class="node-tag">CENTRAL AUTHORITY / PLANNED</span><strong>Mnerys Gateway</strong><p>Auth · sessions · events · permissions</p></div>
+          <div class="architecture-node gateway-node"><span class="node-tag">CENTRAL AUTHORITY / IMPLEMENTED</span><strong>Mnerys Gateway</strong><p>Auth · sessions · events · permissions · approvals</p></div>
           <div class="architecture-line" aria-hidden="true"></div>
-          <div class="architecture-node core-node"><span class="node-tag">SHARED RUNTIME / PLANNED</span><strong>Python Agent Core</strong><p>Models · tools · MCP · skills · memory</p></div>
+          <div class="architecture-node core-node"><span class="node-tag">SHARED RUNTIME / IMPLEMENTED</span><strong>Python Agent Core</strong><p>Models · tools · MCP · skills · memory</p></div>
           <div class="architecture-line" aria-hidden="true"></div>
           <div class="architecture-clients architecture-bottom"><span>MODELS <small>local + remote</small></span><span>DATA <small>SQLite + PG17</small></span><span>TOOLS <small>authorized</small></span></div>
         </div>
-        <div class="architecture-foot"><span>Architecture target, not a diagram of deployed services.</span><a href="https://github.com/isyuricunha/mnerys/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener noreferrer">Read the architecture roadmap <span aria-hidden="true">↗</span></a></div>
+        <div class="architecture-foot"><span>Services implemented and verified in the private preview; client adapters beyond Web are planned.</span><a href="https://github.com/isyuricunha/mnerys/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener noreferrer">Read the architecture roadmap <span aria-hidden="true">↗</span></a></div>
       </div>
     </section>
 
@@ -149,12 +149,14 @@
       <div class="shell">
         <div class="section-heading">
           <div><p class="kicker">04 / THE JOURNEY</p><h2 id="roadmap-title">Building in the open.<br><em>One milestone at a time.</em></h2></div>
-          <p>An honest view of where Mnerys stands today. The foundation exists; the independent runtime and clients are still being built.</p>
+          <p>An honest view of where Mnerys stands today. M1 and M2 are complete; the CLI, TUI, and Telegram clients are the next planned milestones.</p>
         </div>
         <div class="milestone-list">
-          <article class="milestone"><span class="milestone-id">M1</span><div><h3>Audit and shared contract</h3><p>Map the inherited runtime, define ownership and authorization boundaries, and plan the future Gateway.</p></div><span class="milestone-state done">Design complete</span></article>
-          <article class="milestone"><span class="milestone-id">M2</span><div><h3>Agent Core and Gateway</h3><p>Internal composition now connects server-offered native tools, sealed native approvals (including session-bound workspaces, version-checked active documents and exact filesystem resources), opt-in owner-scoped model fallback with typed route observations, read-only text attachments, <a href="https://github.com/isyuricunha/mnerys/blob/main/docs/architecture/M2_1_TYPED_TURN_EVENTS.md" target="_blank" rel="noopener noreferrer">filtered events</a>, and opt-in text plus server-only native-note persistence through existing writers (<a href="https://github.com/isyuricunha/mnerys/blob/main/docs/architecture/M2_1_EXIT_GATE.md" target="_blank" rel="noopener noreferrer">M2.1 scope</a>; no HTTP tool cutover), process-local exact-run typed replay/stop using the Web run manager, a server-and-client-opted-in strict-text HTTP Web/Gateway path with verified small UTF-8 attachments, owner-scoped model fallback and admitted post-response dispatch (disabled by default), plus a bounded native-tool timeline preview with exact owner-checked sealed review cards and disposable SQLite/PostgreSQL 17 integration checks. Atomic turn storage, durable replay, full composition, and real transport acceptance remain open.</p></div><span class="milestone-state upcoming">In progress</span></article>
-          <article class="milestone"><span class="milestone-id">M3–M4</span><div><h3>Global CLI and first-party TUI</h3><p>Bring the same authorized sessions and tools into terminals without duplicating the agent runtime.</p></div><span class="milestone-state upcoming">Planned</span></article>
+          <article class="milestone"><span class="milestone-id">M1</span><div><h3>Audit and shared contract</h3><p>Map the inherited runtime, define ownership and authorization boundaries, and establish the shared contracts.</p></div><span class="milestone-state done">Complete</span></article>
+          <article class="milestone"><span class="milestone-id">M2</span><div><h3>Agent Core and Gateway</h3><p>One owner-admitted turn composition and a single authenticated control plane: the Web path runs through the shared Core, with durable <a href="https://github.com/isyuricunha/mnerys/blob/main/docs/architecture/M2_3_DURABLE_TURNS.md" target="_blank" rel="noopener noreferrer">session/turn/event/approval records</a>, revision-fenced session writers, a versioned <a href="https://github.com/isyuricunha/mnerys/blob/main/docs/architecture/M2_5_ACCEPTANCE.md" target="_blank" rel="noopener noreferrer">Gateway API v1</a>, SQLite and PostgreSQL 17 support, and a verified rollout in the private preview (Web cutover active).</p></div><span class="milestone-state done">Complete</span></article>
+          <article class="milestone"><span class="milestone-id">M3</span><div><h3>Global CLI</h3><p>Package an authenticated global <code>mnerys</code> command for local and remote operation.</p></div><span class="milestone-state upcoming">Planned</span></article>
+          <article class="milestone"><span class="milestone-id">M4</span><div><h3>First-party TUI</h3><p>An interactive terminal client with the same Gateway-authorized sessions and tools.</p></div><span class="milestone-state upcoming">Planned</span></article>
+          <article class="milestone"><span class="milestone-id">M5+</span><div><h3>More clients</h3><p>Telegram and other adapters, each reusing the same Gateway permissions without a parallel runtime.</p></div><span class="milestone-state upcoming">Planned</span></article>
         </div>
       </div>
     </section>
@@ -165,7 +167,7 @@
           <span class="cta-symbol" aria-hidden="true">✳</span>
           <p class="kicker">YOUR WORKSPACE. YOUR RULES.</p>
           <h2 id="cta-title">This is just the beginning.</h2>
-          <p>Follow Mnerys as it grows from a self-hosted Web foundation into an open, personal AI platform. Explore the source, read the plans, and help shape what's next.</p>
+          <p>Mnerys keeps growing in the open: the shared Agent Core and Gateway are implemented, tested, and verified in the private preview. Follow the source and the roadmap, and help shape what comes next.</p>
           <div class="hero-actions cta-actions"><a class="button button-primary" href="https://github.com/isyuricunha/mnerys" target="_blank" rel="noopener noreferrer">Explore on GitHub <span aria-hidden="true">↗</span></a><a class="button button-ghost" href="https://github.com/isyuricunha/mnerys/releases" target="_blank" rel="noopener noreferrer">Releases <span aria-hidden="true">↗</span></a></div>
         </div>
       </div>
