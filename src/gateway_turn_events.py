@@ -108,6 +108,30 @@ _WEB_SOURCE_MAX_ITEMS = 50
 _WEB_SOURCE_MAX_CHARS = 4096
 _URL_PATTERN = re.compile(r"https?://[^\s\"'<>]{1,2048}")
 
+# Frame families a trusted client adapter may pass through unchanged after
+# JSON parsing. They are the browser's existing UI vocabulary; admission,
+# approval and persistence authority never come from any of them.
+_CLIENT_FRAME_KINDS = frozenset({
+    "tool_start", "tool_progress", "tool_output", "ask_user",
+    "plan_update", "doc_stream_open", "doc_stream_delta", "doc_update",
+    "doc_suggestions", "editor_progress", "ui_control", "email_open",
+    "research_progress", "model_request_snapshot", "model_tool_proposal",
+    "tool_routing_audit", "tool_resolution_audit", "turn_contract",
+    "chat_terminal", "metrics", "stable", "complete",
+})
+
+
+def _safe_turn_control(kind: str, data: dict[str, Any]) -> dict[str, Any]:
+    """Keep only bounded, browser-consumed turn-control fields."""
+    control: dict[str, Any] = {"reason": kind}
+    for key in ("round", "used", "limit", "attempt"):
+        if type(data.get(key)) is int and 0 <= data[key] <= 1000000:
+            control[key] = data[key]
+    message = data.get("message")
+    if type(message) is str and message and len(message) <= 200:
+        control["message"] = message
+    return control
+
 
 def _safe_web_sources(payload: Any) -> list[dict[str, str]] | None:
     """Filter a provider-derived web source list to bounded public metadata."""
@@ -135,6 +159,8 @@ def _safe_web_sources(payload: Any) -> list[dict[str, str]] | None:
 async def translate_legacy_turn_events(
     frames: AsyncIterator[str | CoreNativeEvent],
     outcome: TurnOutcome,
+    *,
+    client_rendering: bool = False,
 ) -> AsyncIterator[TurnEvent]:
     """Translate safe legacy SSE signals and terminate a process-local turn.
 
@@ -151,6 +177,8 @@ async def translate_legacy_turn_events(
         raise TypeError("A server-created turn outcome is required")
     if outcome.state != "pending":
         raise ValueError("Turn outcomes cannot be reused")
+    if type(client_rendering) is not bool:
+        raise ValueError("Invalid trusted client rendering flag")
 
     outcome.state = "running"
     buffer = ""
@@ -342,6 +370,12 @@ async def translate_legacy_turn_events(
                     if not isinstance(data, dict):
                         continue
                     kind = data.get("type")
+                    if client_rendering and kind in _CLIENT_FRAME_KINDS:
+                        # The trusted client adapter owns this family's exact
+                        # browser rendering; the frame is already parsed JSON
+                        # inside the safety-limited legacy envelope.
+                        yield event("client.frame", data)
+                        continue
                     if kind == "agent_terminal":
                         metadata = data.get("data")
                         status = _safe_status(metadata)
@@ -363,9 +397,9 @@ async def translate_legacy_turn_events(
                         "rounds_exhausted", "budget_exceeded",
                         "loop_breaker_triggered", "intent_nudge_exhausted",
                     ):
-                        # Turn-control annotations carry no model content;
-                        # the browser only needs the reason.
-                        yield event("turn.control", {"reason": kind})
+                        # Turn-control annotations keep only the bounded
+                        # browser-consumed fields, never raw diagnostics.
+                        yield event("turn.control", _safe_turn_control(kind, data))
                     elif kind == "web_sources":
                         sources = _safe_web_sources(data.get("data"))
                         if sources is not None:

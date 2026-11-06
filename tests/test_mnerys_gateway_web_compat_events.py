@@ -301,6 +301,37 @@ async def test_bad_display_families_fail_closed(bad):
 
 
 @pytest.mark.asyncio
+async def test_client_frames_pass_through_with_their_browser_payload():
+    output = await frames(source(
+        TurnEvent(1, "client.frame", {
+            "type": "tool_start", "tool": "bash", "command": "ls -la",
+        }),
+        TurnEvent(2, "client.frame", {
+            "type": "ask_user", "request_id": "r1", "input": {"q": "Go?"},
+        }),
+        TurnEvent(3, "turn.completed", {}),
+    ), require_saved_receipt=False)
+    assert decoded(output[0]) == {
+        "type": "tool_start", "tool": "bash", "command": "ls -la",
+    }
+    assert decoded(output[1]) == {
+        "type": "ask_user", "request_id": "r1", "input": {"q": "Go?"},
+    }
+    assert output[-1] == "data: [DONE]\n\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", [
+    TurnEvent(1, "client.frame", {"type": "model_actual", "headers": {}}),
+    TurnEvent(1, "client.frame", {"tool": "bash"}),
+    TurnEvent(1, "client.frame", "not-a-dict"),
+])
+async def test_unapproved_client_frames_fail_closed(bad):
+    with pytest.raises(ValueError):
+        await frames(source(bad), require_saved_receipt=False)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("events,match", [
     (
         [TurnEvent(1, "message.delta", {"text": "Draft"}),

@@ -154,7 +154,9 @@ async def test_hidden_reasoning_is_a_display_only_typed_channel(hidden):
     ('{"type":"rounds_exhausted"}', ("turn.control", {"reason": "rounds_exhausted"})),
     ('{"type":"budget_exceeded"}', ("turn.control", {"reason": "budget_exceeded"})),
     ('{"type":"loop_breaker_triggered","reason":"artifact_recovery_unoffered_tool","round":3,"attempt":2}',
-     ("turn.control", {"reason": "loop_breaker_triggered"})),
+     ("turn.control", {
+         "reason": "loop_breaker_triggered", "round": 3, "attempt": 2,
+     })),
     ('{"type":"intent_nudge_exhausted"}', ("turn.control", {"reason": "intent_nudge_exhausted"})),
 ])
 async def test_lifecycle_frames_become_bounded_typed_events(frame, expected):
@@ -209,6 +211,51 @@ async def test_safe_web_source_list_is_typed_with_bounded_metadata():
         {"url": "https://example.com/a", "title": "A", "snippet": "s"},
         {"url": "https://example.com/b", "title": "B"},
     ]}
+
+
+@pytest.mark.asyncio
+async def test_client_rendering_passes_browser_frame_families_through():
+    async def raw_source():
+        for chunk in [
+            'data: {"type":"tool_start","tool":"bash","command":"secret-command"}\n\n',
+            'data: {"type":"tool_output","tool":"bash","round":1,"exit_code":0,"output":"out"}\n\n',
+            'data: {"type":"ask_user","request_id":"r1","input":{"q":"Proceed?"}}\n\n',
+            'data: {"type":"metrics","data":{"elapsed":1.5,"input_tokens":10}}\n\n',
+            'data: {"delta":"Answer"}\n\n',
+            "data: [DONE]\n\n",
+        ]:
+            yield chunk
+
+    result = []
+    async for item in translate_legacy_turn_events(
+        raw_source(), TurnOutcome(), client_rendering=True,
+    ):
+        result.append(item)
+    assert [item.type for item in result] == [
+        "client.frame", "client.frame", "client.frame", "client.frame",
+        "message.delta", "message.final", "turn.completed",
+    ]
+    assert result[0].payload == {
+        "type": "tool_start", "tool": "bash", "command": "secret-command",
+    }
+    assert result[2].payload == {
+        "type": "ask_user", "request_id": "r1", "input": {"q": "Proceed?"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_default_metadata_mode_still_hides_browser_frame_payloads():
+    stream, _outcome = open_test_events([
+        'data: {"type":"tool_start","tool":"bash","command":"secret-command"}\n\n',
+        'data: {"type":"ask_user","request_id":"r1","input":{"q":"Proceed?"}}\n\n',
+        'data: {"delta":"Answer"}\n\n',
+        "data: [DONE]\n\n",
+    ])
+    events = await collect_events(stream)
+    assert [item.type for item in events] == [
+        "message.delta", "message.final", "turn.completed",
+    ]
+    assert "secret-command" not in repr(events)
 
 
 @pytest.mark.asyncio

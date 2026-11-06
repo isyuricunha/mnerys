@@ -16,7 +16,9 @@ from contextlib import aclosing
 import json
 import re
 
-from src.gateway_turn_events import TurnEvent, TypedRunEvent
+from src.gateway_turn_events import (
+    TurnEvent, TypedRunEvent, _CLIENT_FRAME_KINDS,
+)
 from src.gateway_web_approval_cards import SealedReviewCard
 
 
@@ -130,6 +132,12 @@ def serialize_plain_text_turn_event(event: TurnEvent) -> tuple[str, bool]:
             "answered_by": answering, "candidate_index": index,
             "round": round_number,
         }), False
+    if kind == "client.frame":
+        # A trusted client-rendering stream passes the browser's own frame
+        # family through with its parsed payload unchanged.
+        if data.get("type") not in _CLIENT_FRAME_KINDS:
+            raise ValueError("Unapproved client frame family")
+        return _data_frame(data), False
     if kind == "turn.completed":
         if data:
             raise ValueError("Unexpected completion metadata")

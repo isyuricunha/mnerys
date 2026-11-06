@@ -367,12 +367,17 @@ class GatewayTurns:
         settings: TrustedTextTurnSettings,
         approval_store: ToolApprovalStore | None = None,
         persistence: TrustedTextPersistence | None = None,
+        client_rendering: bool = False,
     ) -> TypedTurnDelivery:
         """Offer typed process-local events from the safe direct composer.
 
         The returned iterator performs admitted validation on first consume;
         this is neither a remote API nor a durable replayable event stream.
+        With ``client_rendering``, the trusted client adapter receives the
+        browser-facing frame families it owns instead of filtered metadata.
         """
+        if type(client_rendering) is not bool:
+            raise AdmissionDenied(403, "Invalid trusted client rendering flag")
         outcome = TurnOutcome()
         stream = stream_composed_text_turn(
             admission, session, self._turns,
@@ -387,10 +392,12 @@ class GatewayTurns:
             native_terminal_events=not (
                 isinstance(settings, TrustedTextTurnSettings) and bool(settings.offered_tools)
             ),
-            native_tool_events=True,
-            native_route_events=True,
+            native_tool_events=not client_rendering,
+            native_route_events=not client_rendering,
         )
-        events = translate_legacy_turn_events(stream, outcome)
+        events = translate_legacy_turn_events(
+            stream, outcome, client_rendering=client_rendering,
+        )
         if persistence is not None:
             events = persist_completed_text_events(
                 events, outcome, admission=admission, session=session,
@@ -706,6 +713,7 @@ class GatewayTurns:
         persistence: TrustedTextPersistence | None = None,
         web_strict_text: bool = False,
         web_native_notes: bool = False,
+        client_rendering: bool = False,
     ) -> TypedTurnStream:
         """Run the same direct composer behind the inherited detach/replay manager.
 
@@ -724,6 +732,7 @@ class GatewayTurns:
         if (
             type(web_strict_text) is not bool
             or type(web_native_notes) is not bool
+            or type(client_rendering) is not bool
             or (web_strict_text and web_native_notes)
         ):
             raise AdmissionDenied(403, "Invalid trusted run origin")
@@ -746,6 +755,7 @@ class GatewayTurns:
             settings=settings,
             approval_store=approval_store,
             persistence=persistence,
+            client_rendering=client_rendering,
         )
         # start_detached_typed creates the inherited drain task immediately.
         # ContextVars are copied into that task, sealing its approvals as
