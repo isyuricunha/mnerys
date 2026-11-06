@@ -124,6 +124,18 @@ with its test sessions afterwards; this is separate from Yuri's manual
 logged-in validation of the legacy path on the same day. Commit
 `7f4aa8b5a32a` carried the rollout; later commits carry these records.
 
+**M3 rollout executed 2026-11-06 (authorized):** a fresh PostgreSQL
+archive (`m3-rollout-20261106T0915.pgcustom`) was created with the private
+backup helper and verified (`POSTGRES17_ARCHIVE_TOC_VERIFIED True`), then
+the native runner deployed the M3 revision. The versioned Gateway API v1
+is now mounted in the real application (`/api/v1`), backed by the same
+singletons the Web cutover uses; remote turns persist user and assistant
+messages through the Web writer and finalize durable turn records from
+the authentic terminal event. The installation, provisioning and checks
+are documented in `docs/architecture/M3_ACCEPTANCE.md`. The current
+preview revision is `1050f802`; the Web cutover flag remains `1` in the
+running process after the restart.
+
 ## Cutover configuration persistence (November 6, 2026)
 
 The Web cutover (`MNERYS_M21_WEB_CORE_CUTOVER`) is an explicitly managed

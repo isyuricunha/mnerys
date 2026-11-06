@@ -139,26 +139,29 @@ authorized control-plane rollout.
 
 ### M3 — Global `mnerys` CLI and packaging
 
-**Implemented (November 6, 2026).** The `mnerys` command is a real Python
-console-script package (`packages/mnerys-cli`) with `httpx` as its only
-runtime dependency; remote-only installs carry no web server, database
-stack or agent runtime. It supports per-user installation (`uv tool
-install`, or `pip install .`), named profiles with restrictive credential
-storage, a remote mode against the authenticated Gateway API v1 (chat
-streaming with terminal events and cancellation, discovery, doctor), a
-local mode (`mnerys serve` boots the same application the preview runs,
-and local chat uses the identical Gateway contract), explicit exit codes,
-and clean install/upgrade/uninstall. Acceptance builds and installs the
-wheel in a fresh user-level environment, exercises the installed binary
-against a real loopback Gateway over HTTP, and validates the local-mode
-round trip. Public PyPI publication remains a separate future decision;
+**Operationally verified (November 6, 2026).** The `mnerys` command is a
+real Python console-script package (`packages/mnerys-cli`) with `httpx` as
+its only runtime dependency; remote-only installs carry no web server,
+database stack or agent runtime. It supports per-user installation (`uv
+tool install`, or `pip install .`), named profiles with restrictive
+credential storage, a remote mode against the authenticated Gateway API
+v1 (chat streaming with terminal events and cancellation, discovery,
+doctor), a local mode (`mnerys serve` boots the same application the
+preview runs, and local chat uses the identical Gateway contract),
+explicit exit codes, and clean install/upgrade/uninstall. The private
+preview runs the authorized M3 revision with API v1 mounted on the real
+application; an installed CLI completed authenticated, provider-backed
+turns (including PT-BR and Unicode), cancellation, persistence, turn
+records, ownership isolation and idempotency checks against that live
+Gateway. Public PyPI publication remains a separate future decision;
 until then the package installs from the repository or its built
 distributions.
 
 **Done when:** a fresh user-level install exposes `mnerys` on the PATH,
 supports a real authenticated remote chat/agent turn, and uninstalls
-cleanly without disturbing server data. Verified; see [CLI documentation](cli.md)
-and the [M3 acceptance evidence](architecture/M3_ACCEPTANCE.md).
+cleanly without disturbing server data. Verified; see [CLI
+documentation](cli.md) and the [M3 acceptance
+evidence](architecture/M3_ACCEPTANCE.md).
 
 ### M4 — First-party terminal UI (TUI)
 
