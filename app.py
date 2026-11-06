@@ -834,6 +834,8 @@ app.state.turn_service = turn_service
 app.state.tool_approval_store = tool_approval_store
 app.state.model_discovery = _gateway_model_snapshot
 app.state.tool_discovery = sorted(BUILTIN_TOOL_DESCRIPTIONS)
+app.state.chat_handler = chat_handler
+app.state.chat_processor = chat_processor
 app.include_router(gateway_api_router)
 
 # GitHub Copilot device-flow login

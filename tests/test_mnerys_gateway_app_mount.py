@@ -20,6 +20,8 @@ def test_app_wires_the_gateway_api_into_the_shared_state():
     assert "app.state.turn_service = turn_service" in APP_SOURCE
     assert "app.state.tool_approval_store = tool_approval_store" in APP_SOURCE
     assert "app.state.model_discovery = _gateway_model_snapshot" in APP_SOURCE
+    assert "app.state.chat_handler = chat_handler" in APP_SOURCE
+    assert "app.state.chat_processor = chat_processor" in APP_SOURCE
     # Names only, no schemas or arguments: discovery never confers rights.
     assert "app.state.tool_discovery = sorted(BUILTIN_TOOL_DESCRIPTIONS)" in APP_SOURCE
 
