@@ -1,11 +1,14 @@
 """Conversation widgets: untrusted text rendered inert, streamed safely.
 
-Every message body is untrusted data. User text renders through a
-markup-disabled Static (literal brackets, sanitized control characters);
-assistant text renders through Rich's Markdown pipeline, which never
-executes terminal control sequences. Nothing here ever writes raw bytes to
-the terminal outside the widget tree.
+Every message body is untrusted data. Control characters (including ESC)
+are stripped before anything reaches the widget tree, so terminal escape
+sequences can never execute; user text renders through a markup-disabled
+Static (literal brackets) and assistant text renders through Rich's
+Markdown pipeline. Dynamic text interpolated into markup-enabled widgets
+is escaped with :func:`safe_markup`.
 """
+
+import re
 
 from rich.markup import escape
 from textual.containers import VerticalScroll
@@ -13,13 +16,28 @@ from textual.widgets import Markdown, Static
 
 from mnerys_cli.tui.events import TurnTracker
 
+# Strip C0 controls except tab/newline/carriage return, plus DEL. ESC (0x1b)
+# is the only way a terminal control sequence can start; it never reaches a
+# widget's rendered text.
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def strip_control(value: object) -> str:
+    """One display copy of untrusted text with control characters removed."""
+    return _CONTROL_RE.sub("", str(value))
+
+
+def safe_markup(value: object) -> str:
+    """Untrusted text prepared for a ``markup=True`` widget."""
+    return escape(strip_control(value))
+
 
 class UserMessage(Static):
     """One user message, rendered literally."""
 
     def __init__(self, text: str, **kwargs):
         super().__init__(markup=False, **kwargs)
-        self.update(text)
+        self.update(strip_control(text))
 
 
 class SystemNotice(Static):
@@ -49,12 +67,12 @@ class ApprovalBar(Static):
         self.approval_id = approval_id
         self.add_class("approval")
         self.update(
-            f"[b]Approval required[/b]  {'  '.join(escape(part) for part in line_parts)}\n"
+            f"[b]Approval required[/b]  {'  '.join(safe_markup(part) for part in line_parts)}\n"
             "[class='help-line']a approve · d deny (decision recorded server-side)[/]",
         )
 
     def set_outcome(self, outcome: str) -> None:
-        self.update(f"[b]Approval {escape(outcome)}[/]")
+        self.update(f"[b]Approval {safe_markup(outcome)}[/]")
 
 
 class AssistantMessage(VerticalScroll):
@@ -74,7 +92,7 @@ class AssistantMessage(VerticalScroll):
 
     def set_text(self, text: str) -> None:
         self.current_text = text
-        self._markdown.update(text)
+        self._markdown.update(strip_control(text))
 
 
 def tool_line(kind: str, payload: dict) -> str:

@@ -179,6 +179,7 @@ class MnerysTui(App[None]):
         self.run_worker(self._refresh_connection, exclusive=True, group="connect")
 
     async def _refresh_connection(self) -> None:
+        from mnerys_cli.tui.widgets import safe_markup
         status = self.query_one("#connection-status", Static)
         detail = self.query_one("#dashboard-detail", Static)
         code, _body = await self.client.health()
@@ -196,10 +197,10 @@ class MnerysTui(App[None]):
         status.add_class("ok")
         status.update(f"connected as {self.profile or 'default'} profile")
         detail.update(
-            f"[b]Endpoint[/b] {self.endpoint}\n"
-            f"[b]Version[/b] {self._version()}\n"
+            f"[b]Endpoint[/b] {safe_markup(self.endpoint)}\n"
+            f"[b]Version[/b] {safe_markup(self._version())}\n"
             f"[b]Models[/b] {len(models)} visible  "
-            f"[b]Agents[/b] {', '.join(str(a.get('id')) for a in agents) or 'none'}",
+            f"[b]Agents[/b] {safe_markup(', '.join(str(a.get('id')) for a in agents) or 'none')}",
         )
         await self._open_conversation()
 
@@ -233,9 +234,10 @@ class MnerysTui(App[None]):
 
     async def _notify(self, text: str) -> None:
         from textual.widgets import Static
+        from mnerys_cli.tui.widgets import safe_markup
 
         self.query_one("#dashboard-detail", Static).update(
-            f"[b]Connection problem[/b] {text}",
+            f"[b]Connection problem[/b] {safe_markup(text)}",
         )
 
     def _version(self) -> str:

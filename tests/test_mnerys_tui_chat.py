@@ -269,7 +269,10 @@ async def test_history_loads_from_the_gateway_and_renders_untrusted_text():
         ]
         # The literal brackets survive: markup injection renders inert.
         assert any("[green]fake markup[/]" in text for text in user_texts)
-        assert any("\x1b[31mesc" in text for text in user_texts)
+        # Control characters are stripped at the widget boundary: the ESC
+        # byte never reaches the terminal, and the visible text survives.
+        assert all("\x1b" not in text for text in user_texts)
+        assert any("esc" in text for text in user_texts)
 
 
 async def test_streaming_turn_renders_and_finalizes():

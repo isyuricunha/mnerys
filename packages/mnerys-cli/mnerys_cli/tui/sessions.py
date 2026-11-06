@@ -16,6 +16,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView
 
 from mnerys_cli.errors import MnerysCliError
+from mnerys_cli.tui.widgets import safe_markup
 
 logger = logging.getLogger("mnerys.tui.sessions")
 
@@ -197,7 +198,8 @@ class ModelScreen(ModalScreen[str]):
         for index, model in enumerate(self.model_ids):
             marker = "▸" if model == self.current else " "
             await self.list_view.append(ListItem(
-                Label(f"{marker} {model}", markup=True), id=f"model-{index}",
+                Label(f"{marker} {safe_markup(model)}", markup=True),
+                id=f"model-{index}",
             ))
 
     async def action_close(self) -> None:

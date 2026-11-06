@@ -8,7 +8,6 @@ pump applies exactly once. All input is untrusted; nothing renders raw.
 import logging
 import uuid
 
-from rich.markup import escape
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
@@ -22,6 +21,7 @@ from mnerys_cli.tui.widgets import (
     AssistantMessage,
     SystemNotice,
     UserMessage,
+    safe_markup,
     tracker_status_line,
     tool_line,
 )
@@ -73,6 +73,7 @@ class ChatScreen(Screen[None]):
         self.active_pump: TurnPump | None = None
         self.pending_approval_id: str | None = None
         self._approval_bar = None
+        self._sending = False
         self._active_message: AssistantMessage | None = None
         self._active_tracker: TurnTracker | None = None
 
@@ -92,8 +93,8 @@ class ChatScreen(Screen[None]):
         await self.reload_history()
 
     def _update_header(self) -> None:
-        name = escape(self.session_name or self.session_id)
-        model = escape(self.session_model or "default")
+        name = safe_markup(self.session_name or self.session_id)
+        model = safe_markup(self.session_model or "default")
         self.header.update(f"[b]{name}[/]  [class='help-line']model {model} · ctrl+s sessions[/]")
 
     async def reload_history(self) -> None:
@@ -103,7 +104,7 @@ class ChatScreen(Screen[None]):
             detail = await self.client.session_detail(self.session_id)
         except MnerysCliError as exc:
             await self.conversation.mount(
-                SystemNotice(f"could not load history: {exc}", tone="error"),
+                SystemNotice(f"could not load history: {safe_markup(exc)}", tone="error"),
             )
             return
         meta = detail.get("session") or {}
@@ -156,73 +157,86 @@ class ChatScreen(Screen[None]):
         await self.send_user_message(event.text)
 
     async def send_user_message(self, text: str) -> None:
-        """Start one Gateway turn and stream its typed events."""
-        if self.active_pump is not None and self._tracker_is_live():
+        """Start one Gateway turn and stream its typed events.
+
+        The sending flag is held from the guard check until the pump owns
+        the turn, so a second Enter during the create-then-mount window can
+        never start a duplicate turn.
+        """
+        if self._sending or self._tracker_is_live():
             await self.conversation.mount(SystemNotice(
-                "a turn is already streaming; cancel it first (Ctrl+C)",
+                "a turn is already streaming; cancel it first (escape)",
                 tone="pending",
             ))
             return
         await self.conversation.mount(UserMessage(text))
         self.conversation.scroll_end(animate=False, force=True)
+        self._sending = True
         try:
             created = await self.client.create_turn(
                 self.session_id, text, mode="chat",
                 idempotency_key=uuid.uuid4().hex,
             )
-        except MnerysCliError as exc:
-            await self.conversation.mount(SystemNotice(str(exc), tone="error"))
-            return
-        turn_id = str(created.get("turn_id") or "")
-        if not turn_id:
-            await self.conversation.mount(SystemNotice(
-                "the Gateway accepted the turn without a turn id", tone="error",
-            ))
-            return
-        tracker = TurnTracker()
-        self._active_tracker = tracker
-        block = AssistantMessage()
-        self._active_message = block
-        await self.conversation.mount(block)
-        notice = SystemNotice("turn streaming…", tone="pending")
-        await self.conversation.mount(notice)
-        self.conversation.scroll_end(animate=False, force=True)
-
-        async def on_event(kind: str) -> None:
-            if kind.startswith("tool."):
+            turn_id = str(created.get("turn_id") or "")
+            if not turn_id:
                 await self.conversation.mount(SystemNotice(
-                    tool_line(kind, tracker.tool_events[-1][1]),
+                    "the Gateway accepted the turn without a turn id", tone="error",
                 ))
-            elif kind == "approval.requested":
-                await self._show_approval(tracker.approval_id)
-            elif kind == "approval.decided":
-                await self._clear_approval()
-            elif kind == "turn.awaiting_approval":
-                await self._show_approval(tracker.approval_id)
-            elif kind == "message.delta":
-                block.set_text(tracker.rendered_text)
-                self.conversation.scroll_end(animate=False, force=True)
-            elif kind == "message.final":
-                block.set_text(tracker.rendered_text)
-
-        pump = TurnPump(self.client, turn_id, self.session_id, tracker, on_event)
-        self.active_pump = pump
-
-        async def finish() -> None:
-            try:
-                status = await pump.run()
-            except MnerysCliError as exc:
-                notice.set_tone("error")
-                notice.update(f"stream lost: {exc}")
                 return
-            finally:
-                self.active_pump = None
-            notice.set_tone("ok" if status == "completed" else "pending")
-            notice.update(tracker_status_line(tracker))
-            block.set_text(tracker.rendered_text)
+            tracker = TurnTracker()
+            self._active_tracker = tracker
+            block = AssistantMessage()
+            self._active_message = block
+            await self.conversation.mount(block)
+            notice = SystemNotice("turn streaming…", tone="pending")
+            await self.conversation.mount(notice)
             self.conversation.scroll_end(animate=False, force=True)
 
-        self.run_worker(finish, exclusive=True, group=f"turn-{turn_id}")
+            async def on_event(kind: str) -> None:
+                await self._on_turn_event(kind, tracker, block)
+
+            pump = TurnPump(self.client, turn_id, self.session_id, tracker, on_event)
+            # The pump now owns the turn; only then may the sending flag drop.
+            self.active_pump = pump
+
+            async def finish() -> None:
+                try:
+                    status = await pump.run()
+                except MnerysCliError as exc:
+                    notice.set_tone("error")
+                    notice.update(f"stream lost: {safe_markup(exc)}")
+                    return
+                finally:
+                    self.active_pump = None
+                notice.set_tone("ok" if status == "completed" else "pending")
+                notice.update(tracker_status_line(tracker))
+                block.set_text(tracker.rendered_text)
+                self.conversation.scroll_end(animate=False, force=True)
+
+            self.run_worker(finish, exclusive=True, group=f"turn-{turn_id}")
+        except MnerysCliError as exc:
+            await self.conversation.mount(SystemNotice(
+                safe_markup(exc), tone="error",
+            ))
+        finally:
+            self._sending = False
+
+    async def _on_turn_event(self, kind: str, tracker: TurnTracker, block) -> None:
+        if kind.startswith("tool."):
+            await self.conversation.mount(SystemNotice(
+                tool_line(kind, tracker.tool_events[-1][1]),
+            ))
+        elif kind == "approval.requested":
+            await self._show_approval(tracker.approval_id)
+        elif kind == "approval.decided":
+            await self._clear_approval()
+        elif kind == "turn.awaiting_approval":
+            await self._show_approval(tracker.approval_id)
+        elif kind == "message.delta":
+            block.set_text(tracker.rendered_text)
+            self.conversation.scroll_end(animate=False, force=True)
+        elif kind == "message.final":
+            block.set_text(tracker.rendered_text)
 
     async def _show_approval(self, approval_id) -> None:
         """Mount one human-readable pending approval card (display only)."""
@@ -246,13 +260,15 @@ class ChatScreen(Screen[None]):
             payload = await self.client.approval_preview(approval_id, self.session_id)
             if isinstance(payload, dict) and payload.get("question"):
                 bar.update(
-                    f"[b]Approval required[/b]  {escape(str(payload['question']))}\n"
-                    "[class='help-line']a approve · d deny · escape dismiss[/]",
+                    f"[b]Approval required[/b]  {safe_markup(payload['question'])}\n"
+                    "[class='help-line']a approve · d deny (decision recorded server-side)[/]",
                 )
         except MnerysCliError:
             pass  # the pending state itself is still true; the card stays
 
     async def _clear_approval(self) -> None:
+        if self._approval_bar is not None:
+            self._approval_bar.set_outcome("decided by the Gateway")
         self.pending_approval_id = None
         self._approval_bar = None
 
@@ -274,7 +290,7 @@ class ChatScreen(Screen[None]):
                 approval_id, self.session_id, decision,
             )
         except MnerysCliError as exc:
-            bar.set_outcome(f"rejected by the Gateway: {exc}")
+            bar.set_outcome(f"rejected by the Gateway: {safe_markup(exc)}")
             return
         bar.set_outcome(str(result.get("status") or result.get("decision") or "decided"))
         self._approval_bar = None
