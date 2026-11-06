@@ -105,9 +105,12 @@ if __name__ == "__main__":
 
 def test_restart_fencing_with_fresh_interpreters(tmp_path):
     database_path = str(tmp_path / "restart.sqlite")
-    env = dict(os.environ, DATABASE_URL="sqlite:///:memory:")
+    repo = str(Path(__file__).resolve().parents[1])
+    env = dict(
+        os.environ, DATABASE_URL="sqlite:///:memory:",
+        PYTHONPATH=repo + os.pathsep + os.environ.get("PYTHONPATH", ""),
+    )
     this = Path(__file__).resolve()
-    repo = this.parents[1]
     setup = subprocess.run(
         [sys.executable, str(this), database_path, "setup"],
         capture_output=True, text=True, timeout=120, env=env, cwd=repo,

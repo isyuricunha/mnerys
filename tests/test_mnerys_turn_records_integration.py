@@ -220,7 +220,11 @@ def test_finalized_turn_is_readable_by_a_fresh_interpreter(records_engine):
     )
     records.finalize_turn(turn_id="restart-turn", owner="alice", status="completed")
     url = str(engine.url)
-    env = dict(os.environ, DATABASE_URL="sqlite:///:memory:")
+    repo = str(Path(__file__).resolve().parents[1])
+    env = dict(
+        os.environ, DATABASE_URL="sqlite:///:memory:",
+        PYTHONPATH=repo + os.pathsep + os.environ.get("PYTHONPATH", ""),
+    )
     script = (
         "from sqlalchemy import create_engine;"
         "from sqlalchemy.orm import sessionmaker;"
