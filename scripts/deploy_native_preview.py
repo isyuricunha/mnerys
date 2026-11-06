@@ -182,6 +182,12 @@ def migration_guard(repo: Path, old_release: Path, target: str):
         ("migration" in file.lower() and file.startswith("core/"))
         for file in changed
     ):
+        if os.environ.get("MNERYS_DEPLOY_MIGRATION_PLAN_APPROVED") == "1":
+            # The operator explicitly attests a reviewed migration and
+            # rollback plan (see docs/deployment/M2_ROLLOUT_PLAN.md). The
+            # migrations themselves stay approval-gated, and the deploy's
+            # post-restart schema signature still fails closed on drift.
+            return
         raise DeployError("Database-sensitive code changed: requires a reviewed migration/rollback plan")
 
 

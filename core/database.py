@@ -2467,6 +2467,12 @@ def _init_postgresql_database():
                 if column.name not in columns:
                     missing.append(f"{table.name}.{column.name}")
         if missing:
+            if os.environ.get("MNERYS_ALLOW_STARTUP_SCHEMA_MIGRATION") == "1":
+                # Set only by the explicit, approval-gated migration scripts
+                # so their import of the mapped models does not fail closed
+                # against the not-yet-migrated schema. The application start
+                # never sets this; the guard stays fail-closed otherwise.
+                return
             raise RuntimeError(
                 "PostgreSQL schema requires reviewed migrations before startup: "
                 + ", ".join(sorted(missing))

@@ -13,15 +13,15 @@ import os
 
 from sqlalchemy import inspect
 
-from core.database import (
-    Base, GatewayApproval, GatewayTurn, GatewayTurnEvent,
-)
-
 _TABLES = ("gateway_turns", "gateway_turn_events", "gateway_approvals")
 
 
 def inspect_or_install(engine, *, apply: bool = False) -> str:
     """Report or create only the additive record tables."""
+    # Imported lazily: the startup schema guard must be bypassed only by
+    # this explicit migration, which sets the escape before the import.
+    from core.database import Base, GatewayApproval, GatewayTurn, GatewayTurnEvent
+
     inspector = inspect(engine)
     missing = [name for name in _TABLES if not inspector.has_table(name)]
     if not missing:
@@ -55,6 +55,10 @@ def main() -> int:
     ):
         print("Refusing turn-record migration: reviewed backup/restore and approval required")
         return 3
+
+    # The explicit, operator-authorized migration is the only valid caller
+    # of the startup schema escape; the application never sets it.
+    os.environ["MNERYS_ALLOW_STARTUP_SCHEMA_MIGRATION"] = "1"
 
     from core.database import engine
     try:
