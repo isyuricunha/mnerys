@@ -1,6 +1,6 @@
 # M2.1 exit gate — one reusable admitted Agent turn
 
-**Status: PARTIAL — direct in-process Gateway execution is implemented and tested with a synthetic model; complete turn composition and real adapter acceptance remain open.**
+**Status: NEARLY COMPLETE — the composed Web cutover, typed display events, real-provider acceptance and HTTP parity tests are implemented behind a disabled-by-default operator switch; the remaining items are the operator audit pass and roadmap flip once the hosted CI for the current batch is green.**
 
 This is the bounded, verifiable completion checklist for [M2.1 in the implementation plan](M2_GATEWAY_IMPLEMENTATION_PLAN.md#m21--finish-the-internal-authority-and-turn-boundary), under the [M1 design contract](GATEWAY_AGENT_CONTRACT.md). It replaces open-ended extraction targets with acceptance criteria. An item is complete only when its implementation and negative tests can be identified in the current source.
 
@@ -1316,3 +1316,83 @@ restoration after process failure, multi-worker session leadership,
 transactional whole-turn persistence, approved retention automation,
 real-provider acceptance and the full four-shard CI gate. The feature
 switch stays disabled by default.
+
+## Full Web feature set through the single composition — November 6, 2026
+
+The [direct turn composer](../../src/gateway_turn_composer.py) and the
+Gateway facade now compose the production Web turn's full feature set
+through one admitted operation, and the actual `/api/chat_stream` route
+can run through it.
+
+**Composer coverage.** `TrustedTextTurnSettings` now carries
+server-selected context features (memory, RAG, web, incognito, inherited
+ChatHandler preprocessing), the owner's visible email review context
+(uid/folder/account plus bounded cached subject/preview; compose tools
+denied while it is open), a text-and-image attachment profile
+(owner-checked uploads, per-file identity/hash rechecks, chat-upload size
+limit, non-persisting vision turns with multimodal user content passed to
+the model), Web request options (preset, thinking mode, reasoning effort,
+sampling temperature, tool budget, plan mode with approved-plan pin,
+compare mode, pre-fetched search context), and a generalized persisted
+native-tool surface (any offered native tool set, including
+workspace-bound filesystem and process tools, instead of only
+`manage_notes`). Incognito composed turns are non-persisting and cannot
+resume approvals. Persisted tool turns still pause without an assistant
+save on a pending review, and continuations still require the original
+confirmed user receipt.
+
+**Typed display events.** The [typed adapter](../../src/gateway_turn_events.py)
+now emits bounded display-only families for hidden reasoning
+(`thinking.delta`, never answer content or a partial save), agent round
+progress (`agent.step`), turn-control annotations (`turn.control` with
+only the bounded browser-consumed fields), and web search sources
+(`sources.web`, filtered to public URL/title/snippet metadata). A trusted
+client adapter may request `client_rendering`, which passes the browser's
+own frame families (tool timeline with commands/outputs, `ask_user` cards,
+plan/doc/editor/ui events, rich metrics and audits) through as validated
+`client.frame` events with parsed payloads; the default metadata mode
+keeps hiding those payloads. The [Web serializer](../../src/gateway_web_compat_events.py)
+maps every family back to the browser's existing SSE vocabulary and fails
+closed on unapproved shapes.
+
+**Single Web composition.** [GatewayTurns.compose_web_turn](../../src/gateway_turns.py)
+now runs the inherited Web chain in its exact order from one
+transport-neutral operation over a `WebTurnComposition`: early intents,
+post-session routing, context ports, compact runtime, document promotion,
+contract scope, capability classification, delegated limits, web intent
+reconciliation, incognito/email tool strips, final policy veto, runtime
+UI projection, request authority, inventory/selection and the routed
+contract. The one-use approval decision is consumed inside the sealed
+store; a denial short-circuits before context I/O. Authority, contract
+and policy objects are only ever derived server-side.
+
+**Route cutover.** `POST /api/chat_stream` routes ordinary chat/agent
+turns through `compose_web_turn` when the operator sets
+`MNERYS_M21_WEB_CORE_CUTOVER=1`. The legacy inline chain remains
+byte-for-byte as the fallback and for research, image-generation and
+experimental profile turns. The route keeps parsing, session/endpoint
+recovery, active-document resolution, serialization and the inherited
+execution/saves block; no logic is duplicated and the flag is off in
+every default installation.
+
+**Real-provider acceptance.** A controlled real turn ran locally through
+the composer against the private preview's authorized NVIDIA NIM
+endpoint: the stored key was decrypted in-process (never echoed), the
+model `minimaxai/minimax-m3.1-flash` answered "What is 2+2?" with "4"
+and a terminal `[DONE]`. Small NIM models returned HTTP 404 (function
+not enabled for the account), so the probe tries flash-class candidates
+first. No credentials or private addresses were recorded in the
+repository.
+
+[Acceptance tests](../../tests/test_mnerys_gateway_context_features.py),
+[image attachment tests](../../tests/test_mnerys_gateway_image_attachments.py),
+[generalized tool persistence](../../tests/test_mnerys_gateway_general_tool_persistence.py),
+[composition tests](../../tests/test_mnerys_gateway_web_compose.py),
+[typed event tests](../../tests/test_mnerys_gateway_turn_events.py),
+[Web serializer tests](../../tests/test_mnerys_gateway_web_compat_events.py)
+and [route cutover tests](../../tests/test_mnerys_gateway_web_core_cutover.py)
+cover the positive flows and the negative authorization, ownership,
+identity, ordering and fail-closed cases. Local regression: 1,820 gateway
+and chat tests passed (48 PostgreSQL-only skips). The hosted CI run for
+the published batch is the remaining acceptance gate; the switch stays
+off by default and no preview deployment happened.
