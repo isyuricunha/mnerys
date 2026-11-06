@@ -184,6 +184,9 @@ jobs:
           uv pip install --system --require-hashes --only-binary=:all: --no-deps -r requirements-bootstrap.txt
           python scripts/check_ca_trust.py --python
           uv pip install --system -r requirements.txt
+          # The M4 TUI suites drive the installed client package headlessly;
+          # textual is the optional client extra, not a server dependency.
+          uv pip install --system "textual>=8.2.8,<9"
         if: steps.docs-check.outputs.docs_only != 'true'
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         if: steps.docs-check.outputs.docs_only != 'true'
