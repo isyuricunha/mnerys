@@ -14,20 +14,19 @@ _ONE_LINE = " ".join(INDEX.split())
 
 def test_website_presents_m2_as_complete():
     assert "M2 and M3 complete" in _ONE_LINE
-    assert "M2" in _ONE_LINE and "In progress" not in _ONE_LINE
     assert 'milestone-state done">Complete' in INDEX
-    # M1, M2 and M3 are the completed milestone cards.
+    # M1, M2 and M3 are the completed milestone cards; M4 is in progress.
     assert INDEX.count('milestone-state done">Complete') == 3
-
-
-def test_website_marks_cli_tui_and_telegram_as_planned():
-    assert "CLI" in _ONE_LINE and "Planned" in _ONE_LINE
-    assert "TUI" in _ONE_LINE and "Planned" in _ONE_LINE
-    assert "Telegram" in _ONE_LINE
+    assert INDEX.count("In progress") == 2  # the M4 card label and its copy
     assert "First-party TUI" in _ONE_LINE
-    # The CLI milestone is complete, not planned.
+
+
+def test_website_marks_cli_and_telegram_accurately():
+    # The CLI milestone is complete, not planned; TUI runs on M4.
     assert "Global CLI" in _ONE_LINE
     assert "(remote mode)" in _ONE_LINE or "remote mode" in _ONE_LINE
+    assert "CLI shipped · TUI in progress" in _ONE_LINE
+    assert "Telegram" in _ONE_LINE
 
 
 def test_website_no_longer_claims_the_gateway_is_planned():

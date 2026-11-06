@@ -116,6 +116,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--teal);outline-offse
 .module-status{margin-top:7px;border-radius:50px;padding:3px 8px;font-size:9px;font-weight:700}
 .module-status.current{background:rgba(70,194,179,.1);color:var(--teal-bright);border:1px solid rgba(70,194,179,.27)}
 .module-status.planned{background:rgba(144,154,157,.06);color:#acb6b8;border:1px solid rgba(144,154,157,.21)}
+.module-status.active{background:rgba(70,194,179,.16);color:var(--teal-bright);border:1px solid rgba(135,226,216,.4)}
 .visual-footer{margin-top:20px;padding-top:14px;border-top:1px solid var(--line);justify-content:flex-start;font-size:9.5px}
 .visual-pulse{height:6px;width:6px;border-radius:50%;background:var(--teal)}
 .visual-footer-end{margin-left:auto;color:var(--faint)}
