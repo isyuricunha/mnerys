@@ -104,6 +104,7 @@ def _cli(empty_live_env, *args, timeout=120, check=True):
         env={
             "MNERYS_ENDPOINT": empty_live_env["endpoint"],
             "MNERYS_TOKEN": "test-token",
+            "XDG_CONFIG_HOME": str(Path(empty_live_env["root"]) / "xdg-config"),
         },
         timeout=timeout, check=check,
     )

@@ -149,12 +149,41 @@ def test_wheel_and_sdist_metadata_agree(built_distributions):
 def test_repository_tree_builds_are_identifiable_development_builds(
     built_distributions,
 ):
-    """A build from the working tree must never claim a released version."""
+    """A build from the working tree must never claim a released version.
+
+    Except when the checkout IS a release tag: then the exact tag version is
+    the truth (the release workflow builds at the tag, and CI re-runs on
+    tags must stay green).
+    """
     _wheel, sdist = built_distributions
     version = _sdist_pkginfo_version(sdist)
+    exact_tag = _git_exact_tag()
+    if exact_tag is not None:
+        # At a release tag the build carries the exact version, except when
+        # the working tree is dirty: then setuptools-scm emits a clearly
+        # marked next-dev build with the tag's commit, which never claims
+        # the released number.
+        dirty_dev = re.match(
+            r"^\d+\.\d+\.\d+\.dev\d+\+g[0-9a-f]+\.d\d{8}$", version,
+        )
+        assert version == exact_tag or dirty_dev, (
+            f"at the release tag {exact_tag} the build must carry exactly "
+            f"that version or a marked dirty dev build, got {version!r}"
+        )
+        return
     assert re.match(r"^\d+\.\d+\.\d+\.dev\d+\+g[0-9a-f]+", version), (
         f"a build from the repository tree must be a development build, got {version!r}"
     )
+
+
+def _git_exact_tag() -> str | None:
+    """The release tag sitting exactly on HEAD, or None."""
+    result = _run(
+        ["git", "describe", "--tags", "--exact-match", "HEAD"],
+        REPO, check=False,
+    )
+    candidate = result.stdout.strip() if result.returncode == 0 else ""
+    return candidate if re.fullmatch(r"v\d+\.\d+\.\d+", candidate) else None
 
 
 def test_sdist_rebuilds_the_same_version_without_git(built_distributions, tmp_path):

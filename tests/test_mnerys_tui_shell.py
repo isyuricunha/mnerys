@@ -188,9 +188,10 @@ def test_explicit_tui_command_passes_the_profile(monkeypatch, tmp_path):
     assert launched == {"endpoint": "http://gateway.test", "profile": "preview"}
 
 
-def test_non_tty_entry_keeps_the_classic_help(capsys):
+def test_non_tty_entry_keeps_the_classic_help(capsys, monkeypatch):
     from mnerys_cli import cli
 
+    monkeypatch.setattr(cli, "_interactive_terminal", lambda: False)
     code = cli.main([])
     assert code == 0
     out = capsys.readouterr().out
