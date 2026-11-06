@@ -95,11 +95,24 @@ startup on PostgreSQL 17 until installed**:
 Both migrations are read-only by default (`--check`) and refuse `--apply`
 without a verified backup/restore and the explicit approval environment
 flag. The migrations are additive and code-rollback safe: a pre-M2 build
-ignores the extra columns/tables. No production migration has been run.
+ignores the extra columns/tables.
+
+**Rollout executed 2026-11-06 (authorized):** a fresh restricted
+PostgreSQL archive was created with the private backup helper, verified,
+and restored into an isolated PostgreSQL 17 container (17 sessions, 75
+messages, model endpoint rows preserved). Both migrations were then
+applied in order (fencing columns with per-row backfill, durable record
+tables) and the native runner deployed revision `7f4aa8b5a32a` with
+liveness, trusted readiness, login and auth-enforcement checks passing.
+The deployed service runs the M2 build against the migrated schema; the
+deployment guard now accepts only operator-attested migration plans and
+the startup schema guard remains fail-closed for the application.
 
 The production Web turn can run through the Gateway composition behind the
-disabled-by-default `MNERYS_M21_WEB_CORE_CUTOVER` switch; the preview keeps
-the legacy path until the authorized rollout flips it.
+disabled-by-default `MNERYS_M21_WEB_CORE_CUTOVER` switch; the preview
+keeps the legacy path until the operator deliberately flips it after the
+logged-in parity validation. Commit `7f4aa8b5a32a` includes this page's
+rollout record.
 
 ## Rollback and retired service
 

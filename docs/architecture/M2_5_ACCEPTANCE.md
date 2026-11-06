@@ -20,19 +20,17 @@ tables are installed only by the explicit, approval-gated migrations.
 
 ## Remaining before M2 COMPLETE
 
-- Final green CI on the last published batch (in progress at the time of
-  writing) and the final report.
-- The photo-editor browser release-gate suite was not run in this local
-  environment (it requires the full development environment boot of the
-  application); it is not part of the CI jobs either. The gateway-notes
-  browser suites (5 desktop/mobile renderer tests) and the
-  browser-to-HTTP integration suite (3 tests through the real route
-  handlers with sealed-format fixtures) pass in installed Chromium.
-- Real browser Web verification on the updated revision against the
-  preview deployment when the deployment is authorized.
-- The production preview migration/deployment are NOT authorized yet; the
-  exact release scope, verified backup/restore, health checks and rollback
-  plan are prepared in `docs/deployment/NATIVE_PREVIEW.md`.
-- The Web adapter still routes through the new composition behind the
-  disabled-by-default `MNERYS_M21_WEB_CORE_CUTOVER` switch in production;
-  the operator flips it as part of the authorized rollout.
+- **Rollout status (2026-11-06):** the authorized preview rollout is
+  complete. Fresh backup verified and restore-tested in an isolated
+  PostgreSQL 17 container, both migrations applied (fencing columns
+  backfilled, durable tables created), native deploy of `7f4aa8b5a32a`
+  with liveness/readiness/login/auth checks passed, real-provider
+  acceptance turn passed on the deployed build, and the login page
+  verified in real Chromium at desktop and mobile viewports with no
+  console errors. The Web chat cutover switch stays OFF until the owner
+  validates the logged-in chat parity; nothing in the documented M2
+  acceptance requires the switch to be on.
+- The photo-editor browser release-gate suite still requires the full
+  local development boot and remains outside this environment and the CI
+  jobs; the gateway-notes browser suites (5) and browser-to-HTTP
+  integration suite (3) pass in installed Chromium.
