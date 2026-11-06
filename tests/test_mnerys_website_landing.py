@@ -70,7 +70,7 @@ def test_landing_has_mnerys_identity_and_no_upstream_marketing():
 def test_feature_and_roadmap_status_remain_truthful():
     html, _ = load()
     assert "Implemented" in html
-    assert "M2 and M3 complete" in html
+    assert "M2, M3 and M4 complete" in html
     assert "Complete" in html and "Planned" in html
     assert "CENTRAL AUTHORITY / IMPLEMENTED" in html
     assert "SHARED RUNTIME / IMPLEMENTED" in html
