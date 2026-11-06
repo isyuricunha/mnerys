@@ -36,6 +36,27 @@ class SystemNotice(Static):
         self.add_class(tone)
 
 
+class ApprovalBar(Static):
+    """One human-readable pending approval card; decisions stay server-side.
+
+    The card shows only the server-provided display payload; approving or
+    denying submits the owner's decision through the sealed store and never
+    reconstructs authority locally.
+    """
+
+    def __init__(self, approval_id: str, *line_parts: str, **kwargs):
+        super().__init__(markup=True, **kwargs)
+        self.approval_id = approval_id
+        self.add_class("approval")
+        self.update(
+            f"[b]Approval required[/b]  {'  '.join(escape(part) for part in line_parts)}\n"
+            "[class='help-line']a approve · d deny (decision recorded server-side)[/]",
+        )
+
+    def set_outcome(self, outcome: str) -> None:
+        self.update(f"[b]Approval {escape(outcome)}[/]")
+
+
 class AssistantMessage(VerticalScroll):
     """One assistant block: streamed deltas render as live Markdown."""
 

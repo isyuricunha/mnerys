@@ -57,6 +57,14 @@ Screen {
 #connection-status.ok { color: $eclipse-teal-bright; }
 #connection-status.error { color: #e8836f; text-style: bold; }
 
+.approval {
+    margin: 0 2 1 2;
+    padding: 1 2;
+    background: rgba(70, 194, 179, 0.10);
+    border: round rgba(70, 194, 179, 0.45);
+    color: $eclipse-text;
+}
+
 HelpScreen {
     align: center middle;
     background: rgba(23, 25, 28, 0.92);

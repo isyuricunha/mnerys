@@ -60,6 +60,8 @@ class ChatScreen(Screen[None]):
     BINDINGS = [
         Binding("escape", "cancel_turn", "Cancel turn", priority=True, show=False),
         Binding("ctrl+s", "open_sessions", "Sessions", priority=True, show=False),
+        Binding("a", "approve", "Approve", priority=True, show=False),
+        Binding("d", "deny", "Deny", priority=True, show=False),
     ]
 
     def __init__(self, client, session_id: str, *, session_name: str = ""):
@@ -69,6 +71,8 @@ class ChatScreen(Screen[None]):
         self.session_name = session_name
         self.session_model: str | None = None
         self.active_pump: TurnPump | None = None
+        self.pending_approval_id: str | None = None
+        self._approval_bar = None
         self._active_message: AssistantMessage | None = None
         self._active_tracker: TurnTracker | None = None
 
@@ -189,6 +193,12 @@ class ChatScreen(Screen[None]):
                 await self.conversation.mount(SystemNotice(
                     tool_line(kind, tracker.tool_events[-1][1]),
                 ))
+            elif kind == "approval.requested":
+                await self._show_approval(tracker.approval_id)
+            elif kind == "approval.decided":
+                await self._clear_approval()
+            elif kind == "turn.awaiting_approval":
+                await self._show_approval(tracker.approval_id)
             elif kind == "message.delta":
                 block.set_text(tracker.rendered_text)
                 self.conversation.scroll_end(animate=False, force=True)
@@ -213,6 +223,61 @@ class ChatScreen(Screen[None]):
             self.conversation.scroll_end(animate=False, force=True)
 
         self.run_worker(finish, exclusive=True, group=f"turn-{turn_id}")
+
+    async def _show_approval(self, approval_id) -> None:
+        """Mount one human-readable pending approval card (display only)."""
+        from mnerys_cli.tui.widgets import ApprovalBar
+
+        if self.pending_approval_id == approval_id and self._approval_bar is not None:
+            return
+        approval_id = str(approval_id or "")
+        if not approval_id:
+            await self.conversation.mount(SystemNotice(
+                "the Gateway requested an approval without an id",
+                tone="error",
+            ))
+            return
+        self.pending_approval_id = approval_id
+        bar = ApprovalBar(approval_id, "the Gateway needs a decision")
+        self._approval_bar = bar
+        await self.conversation.mount(bar)
+        self.conversation.scroll_end(animate=False, force=True)
+        try:
+            payload = await self.client.approval_preview(approval_id, self.session_id)
+            if isinstance(payload, dict) and payload.get("question"):
+                bar.update(
+                    f"[b]Approval required[/b]  {escape(str(payload['question']))}\n"
+                    "[class='help-line']a approve · d deny · escape dismiss[/]",
+                )
+        except MnerysCliError:
+            pass  # the pending state itself is still true; the card stays
+
+    async def _clear_approval(self) -> None:
+        self.pending_approval_id = None
+        self._approval_bar = None
+
+    async def action_approve(self) -> None:
+        await self._decide("approve")
+
+    async def action_deny(self) -> None:
+        await self._decide("deny")
+
+    async def _decide(self, decision: str) -> None:
+        """Submit one decision through the sealed server store."""
+        approval_id = self.pending_approval_id
+        bar = self._approval_bar
+        if not approval_id or bar is None:
+            return
+        self.pending_approval_id = None
+        try:
+            result = await self.client.decide_approval(
+                approval_id, self.session_id, decision,
+            )
+        except MnerysCliError as exc:
+            bar.set_outcome(f"rejected by the Gateway: {exc}")
+            return
+        bar.set_outcome(str(result.get("status") or result.get("decision") or "decided"))
+        self._approval_bar = None
 
     def _tracker_is_live(self) -> bool:
         return self.active_pump is not None and not self.active_pump._cancel_requested
