@@ -12,7 +12,7 @@ import json
 import uuid
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from sqlalchemy import func
 
@@ -25,6 +25,21 @@ from src.upload_handler import reserve_message_upload_references
 from .models import set_session_manager_instance, get_session_manager_instance
 
 logger = logging.getLogger(__name__)
+
+# M2.2 write fencing: any in-flight session mutation must re-check the
+# persisted owner/revision/incarnation before committing. See
+# docs/architecture/SESSION_REVISION_MIGRATION.md and the stop condition
+# there: never mix a revisioned writer with an unguarded one on a
+# migrated schema.
+
+
+class SessionRevisionConflict(RuntimeError):
+    """A competing writer committed first; the caller's write is refused."""
+
+
+def _session_fencing_columns_present() -> bool:
+    """Whether the mapped Session model carries the fencing columns."""
+    return hasattr(DbSession, "revision") and hasattr(DbSession, "incarnation_id")
 
 
 def _message_timestamp_iso(value: Optional[datetime]) -> Optional[str]:
@@ -158,6 +173,8 @@ class SessionManager:
             max_tokens_override=getattr(db_session, "max_tokens_override", None),
             cwd=getattr(db_session, "cwd", None) or None,
             endpoint_id=getattr(db_session, "endpoint_id", None) or None,
+            revision=getattr(db_session, "revision", None),
+            incarnation_id=getattr(db_session, "incarnation_id", None),
         )
         session.message_count = getattr(db_session, "message_count", 0) or 0
         return session
@@ -224,6 +241,8 @@ class SessionManager:
             max_tokens_override=getattr(db_session, "max_tokens_override", None),
             cwd=getattr(db_session, "cwd", None) or None,
             endpoint_id=getattr(db_session, "endpoint_id", None) or None,
+            revision=getattr(db_session, "revision", None),
+            incarnation_id=getattr(db_session, "incarnation_id", None),
         )
 
         # The rows just loaded are the whole transcript, so they — not the
@@ -237,6 +256,70 @@ class SessionManager:
     # ------------------------------------------------------------------
     # Message operations
     # ------------------------------------------------------------------
+
+    def _apply_session_changes(
+        self,
+        db,
+        session_id: str,
+        changes: Dict[Any, Any],
+        *,
+        expected_owner: Optional[str] = None,
+        expected_incarnation: Optional[str] = None,
+        bump_revision: bool = True,
+    ) -> bool:
+        """Apply one metadata update under the revision/incarnation fence.
+
+        Unmigrated rows (revision or incarnation NULL) keep the legacy
+        unguarded write until the explicit migration backfills them; every
+        migrated row is updated in one guarded UPDATE keyed by
+        id + owner + incarnation + revision, so a competing writer makes the
+        update match zero rows and this write is refused instead of losing
+        updates. When the caller still holds a cached incarnation that no
+        longer matches the row (deleted and recreated session ID), the
+        stale writer is refused outright. Unmapped fencing columns keep
+        the legacy behavior.
+        """
+        if not _session_fencing_columns_present():
+            for column, value in changes.items():
+                setattr(
+                    db.query(DbSession).filter(DbSession.id == session_id).first(),
+                    getattr(column, "key", column), value,
+                )
+            return True
+        db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+        if db_session is None:
+            return False
+        incarnation = getattr(db_session, "incarnation_id", None)
+        revision = getattr(db_session, "revision", None)
+        # Strict native types only: a mocked or legacy row (NULL fence
+        # columns) keeps the unguarded write instead of pretending a fence.
+        if not (type(incarnation) is str and incarnation and type(revision) is int):
+            for column, value in changes.items():
+                setattr(db_session, getattr(column, "key", column), value)
+            return True
+        if (
+            type(expected_incarnation) is str and expected_incarnation
+            and expected_incarnation != incarnation
+        ):
+            raise SessionRevisionConflict(
+                f"Session {session_id} was recreated; stale writer refused"
+            )
+        query = db.query(DbSession).filter(
+            DbSession.id == session_id,
+            DbSession.incarnation_id == incarnation,
+            DbSession.revision == revision,
+        )
+        if expected_owner is not None:
+            query = query.filter(DbSession.owner == expected_owner)
+        update_values = dict(changes)
+        if bump_revision:
+            update_values[DbSession.revision] = revision + 1
+        matched = query.update(update_values, synchronize_session=False)
+        if matched != 1:
+            raise SessionRevisionConflict(
+                f"Session {session_id} changed concurrently; write refused"
+            )
+        return True
 
     def add_message(self, session_id: str, message: ChatMessage):
         """
@@ -319,16 +402,20 @@ class SessionManager:
             )
             db.add(db_message)
 
-            if session_id in self.sessions:
-                db_session.message_count = len(self.sessions[session_id].history)
-            else:
-                db_session.message_count = 0
             _now = datetime.now(timezone.utc)
-            db_session.last_accessed = _now
-            # Clean "last conversation" timestamp — only bumped here on a
-            # real message persist, so it powers an accurate "Last active"
-            # sort that ignores renames / model swaps / mere opens.
-            db_session.last_message_at = _now
+            # One fenced transaction: the message insert and the guarded
+            # counter/timestamp/revision update commit together. A competing
+            # writer (or an owner transfer) refuses this append instead of
+            # losing its update.
+            self._apply_session_changes(db, session_id, {
+                DbSession.message_count: (
+                    len(self.sessions[session_id].history)
+                    if session_id in self.sessions else 0
+                ),
+                DbSession.last_accessed: _now,
+                DbSession.last_message_at: _now,
+            }, expected_owner=getattr(cached_session, "owner", None),
+                expected_incarnation=getattr(cached_session, "incarnation_id", None))
 
             db.commit()
 
@@ -368,8 +455,10 @@ class SessionManager:
                 # keep_count can exceed the real message total (e.g. the AI tool
                 # defaults to keep_count=10 on a short session); message_count must
                 # track the rows that actually remain, not the requested cap.
-                db_session.message_count = min(keep_count, len(db_messages))
-                db_session.updated_at = datetime.now(timezone.utc)
+                self._apply_session_changes(db, session_id, {
+                    DbSession.message_count: min(keep_count, len(db_messages)),
+                    DbSession.updated_at: datetime.now(timezone.utc),
+                })
 
             db.commit()
 
@@ -436,10 +525,13 @@ class SessionManager:
                 # Do not expose IDs to caller-owned objects before commit.
                 committed_message_ids.append((message, msg_id))
 
-            db_session.message_count = len(messages)
-            db_session.updated_at = now
-            db_session.last_accessed = now
-            db_session.last_message_at = now
+            _now = datetime.now(timezone.utc)
+            self._apply_session_changes(db, session_id, {
+                DbSession.message_count: len(messages),
+                DbSession.updated_at: _now,
+                DbSession.last_accessed: _now,
+                DbSession.last_message_at: _now,
+            })
 
             db.commit()
             for message, msg_id in committed_message_ids:
@@ -530,6 +622,9 @@ class SessionManager:
             session.owner = getattr(db_session, "owner", None)
             session.is_important = getattr(db_session, "is_important", False) or False
             session.cwd = getattr(db_session, "cwd", None) or None
+            # Keep the cached fence in sync with the persisted lifetime.
+            session.revision = getattr(db_session, "revision", None)
+            session.incarnation_id = getattr(db_session, "incarnation_id", None)
             session.message_count = (
                 db.query(DbChatMessage)
                 .filter(DbChatMessage.session_id == session_id)
@@ -570,12 +665,37 @@ class SessionManager:
             db.close()
 
     def _touch_session(self, session_id: str):
-        """Update last_accessed timestamp."""
+        """Update last_accessed timestamp under the incarnation fence."""
         db = SessionLocal()
         try:
+            if not _session_fencing_columns_present():
+                db_session = db.query(DbSession).filter(
+                    DbSession.id == session_id
+                ).first()
+                if db_session:
+                    db_session.last_accessed = datetime.now(timezone.utc)
+                    db.commit()
+                return
             db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
             if db_session:
-                db_session.last_accessed = datetime.now(timezone.utc)
+                if db_session.incarnation_id is None:
+                    # Unmigrated legacy row.
+                    db_session.last_accessed = datetime.now(timezone.utc)
+                    db.commit()
+                    return
+                # A cosmetic touch never bumps the revision: it must not
+                # conflict with real writes, but it must never touch a
+                # recreated session lifetime either.
+                matched = db.query(DbSession).filter(
+                    DbSession.id == session_id,
+                    DbSession.incarnation_id == db_session.incarnation_id,
+                ).update({
+                    DbSession.last_accessed: datetime.now(timezone.utc),
+                }, synchronize_session=False)
+                if matched != 1:
+                    logger.warning(
+                        "Skipping touch for replaced session %s", session_id,
+                    )
                 db.commit()
         except Exception as e:
             logger.error(f"Error updating last_accessed: {e}")
@@ -601,6 +721,7 @@ class SessionManager:
         endpoint_id = (endpoint_id or "").strip() or None
         db = SessionLocal()
         try:
+            incarnation_id = uuid.uuid4().hex
             db_session = DbSession(
                 id=session_id,
                 name=name,
@@ -611,6 +732,8 @@ class SessionManager:
                 owner=owner,
                 cwd=cwd or None,
                 endpoint_id=endpoint_id,
+                revision=0,
+                incarnation_id=incarnation_id,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc)
             )
@@ -627,6 +750,8 @@ class SessionManager:
                 owner=owner,
                 cwd=cwd or None,
                 endpoint_id=endpoint_id,
+                revision=0,
+                incarnation_id=incarnation_id,
             )
 
             self.sessions[session_id] = session
@@ -691,18 +816,24 @@ class SessionManager:
     # ------------------------------------------------------------------
 
     def update_session_name(self, session_id: str, name: str):
-        """Update session name."""
+        """Update session name under the revision fence."""
         if session_id not in self.sessions:
             return
 
         db = SessionLocal()
         try:
-            db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
-            if db_session:
-                db_session.name = name
-                db_session.updated_at = datetime.now(timezone.utc)
-                db.commit()
-                self.sessions[session_id].name = name
+            self._apply_session_changes(db, session_id, {
+                DbSession.name: name,
+                DbSession.updated_at: datetime.now(timezone.utc),
+            }, expected_incarnation=getattr(
+                self.sessions[session_id], "incarnation_id", None,
+            ))
+            db.commit()
+            self.sessions[session_id].name = name
+        except SessionRevisionConflict as e:
+            db.rollback()
+            logger.error(f"Refused stale session rename: {e}")
+            raise
         except Exception as e:
             db.rollback()
             logger.error(f"Error updating session name: {e}")
@@ -711,18 +842,24 @@ class SessionManager:
             db.close()
 
     def archive_session(self, session_id: str):
-        """Archive a session."""
+        """Archive a session under the revision fence."""
         if session_id not in self.sessions:
             return
 
         db = SessionLocal()
         try:
-            db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
-            if db_session:
-                db_session.archived = True
-                db_session.updated_at = datetime.now(timezone.utc)
-                db.commit()
-                self.sessions[session_id].archived = True
+            self._apply_session_changes(db, session_id, {
+                DbSession.archived: True,
+                DbSession.updated_at: datetime.now(timezone.utc),
+            }, expected_incarnation=getattr(
+                self.sessions[session_id], "incarnation_id", None,
+            ))
+            db.commit()
+            self.sessions[session_id].archived = True
+        except SessionRevisionConflict as e:
+            db.rollback()
+            logger.error(f"Refused stale session archive: {e}")
+            raise
         except Exception as e:
             db.rollback()
             logger.error(f"Error archiving session: {e}")
@@ -731,19 +868,19 @@ class SessionManager:
             db.close()
 
     def mark_important(self, session_id: str, important: bool = True):
-        """Mark session as important."""
+        """Mark session as important under the revision fence."""
         db = SessionLocal()
         try:
-            db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
-            if db_session:
-                db_session.is_important = important
-                db_session.updated_at = datetime.now(timezone.utc)
-                db.commit()
-
-                if session_id in self.sessions:
-                    self.sessions[session_id].is_important = important
-            else:
+            applied = self._apply_session_changes(db, session_id, {
+                DbSession.is_important: important,
+                DbSession.updated_at: datetime.now(timezone.utc),
+            })
+            if not applied:
                 raise KeyError(f"Session {session_id} not found")
+            db.commit()
+
+            if session_id in self.sessions:
+                self.sessions[session_id].is_important = important
         except Exception as e:
             db.rollback()
             logger.error(f"Error marking session important: {e}")
@@ -813,9 +950,27 @@ class SessionManager:
                             created = created.replace(tzinfo=timezone.utc)
                         if created > min_age:
                             continue  # Too young to delete
+                    # Fenced delete: a message that arrived after this
+                    # cleanup read bumped the row's revision/counter, so the
+                    # guarded DELETE matches nothing and the session
+                    # survives with its new message.
+                    delete_query = db.query(DbSession).filter(
+                        DbSession.id == db_session.id,
+                        DbSession.message_count == 0,
+                    )
+                    if _session_fencing_columns_present():
+                        delete_query = delete_query.filter(
+                            DbSession.incarnation_id == db_session.incarnation_id,
+                            DbSession.revision == db_session.revision,
+                        )
+                    if delete_query.delete(synchronize_session=False) != 1:
+                        logger.info(
+                            "Cleanup skipped session %s: it changed concurrently",
+                            db_session.id,
+                        )
+                        continue
                     if db_session.id in self.sessions:
                         del self.sessions[db_session.id]
-                    db.delete(db_session)
                     stats['deleted_empty'] += 1
 
                 # Archive old sessions
@@ -824,7 +979,9 @@ class SessionManager:
                       db_session.last_accessed < cutoff_date and
                       db_session.message_count > 0 and
                       not getattr(db_session, 'is_important', False)):
-                    db_session.archived = True
+                    self._apply_session_changes(db, db_session.id, {
+                        DbSession.archived: True,
+                    })
                     stats['archived_old'] += 1
 
             db.commit()

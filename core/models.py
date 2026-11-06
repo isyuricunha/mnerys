@@ -129,6 +129,11 @@ class Session:
     # URL-matched). Lets two endpoints that share a provider URL but not
     # credentials stay distinguishable.
     endpoint_id: Optional[str] = None
+    # M2.2 write fencing: the persisted revision/incarnation of this
+    # session lifetime. None on unmigrated rows; guarded writers fail
+    # closed rather than guess when these are missing.
+    revision: Optional[int] = None
+    incarnation_id: Optional[str] = None
 
     def __post_init__(self):
         if self.headers is None:

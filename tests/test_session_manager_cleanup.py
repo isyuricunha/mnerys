@@ -22,6 +22,8 @@ def test_cleanup_empty_sessions_archives_old_naive_last_accessed(monkeypatch):
     )
     db = MagicMock()
     db.query.return_value.all.return_value = [old_session]
+    # The fenced archive path re-reads the row before the guarded update.
+    db.query.return_value.filter.return_value.first.return_value = old_session
 
     monkeypatch.setattr(SM, "SessionLocal", lambda: db)
     monkeypatch.setattr(SM, "utcnow_naive", lambda: datetime(2026, 6, 4, 12, 0, 0))
