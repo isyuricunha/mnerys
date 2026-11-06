@@ -46,9 +46,10 @@ from src.gateway_tool_intent import select_admitted_tool_intent
 from src.gateway_routed_contract import resolve_admitted_routed_contract
 from src.gateway_agent_execution import stream_admitted_agent_turn
 from src.gateway_attachment_context import (
-    validate_text_attachment_ids, resolve_admitted_text_attachments,
+    validate_text_attachment_ids, resolve_admitted_attachments,
 )
 from src.prompt_security import untrusted_context_message
+from src.upload_limits import get_chat_upload_max_bytes
 from src.gateway_foreground_routes import (
     resolve_admitted_foreground_policy, build_admitted_foreground_routes,
 )
@@ -126,6 +127,11 @@ class TrustedTextTurnSettings:
     # ChatHandler URL/YouTube/vision probes and lets memory/RAG inject, as in
     # the ordinary Web path; False keeps the original tools-disabled behavior.
     allow_tool_preprocessing: bool = False
+    # Server-selected upload media contract for composed attachments. "text"
+    # keeps the original bounded UTF-8 text profile; "text_and_image" also
+    # admits owner-checked image uploads for non-persisting vision turns.
+    # Selected by the trusted adapter, never by request fields.
+    attachment_profile: str = "text"
     # A server-selected M2.1 profile may persist a single native manage_notes
     # turn through the inherited writers. Tool permissions and
     # approval consumption remain owned by the Agent Loop and dispatcher.
@@ -294,6 +300,18 @@ async def stream_composed_text_turn(
         # never resume a persisted approval; the Web incognito path owns any
         # legacy approval continuation outside this composer.
         raise AdmissionDenied(403, "Incognito composed turns cannot persist or resume approvals")
+    if (
+        type(settings.attachment_profile) is not str
+        or settings.attachment_profile not in {"text", "text_and_image"}
+    ):
+        raise AdmissionDenied(403, "Invalid trusted attachment profile")
+    if settings.attachment_profile == "text_and_image" and (
+        not settings.allow_tool_preprocessing or persistence is not None
+    ):
+        # Image turns run the inherited ChatHandler vision probes and stay
+        # non-persisting in this slice; persisted multimodal writes remain
+        # inherited Web behavior until the persistence wrapper covers them.
+        raise AdmissionDenied(403, "Image attachments require enabled preprocessing and a non-persisting turn")
     native_tool_persistence = bool(
         persistence is not None and settings.persist_verified_native_tools
     )
@@ -523,9 +541,11 @@ async def stream_composed_text_turn(
     # The server upload manifest is checked again after async processing to
     # reject missing, substituted or rewritten file snapshots.
     upload_handler = getattr(chat_handler, "upload_handler", None)
-    attachments = resolve_admitted_text_attachments(
+    attachments = resolve_admitted_attachments(
         attachment_ids=attachment_ids, owner=owner,
         upload_handler=upload_handler, ports=ports,
+        profile=settings.attachment_profile,
+        max_chat_upload_bytes=get_chat_upload_max_bytes(),
     )
 
     # The real shared context algorithm is used unchanged with the injected
@@ -569,31 +589,42 @@ async def stream_composed_text_turn(
     )
     if not isinstance(context.messages, list):
         raise AdmissionDenied(403, "Invalid composed model context")
-    # Context composition never writes conversation messages here. New user
-    # input is appended only to the invocation; a resumed control restores
-    # the originating context without appending the approval choice.
-    if not isinstance(context.preprocessed.user_content, str):
-        raise AdmissionDenied(403, "Direct composer supports text messages only")
+    # Persisted composed turns require text-only preprocessing; a
+    # non-persisting image turn may pass multimodal user content straight
+    # through to the model without ever extracting it as conversation text.
+    if persistence is not None and not isinstance(context.preprocessed.user_content, str):
+        raise AdmissionDenied(403, "Persisted composed turns require text messages")
     attachment_text = None
     if attachment_ids:
+        if resolve_admitted_attachments(
+            attachment_ids=attachment_ids, owner=owner,
+            upload_handler=upload_handler, ports=ports,
+            profile=settings.attachment_profile,
+            max_chat_upload_bytes=get_chat_upload_max_bytes(),
+        ) != attachments:
+            raise AdmissionDenied(409, "Selected attachment changed during preparation")
         if (
-            resolve_admitted_text_attachments(
-                attachment_ids=attachment_ids, owner=owner,
-                upload_handler=upload_handler, ports=ports,
-            ) != attachments
-            or context.auto_opened_docs
+            context.auto_opened_docs
             or len(context.preprocessed.attachment_meta) != len(attachment_ids)
             or tuple(item.get("id") for item in context.preprocessed.attachment_meta
                      if isinstance(item, dict)) != attachment_ids
             or len(context.uploaded_files) != len(attachment_ids)
             or tuple(item.get("id") for item in context.uploaded_files
                      if isinstance(item, dict)) != attachment_ids
-            or not context.preprocessed.user_content.startswith(message)
         ):
-            raise AdmissionDenied(409, "Selected text attachment changed during preparation")
-        attachment_text = context.preprocessed.user_content[len(message):].strip()
-        if not attachment_text or len(attachment_text) > 65536:
-            raise AdmissionDenied(409, "Unsupported direct attachment content")
+            raise AdmissionDenied(409, "Selected attachment changed during preparation")
+        if any(item.kind == "image" for item in attachments):
+            if not isinstance(context.preprocessed.user_content, (str, list)):
+                raise AdmissionDenied(409, "Unsupported composed attachment content")
+        else:
+            if (
+                not isinstance(context.preprocessed.user_content, str)
+                or not context.preprocessed.user_content.startswith(message)
+            ):
+                raise AdmissionDenied(409, "Selected text attachment changed during preparation")
+            attachment_text = context.preprocessed.user_content[len(message):].strip()
+            if not attachment_text or len(attachment_text) > 65536:
+                raise AdmissionDenied(409, "Unsupported direct attachment content")
 
         if persist_uploaded_text:
             # Revalidate admission and seal first. Persist only the human
