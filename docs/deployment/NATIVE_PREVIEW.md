@@ -124,6 +124,30 @@ with its test sessions afterwards; this is separate from Yuri's manual
 logged-in validation of the legacy path on the same day. Commit
 `7f4aa8b5a32a` carried the rollout; later commits carry these records.
 
+## Cutover configuration persistence (November 6, 2026)
+
+The Web cutover (`MNERYS_M21_WEB_CORE_CUTOVER`) is an explicitly managed
+operator setting in the private runtime environment file consumed by the
+systemd unit (`EnvironmentFile=`). The native deployment runner promotes
+releases by rewriting only the `ODYSSEUS_SOURCE_COMMIT` line of that file,
+so the cutover setting survives candidate preparation, release promotion,
+restart and compatible rollback unchanged. After every promoted restart
+the runner verifies that the live service process actually carries the
+expected setting (it reads `/proc/<pid>/environ` through the unit's
+MainPID) and fails the deployment if the effective configuration drifts;
+a hardcoded default is never used, so a deliberately disabled flag is
+never silently re-enabled.
+
+**Disabling the cutover for emergency rollback:** remove (or comment) the
+`MNERYS_M21_WEB_CORE_CUTOVER=1` line in the private runtime environment
+file and restart the application service; the legacy Web path returns
+without any database or data change. A subsequent deployment preserves
+the disabled state.
+
+New or unmigrated installations keep the default legacy behavior: the
+flag is only ever set explicitly by an operator who has completed the
+migration and acceptance requirements.
+
 ## Rollback and retired service
 
 For normal startup failures the runner attempts a verified rollback to the previously healthy code, keeping the original data and backup intact. If rollback itself fails or the database schema changes, preserve the backup, stop unsafe operations and investigate before any manual state restoration. Do not restore persistent data blindly; coordinate migrations and validate compatibility.

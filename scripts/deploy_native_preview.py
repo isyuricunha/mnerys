@@ -133,6 +133,29 @@ def update_source_commit(contents: str, sha: str) -> str:
     return contents[:match.start()] + "ODYSSEUS_SOURCE_COMMIT=" + sha + contents[match.end():]
 
 
+def effective_cutover_active(service_name: str, proc_root: Path = Path("/proc")) -> bool:
+    """Whether the running service process has the Web cutover enabled.
+
+    The native runner carries the private environment file across releases
+    and systemd injects it into the process; this check reads the effective
+    environment of the live process so drift (a manually disabled flag, a
+    stale unit or a failed EnvironmentFile load) is detected instead of
+    silently serving the legacy path.
+    """
+    output = call(
+        ["systemctl", "--user", "show", service_name, "-p", "MainPID"],
+        timeout=15,
+    ).strip()
+    pid = output.split("=", 1)[-1].strip()
+    if not pid.isdigit():
+        raise DeployError("Cannot resolve the running service process")
+    environ = proc_root / pid / "environ"
+    try:
+        return b"MNERYS_M21_WEB_CORE_CUTOVER=1" in environ.read_bytes()
+    except OSError as exc:
+        raise DeployError("Cannot read the running service environment") from exc
+
+
 def public_endpoint(private: Path) -> str:
     portfile = private / "preview.port"
     try:
@@ -503,6 +526,13 @@ def deploy(repo: Path, home: Path, dry_run: bool = False) -> dict:
             call(["systemctl", "--user", "restart", service_name], timeout=75)
             poll_live(base, revision)
             trusted_readiness(candidate, python, envfile)
+            if (
+                "MNERYS_M21_WEB_CORE_CUTOVER=1" in envfile.read_text()
+                and not effective_cutover_active(service_name)
+            ):
+                raise DeployError(
+                    "Web cutover configuration is not active in the running process",
+                )
             if sql_schema(data) != schema_before or (
                 backend == "postgresql"
                 and postgres_schema_signature(python, envfile) != postgres_before
