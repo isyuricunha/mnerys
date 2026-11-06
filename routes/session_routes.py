@@ -327,25 +327,11 @@ def _persist_session_headers(session_id: str, headers: dict | None) -> bool:
     return False
 
 
-_HIDDEN_SYSTEM_SESSION_NAMES = {
-    "[Task] Chat Sessions Tidy",
-    "[Task] Documents Tidy",
-    "[Task] Memory Tidy",
-    "[Task] Research Tidy",
-    "[Task] Email Mark Boundaries",
-    "[Task] Email Tags",
-    "[Task] Skills Audit",
-}
-
-
 def _is_hidden_session_name(name: str | None) -> bool:
     """Return whether a session should be omitted from the sidebar list."""
-    clean = (name or "").strip()
-    return (
-        clean in ("Nobody", "Incognito")
-        or clean in _HIDDEN_SYSTEM_SESSION_NAMES
-        or clean.startswith("SFT trace batch ")
-    )
+    from src.gateway_session_store import is_hidden_session_name
+
+    return is_hidden_session_name(name)
 
 
 def _pick_endpoint_for_sort(owner=None):
