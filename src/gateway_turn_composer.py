@@ -6,10 +6,12 @@ and immutable routed contract. Tools remain disabled by default. An explicitly
 server-selected session workspace can accompany native-only tools and sealed
 native approvals; filesystem actions require the original sealed resource
 snapshot and matching admitted workspace. Unbound effects remain unsupported.
-Conversation persistence is separately opt-in for plain text and one tightly
-scoped native manage_notes profile. That profile now accepts a sealed,
-process-local approval continuation only after checking the original confirmed
-user receipt; no second user append or durable approval fence is implied.
+Conversation persistence is separately opt-in for plain text and for a
+server-selected native tool surface (originally manage_notes, now any
+offered native tool set) through the inherited writers. That profile accepts
+a sealed, process-local approval continuation only after checking the
+original confirmed user receipt; no second user append or durable approval
+fence is implied by itself.
 The Web production tool cutover is not enabled.
 This is not a remote client entry point.
 """
@@ -357,11 +359,9 @@ async def stream_composed_text_turn(
     )
     if settings.persist_verified_native_tools and (
         not native_tool_persistence
-        or settings.offered_tools != frozenset({"manage_notes"})
+        or not settings.offered_tools
         or settings.interaction_mode != "agent"
         or attachment_ids
-        or settings.workspace is not None
-        or settings.active_document_id is not None
     ):
         raise AdmissionDenied(403, "Unsupported persisted native tool profile")
     if persistence is not None:
@@ -369,8 +369,8 @@ async def stream_composed_text_turn(
         if (
             (tools_enabled and not native_tool_persistence)
             or (continuation and not native_tool_persistence)
-            or settings.workspace is not None
-            or settings.active_document_id is not None
+            or (settings.workspace is not None and not native_tool_persistence)
+            or (settings.active_document_id is not None and not native_tool_persistence)
         ):
             raise AdmissionDenied(403, "Persisted direct turns require plain text without tools or approvals")
     if tools_enabled and native_terminal_events:

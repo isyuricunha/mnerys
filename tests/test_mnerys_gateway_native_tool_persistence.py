@@ -214,8 +214,8 @@ async def test_pending_native_review_is_not_a_saved_assistant_or_partial(monkeyp
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid", [
-    "no_optin", "no_tools", "other_tools", "no_persistence",
-    "bad_flag", "chat_mode", "workspace", "document",
+    "no_optin", "no_tools", "no_persistence",
+    "bad_flag", "chat_mode", "wrong_workspace",
     "attachment", "continuation",
 ])
 async def test_invalid_persisted_native_tool_profile_has_no_context_io(monkeypatch, invalid):
@@ -225,18 +225,16 @@ async def test_invalid_persisted_native_tool_profile_has_no_context_io(monkeypat
         options["settings"] = replace(current, persist_verified_native_tools=False)
     elif invalid == "no_tools":
         options["settings"] = replace(current, offered_tools=frozenset())
-    elif invalid == "other_tools":
-        options["settings"] = replace(current, offered_tools=frozenset({"bash"}))
     elif invalid == "no_persistence":
         options["persistence"] = None
     elif invalid == "bad_flag":
         options["settings"] = replace(current, persist_verified_native_tools="true")
     elif invalid == "chat_mode":
         options["settings"] = replace(current, interaction_mode="chat")
-    elif invalid == "workspace":
+    elif invalid == "wrong_workspace":
+        # Any offered native tool set may persist now, but the selected
+        # workspace must still be the admitted session's own workspace.
         options["settings"] = replace(current, workspace="/example")
-    elif invalid == "document":
-        options["settings"] = replace(current, active_document_id="example-doc")
     elif invalid == "attachment":
         options["request"] = TextTurnRequest("List my notes", ("note.md",))
     else:
