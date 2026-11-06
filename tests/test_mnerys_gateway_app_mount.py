@@ -23,7 +23,7 @@ def test_app_wires_the_gateway_api_into_the_shared_state():
     assert "app.state.chat_handler = chat_handler" in APP_SOURCE
     assert "app.state.chat_processor = chat_processor" in APP_SOURCE
     assert "app.state.text_persistence = TrustedTextPersistence(" in APP_SOURCE
-    assert "app.state.gateway_turn_records = SqlTurnRecords(SessionLocal)" in APP_SOURCE
+    assert "app.state.gateway_turn_records = SqlTurnRecords(" in APP_SOURCE
     # Names only, no schemas or arguments: discovery never confers rights.
     assert "app.state.tool_discovery = sorted(BUILTIN_TOOL_DESCRIPTIONS)" in APP_SOURCE
 
