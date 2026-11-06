@@ -99,7 +99,11 @@ class AsyncGatewayClient:
             response = await self._client.send(request, stream=True)
         except httpx.TransportError as exc:
             raise MnerysCliError(f"Could not reach {self.endpoint}: {exc}") from exc
-        _raise_for_status(response, self.endpoint)
+        try:
+            _raise_for_status(response, self.endpoint)
+        except Exception:
+            await response.aclose()
+            raise
         try:
             buffer = ""
             async for chunk in response.aiter_text():
