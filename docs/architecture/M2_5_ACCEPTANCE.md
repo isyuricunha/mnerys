@@ -30,6 +30,10 @@ tables are installed only by the explicit, approval-gated migrations.
   console errors. The Web chat cutover switch stays OFF until the owner
   validates the logged-in chat parity; nothing in the documented M2
   acceptance requires the switch to be on.
+- **Owner logged-in validation (2026-11-06):** the owner confirmed the
+  preview chat works in the browser with real authorized models; this was
+  the last human acceptance step. M2 implementation, validation and the
+  authorized preview rollout are complete.
 - The photo-editor browser release-gate suite still requires the full
   local development boot and remains outside this environment and the CI
   jobs; the gateway-notes browser suites (5) and browser-to-HTTP

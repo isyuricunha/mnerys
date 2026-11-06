@@ -110,9 +110,11 @@ the startup schema guard remains fail-closed for the application.
 
 The production Web turn can run through the Gateway composition behind the
 disabled-by-default `MNERYS_M21_WEB_CORE_CUTOVER` switch; the preview
-keeps the legacy path until the operator deliberately flips it after the
-logged-in parity validation. Commit `7f4aa8b5a32a` includes this page's
-rollout record.
+keeps the legacy path until the operator deliberately flips it.
+**Owner logged-in validation passed 2026-11-06:** the owner tested the
+preview chat in the browser (two turns answered by two different real
+authorized models, sidebar areas and usage display rendered normally).
+Commit `7f4aa8b5a32a` includes this page's rollout record.
 
 ## Rollback and retired service
 
