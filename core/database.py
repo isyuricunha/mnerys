@@ -248,6 +248,15 @@ class Session(TimestampMixin, Base):
     mode = Column(String, nullable=True)  # 'agent', 'chat', or 'research'
     crew_member_id = Column(String, nullable=True)  # links to crew_members.id
 
+    # M2.2 write fencing (additive migration; see
+    # docs/architecture/SESSION_REVISION_MIGRATION.md). `revision` is the
+    # monotonic write counter for this session lifetime and `incarnation_id`
+    # identifies one lifetime of this session ID (recreated sessions get a
+    # new one). Both stay NULL on legacy rows until the explicit migration
+    # backfills them; guarded writers fail closed on NULL rather than guess.
+    revision = Column(Integer, nullable=True, default=None)
+    incarnation_id = Column(String, nullable=True, default=None, index=True)
+
     # Relationship to chat messages
     messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
     
@@ -326,6 +335,10 @@ class BackgroundToolJob(Base):
     payload = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
     message_id = Column(String, nullable=True)
+    # M2.2 write fencing: the session incarnation this job was created
+    # under. Jobs registered before the backfill stay NULL and are never
+    # delivered through a fenced writer.
+    origin_incarnation_id = Column(String, nullable=True, default=None)
     created_at = Column(DateTime, default=utcnow_naive)
 
 
