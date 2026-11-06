@@ -108,9 +108,10 @@ class HelpScreen(ModalScreen[None]):
                 ("q / ctrl+q", "exit Mnerys (cancels an active turn first)"),
                 ("?", "show this help"),
                 ("r", "re-check the Gateway connection"),
+                ("ctrl+s", "open the session list"),
                 ("enter", "send the composed message"),
                 ("alt+enter", "insert a newline in the composer"),
-                ("escape", "cancel the streaming turn"),
+                ("escape", "cancel the streaming turn / close a modal"),
             ):
                 yield Label(
                     f"[class='help-keys']{keys}[/]  [class='help-line']{description}[/]",

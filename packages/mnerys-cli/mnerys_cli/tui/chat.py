@@ -8,6 +8,7 @@ pump applies exactly once. All input is untrusted; nothing renders raw.
 import logging
 import uuid
 
+from rich.markup import escape
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
@@ -58,6 +59,7 @@ class ChatScreen(Screen[None]):
 
     BINDINGS = [
         Binding("escape", "cancel_turn", "Cancel turn", priority=True, show=False),
+        Binding("ctrl+s", "open_sessions", "Sessions", priority=True, show=False),
     ]
 
     def __init__(self, client, session_id: str, *, session_name: str = ""):
@@ -65,12 +67,15 @@ class ChatScreen(Screen[None]):
         self.client = client
         self.session_id = session_id
         self.session_name = session_name
+        self.session_model: str | None = None
         self.active_pump: TurnPump | None = None
         self._active_message: AssistantMessage | None = None
         self._active_tracker: TurnTracker | None = None
 
     def compose(self):
         with Vertical():
+            self.header = SystemNotice("", tone="muted")
+            yield self.header
             self.conversation = VerticalScroll(id="conversation")
             yield self.conversation
             yield ChatInput(
@@ -79,7 +84,13 @@ class ChatScreen(Screen[None]):
             )
 
     async def on_mount(self) -> None:
+        self._update_header()
         await self.reload_history()
+
+    def _update_header(self) -> None:
+        name = escape(self.session_name or self.session_id)
+        model = escape(self.session_model or "default")
+        self.header.update(f"[b]{name}[/]  [class='help-line']model {model} · ctrl+s sessions[/]")
 
     async def reload_history(self) -> None:
         """Load the persisted conversation from the Gateway (never local)."""
@@ -91,9 +102,39 @@ class ChatScreen(Screen[None]):
                 SystemNotice(f"could not load history: {exc}", tone="error"),
             )
             return
+        meta = detail.get("session") or {}
+        self.session_model = meta.get("model") or self.session_model
+        self._update_header()
         for entry in detail.get("history", []):
             await self._mount_history_entry(entry)
         self.conversation.scroll_end(animate=False, force=True)
+
+    async def action_open_sessions(self) -> None:
+        from mnerys_cli.tui.sessions import SessionsScreen
+
+        def on_model_changed(model: str) -> None:
+            self.session_model = model
+            self._update_header()
+
+        screen = SessionsScreen(
+            self.client, self.session_id, current_model=self.session_model,
+            on_model_changed=on_model_changed,
+        )
+        self.app.push_screen(screen, callback=self._on_session_picked)
+
+    async def _on_session_picked(self, selected) -> None:
+        if not selected:
+            return
+        # Replace this conversation with the newly selected session.
+        opened = await self.client.session_detail(selected)
+        meta = opened.get("session") or {}
+        name = str(meta.get("name") or "")
+        new_chat = ChatScreen(
+            self.client, selected, session_name=name,
+        )
+        new_chat.session_model = meta.get("model") or None
+        self.app.pop_screen()
+        await self.app.push_screen(new_chat)
 
     async def _mount_history_entry(self, entry: dict) -> None:
         role = str(entry.get("role", ""))
