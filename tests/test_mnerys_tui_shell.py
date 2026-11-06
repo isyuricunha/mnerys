@@ -30,30 +30,42 @@ def _client(handler) -> AsyncGatewayClient:
 
 def _healthy_client(models=2, agents=1) -> AsyncGatewayClient:
     def handler(request):
-        if request.url.path == "/api/health":
+        path = request.url.path
+        if path == "/api/health":
             return _ok({"status": "ok"})
-        if request.url.path == "/api/v1/models":
+        if path == "/api/v1/models":
             return _ok({"models": [
                 {"id": "m1", "host": "example.com"},
                 {"id": "m2", "host": "example.com"},
             ][:models]})
-        if request.url.path == "/api/v1/agents":
+        if path == "/api/v1/agents":
             return _ok({"agents": [{"id": "chat", "modes": ["chat", "agent"]}] * agents})
+        if path == "/api/v1/sessions":
+            return _ok({"sessions": [
+                {"id": "s1", "name": "Recent", "model": "m1", "mode": "chat"},
+            ]})
+        if path == "/api/v1/sessions/s1":
+            return _ok({
+                "session": {"id": "s1", "name": "Recent", "model": "m1", "mode": "chat"},
+                "history": [], "total": 0, "offset": 0, "limit": 200,
+                "has_more_before": False, "has_more_after": False,
+            })
         return _ok({}, 404)
 
     return _client(handler)
 
 
 async def _settle(pilot, needle: str, tries=40):
-    """Pump the app until a worker-driven text lands (bounded wait)."""
+    """Pump the app until a text lands on ANY screen (bounded wait)."""
     from textual.widgets import Static
 
     texts = ""
     for _ in range(tries):
         await pilot.pause(0.05)
-        texts = " | ".join(
-            str(static.render()) for static in pilot.app.query(Static)
-        )
+        parts: list[str] = []
+        for screen in pilot.app.screen_stack:
+            parts += [str(static.render()) for static in screen.query(Static)]
+        texts = " | ".join(parts)
         if needle in texts:
             return texts
     raise AssertionError(f"'{needle}' never appeared: {texts}")
@@ -65,8 +77,6 @@ async def test_headless_boot_reports_a_real_connection():
         texts = await _settle(pilot, "connected as default profile")
         assert "2 visible" in texts
         assert "http://gateway.test" in texts
-        # No fake capability claims: the dashboard names the next surfaces.
-        assert "M4.3/M4.4" in texts
 
 
 async def test_help_screen_opens_and_closes():
@@ -90,7 +100,7 @@ async def test_unreachable_gateway_is_an_explicit_error_state():
     app = MnerysTui(_client(handler), "http://gateway.test")
     async with app.run_test(size=(100, 30)) as pilot:
         texts = await _settle(pilot, "Gateway unreachable")
-        assert "error" in pilot.app.query_one("#connection-status").classes
+        assert "error" in pilot.app.screen.query_one("#connection-status").classes
 
 
 async def test_rejected_credentials_are_an_explicit_error_state():
@@ -102,7 +112,7 @@ async def test_rejected_credentials_are_an_explicit_error_state():
     app = MnerysTui(_client(handler), "http://gateway.test")
     async with app.run_test(size=(100, 30)) as pilot:
         await _settle(pilot, "Gateway rejected the connection")
-        assert "error" in pilot.app.query_one("#connection-status").classes
+        assert "error" in pilot.app.screen.query_one("#connection-status").classes
 
 
 async def test_profile_name_appears_in_the_connection_state():
