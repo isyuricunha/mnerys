@@ -792,7 +792,12 @@ app.include_router(setup_model_routes(model_discovery))
 # Gateway API v1: the same control plane the Web cutover uses, exposed to
 # authorized remote clients. Only names and metadata are advertised here;
 # execution, ownership and approvals stay in the shared services.
-from core.database import ModelEndpoint
+from core.database import (
+    GatewayApproval as _GatewayApproval,
+    GatewayTurn as _GatewayTurn,
+    GatewayTurnEvent as _GatewayTurnEvent,
+    ModelEndpoint,
+)
 from routes.gateway_api import router as gateway_api_router
 from routes.chat_helpers import save_assistant_response
 from src.gateway_text_persistence import TrustedTextPersistence
@@ -839,10 +844,13 @@ app.state.model_discovery = _gateway_model_snapshot
 app.state.tool_discovery = sorted(BUILTIN_TOOL_DESCRIPTIONS)
 app.state.chat_handler = chat_handler
 app.state.chat_processor = chat_processor
+
 app.state.text_persistence = TrustedTextPersistence(
     session_manager, saver=save_assistant_response,
 )
-app.state.gateway_turn_records = SqlTurnRecords(SessionLocal)
+app.state.gateway_turn_records = SqlTurnRecords(
+    SessionLocal, _GatewayTurn, _GatewayTurnEvent, _GatewayApproval,
+)
 app.include_router(gateway_api_router)
 
 # GitHub Copilot device-flow login
