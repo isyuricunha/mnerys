@@ -312,5 +312,5 @@ class ChatScreen(Screen[None]):
             await self.client.cancel_turn(pump.turn_id, pump.session_id)
         except MnerysCliError as exc:
             await self.conversation.mount(SystemNotice(
-                f"cancel request failed: {exc}", tone="error",
+                f"cancel request failed: {safe_markup(exc)}", tone="error",
             ))

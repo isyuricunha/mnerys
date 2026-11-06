@@ -192,10 +192,10 @@ class MnerysTui(App[None]):
             agents = await self.client.agents()
         except Exception as exc:  # auth and network errors are user-facing
             status.add_class("error")
-            status.update(f"Gateway rejected the connection: {exc}")
+            status.update(f"Gateway rejected the connection: {safe_markup(exc)}")
             return
         status.add_class("ok")
-        status.update(f"connected as {self.profile or 'default'} profile")
+        status.update(f"connected as {safe_markup(self.profile or 'default')} profile")
         detail.update(
             f"[b]Endpoint[/b] {safe_markup(self.endpoint)}\n"
             f"[b]Version[/b] {safe_markup(self._version())}\n"

@@ -100,6 +100,56 @@ async def test_sessions_screen_lists_owner_sessions():
         await pilot.pause(0.1)
 
 
+async def test_session_names_with_control_characters_render_inert():
+    """Control characters in server session names never reach the widgets."""
+
+    def handler(request):
+        path = request.url.path
+        if path == "/api/v1/sessions" and request.method == "GET":
+            return _ok({"sessions": [
+                {"id": "evil", "name": "Bad\x1b[31mRed", "model": "m\x1b[32m1", "mode": "chat"},
+            ]})
+        if path == "/api/v1/models":
+            return _ok({"models": [{"id": "m1"}]})
+        if path == "/api/v1/sessions/s1":
+            return _ok({
+                "session": {"id": "s1", "name": "Alpha", "model": "m1", "mode": "chat"},
+                "history": [], "total": 0, "offset": 0, "limit": 200,
+                "has_more_before": False, "has_more_after": False,
+            })
+        if path == "/api/v1/sessions/evil":
+            return _ok({
+                "session": {"id": "evil", "name": "Bad\x1b[31mRed", "model": "m1", "mode": "chat"},
+                "history": [], "total": 0, "offset": 0, "limit": 200,
+                "has_more_before": False, "has_more_after": False,
+            })
+        return _ok({}, 404)
+
+    client = AsyncGatewayClient(
+        "http://gateway.test", "tok", transport=httpx.MockTransport(handler),
+    )
+    app = _Harness(client)
+    async with app.run_test(size=(110, 36)) as pilot:
+        await _settle(pilot, "model m1")
+        await pilot.press("ctrl+s")
+        await _settle(pilot, "Bad")
+        texts = " | ".join(
+            str(s.render())
+            for screen in app.screen_stack
+            for s in screen.query(Static)
+        )
+        assert "\x1b" not in texts
+        assert "Bad" in texts
+        await pilot.press("enter")
+        await _settle(pilot, "Bad")
+        after = " | ".join(
+            str(s.render())
+            for screen in app.screen_stack
+            for s in screen.query(Static)
+        )
+        assert "\x1b" not in after
+
+
 async def test_open_switches_to_the_selected_session():
     client, state = _session_gateway()
     app = _Harness(client)

@@ -8,7 +8,6 @@ ChatScreen so the current session survives ordinary navigation.
 
 import logging
 
-from rich.markup import escape
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.message import Message
@@ -79,7 +78,7 @@ class SessionsScreen(ModalScreen[str]):
         try:
             sessions = await self.client.sessions()
         except MnerysCliError as exc:
-            self.notice.update(f"[class='error']{escape(str(exc))}[/]")
+            self.notice.update(f"[class='error']{safe_markup(exc)}[/]")
             return
         self._items = sessions
         await self.list_view.clear()
@@ -91,13 +90,13 @@ class SessionsScreen(ModalScreen[str]):
             marker = "▸" if session_id == self.current_session_id else " "
             await self.list_view.append(
                 ListItem(Label(
-                    f"{marker} {escape(name)}  [class='help-line']{escape(model)} / {escape(mode)}[/]",
+                    f"{marker} {safe_markup(name)}  [class='help-line']{safe_markup(model)} / {safe_markup(mode)}[/]",
                     markup=True,
                 ), id=f"session-{session_id}"),
             )
 
     async def _notify(self, text: str) -> None:
-        self.notice.update(f"[class='error']{escape(text)}[/]")
+        self.notice.update(f"[class='error']{safe_markup(text)}[/]")
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         self.run_worker(self._open_highlighted(), exclusive=True, group="open-session")

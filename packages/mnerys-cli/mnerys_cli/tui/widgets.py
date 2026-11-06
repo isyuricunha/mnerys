@@ -98,7 +98,7 @@ class AssistantMessage(VerticalScroll):
 def tool_line(kind: str, payload: dict) -> str:
     """One human-readable tool status line (safe, bounded, no raw payloads)."""
     tool = payload.get("tool") or "tool"
-    tool = escape(str(tool))
+    tool = safe_markup(tool)
     round_number = payload.get("round")
     suffix = f" (round {round_number})" if isinstance(round_number, int) else ""
     if kind == "tool.started":
@@ -116,7 +116,7 @@ def tool_line(kind: str, payload: dict) -> str:
         return f"▸ tool {tool} blocked by server policy{suffix}"
     if kind == "tool.awaiting_approval":
         return f"▸ tool {tool} waits for an approval{suffix}"
-    return f"▸ tool {tool} {escape(kind[len('tool.'):])}{suffix}"
+    return f"▸ tool {tool} {safe_markup(kind[len('tool.'):])}{suffix}"
 
 
 def tracker_status_line(tracker: TurnTracker) -> str:
@@ -124,7 +124,7 @@ def tracker_status_line(tracker: TurnTracker) -> str:
     if tracker.status == "completed":
         return "turn completed"
     if tracker.status == "failed":
-        return f"turn failed ({escape(tracker.failure_code or 'unknown')})"
+        return f"turn failed ({safe_markup(tracker.failure_code or 'unknown')})"
     if tracker.status == "cancelled":
         return "turn cancelled"
     if tracker.status == "awaiting_approval":
