@@ -303,7 +303,12 @@ def _chat_stream_endpoint(
 
     router = chat_routes.setup_chat_routes(
         session_manager,
-        SimpleNamespace(),
+        SimpleNamespace(
+            upload_handler=None,
+            validate_and_extract_preset=lambda _preset: (
+                0.8, 256, "", "", {}, None,
+            ),
+        ),
         SimpleNamespace(),
         SimpleNamespace(),
         SimpleNamespace(),
