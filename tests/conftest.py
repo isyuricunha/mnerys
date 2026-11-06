@@ -7,6 +7,14 @@ from unittest.mock import MagicMock
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# The M3 CLI acceptance tests import the stand-alone package from
+# packages/mnerys-cli; keep that importable without installing anything.
+_CLI_PACKAGE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "packages", "mnerys-cli",
+)
+if os.path.isdir(_CLI_PACKAGE) and _CLI_PACKAGE not in sys.path:
+    sys.path.insert(0, _CLI_PACKAGE)
 
 # Isolate import-time database and filesystem defaults before collection.
 # File-backed databases remain fixture-owned. Cleanup restores the caller.

@@ -105,9 +105,18 @@ runtime.
 - Delegated credentials never decide approvals: an approval-required turn
   prints the pending state and the authorized approval path (for example
   the Web UI); the CLI does not simulate a browser approval.
-- The CLI validates the endpoint scheme (`http://` or `https://`) and
-  never disables TLS certificate verification.
+The CLI validates the endpoint scheme (`http://` or `https://`) and
+never disables TLS certificate verification.
 - Server responses are data: tool output is rendered as text, never
   executed or interpreted as instructions.
 - Private deployment details (Tailscale addresses, ports, tokens) are
   never part of CLI examples or fixtures.
+
+## Cross-platform status
+
+Linux is covered by the packaging, command and live acceptance tests on
+the CI runners, including UTF-8 output and signal handling. The
+configuration directory, executable naming and signal paths have
+explicit Windows and macOS branches, but those platforms are not yet
+verified on dedicated runners; treat them as implemented-but-unverified
+until acceptance evidence exists.
