@@ -1671,6 +1671,8 @@ class TaskScheduler:
                 model=model,
                 owner=task.owner,
                 folder="Tasks",
+                revision=0,
+                incarnation_id=uuid.uuid4().hex,
                 created_at=_utcnow(),
                 updated_at=_utcnow(),
             )
@@ -1858,6 +1860,8 @@ class TaskScheduler:
                 model=model_name or "",
                 owner=task.owner,
                 folder="Tasks",
+                revision=0,
+                incarnation_id=uuid.uuid4().hex,
                 created_at=_utcnow(),
                 updated_at=_utcnow(),
             )
@@ -2252,6 +2256,8 @@ class TaskScheduler:
                 model=model,
                 owner=task.owner,
                 folder="Tasks",
+                revision=0,
+                incarnation_id=uuid.uuid4().hex,
                 created_at=_utcnow(),
                 updated_at=_utcnow(),
             )
@@ -2806,6 +2812,8 @@ class TaskScheduler:
                 is_important=True,
                 mode="agent",
                 folder="Assistant",
+                revision=0,
+                incarnation_id=uuid.uuid4().hex,
                 created_at=_utcnow(),
                 updated_at=_utcnow(),
             )

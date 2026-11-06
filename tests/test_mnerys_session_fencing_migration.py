@@ -106,13 +106,18 @@ def test_apply_backfills_every_legacy_row_exactly_once(legacy_engine):
     assert len(set(incarnations)) == len(incarnations)
 
 
-def test_second_install_is_idempotent_and_flags_partial_backfill(legacy_engine):
+def test_second_install_is_idempotent_and_backfills_late_rows(legacy_engine):
     assert inspect_or_install(legacy_engine, apply=True) == "installed"
     assert inspect_or_install(legacy_engine, apply=True) == "already_installed"
     with legacy_engine.begin() as conn:
         conn.execute(text("update sessions set incarnation_id = null where id = 's1'"))
-    assert inspect_or_install(legacy_engine, apply=True) == "needs_backfill:1"
-    # A read-only check reports the same gap without repairing it.
+    # A row written after the first apply (an unfenced writer that has since
+    # been fixed) is repaired by the idempotent apply, never by the check.
+    assert inspect_or_install(legacy_engine, apply=True) == "backfilled"
+    assert inspect_or_install(legacy_engine, apply=True) == "already_installed"
+    # A read-only check still reports the gap without repairing it.
+    with legacy_engine.begin() as conn:
+        conn.execute(text("update sessions set incarnation_id = null where id = 's1'"))
     assert inspect_or_install(legacy_engine) == "needs_backfill:1"
 
 

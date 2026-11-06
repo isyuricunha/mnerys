@@ -61,6 +61,19 @@ def inspect_or_install(engine, *, apply: bool = False) -> str:
                 "select count(*) from sessions "
                 "where revision is null or incarnation_id is null"
             )).scalar()
+        if unfilled and apply:
+            with engine.begin() as conn:
+                rows = conn.execute(text(
+                    "select id from sessions "
+                    "where revision is null or incarnation_id is null"
+                )).fetchall()
+                for (session_id,) in rows:
+                    conn.execute(text(
+                        "update sessions set revision = 0, incarnation_id = :incarnation "
+                        "where id = :session_id "
+                        "and (revision is null or incarnation_id is null)"
+                    ), {"incarnation": uuid.uuid4().hex, "session_id": session_id})
+            return "backfilled"
         if unfilled:
             return f"needs_backfill:{unfilled}"
         return "already_installed"
