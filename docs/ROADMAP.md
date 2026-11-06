@@ -45,7 +45,7 @@ The diagram is a **target architecture**, not a claim that all components are al
 | Unified release versioning | Implemented | One version authority: semantic-release tags drive the CLI distribution at build time, and every release attaches a verified, version-matched CLI wheel and sdist |
 | Global `mnerys` executable | Implemented | The `mnerys` CLI is packaged (`packages/mnerys-cli`) and every release publishes a verified, version-matched wheel and sdist; install from GitHub Release assets or the repository |
 | Mnerys CLI | Implemented | Real console-script package with profiles, remote Gateway turns, a local `serve` mode and explicit exit codes; see [cli.md](cli.md) |
-| Mnerys TUI | Planned | Next client adapter on the shared Gateway contracts |
+| Mnerys TUI | In progress | Formal M4 submilestones recorded with exit gates; framework Textual 8.x; see the M4 implementation plan |
 | Unified Gateway and permissioned agent core | Planned | Existing interfaces/runtime must be audited and adapted |
 
 See [native preview deployment](deployment/NATIVE_PREVIEW.md) and [PostgreSQL 17 compatibility](deployment/POSTGRESQL17.md) for verified infrastructure details and limitations.
@@ -167,15 +167,46 @@ evidence](architecture/M3_ACCEPTANCE.md).
 
 ### M4 — First-party terminal UI (TUI)
 
-**Planned.**
+**In progress.** The implementation baseline is recorded in
+[M4_TUI_IMPLEMENTATION_PLAN.md](architecture/M4_TUI_IMPLEMENTATION_PLAN.md)
+(framework decision: **Textual 8.x**; architecture, streaming model,
+security model and acceptance matrix). Submilestones below are formal:
+each completes only when its exit gate passes with evidence; ordinary
+commits are not milestones.
 
-- Build a keyboard-first, responsive TUI using the **same Gateway and session/event contracts** as CLI and Web.
-- Include conversation history, session switching, agent/model selection, streamed replies, tool-call status, approval requests, cancellation and reconnection.
-- Use the Mnerys visual language (initially **Eclipse**) while respecting terminal color limitations, accessible contrast and reduced-motion preferences.
-- Keep TUI presentation technology an implementation decision: choose only after evaluating maintenance, platform support, client weight and interoperability with the Python package.
-- Do not fork the agent core or independently implement permission decisions in the TUI.
+- **M4.1 Gateway client surface:** owner-admitted v1 endpoints for session
+  creation, session metadata + persisted history, approval inspection and
+  the session model preference; async client methods in the CLI package.
+  *Gate:* negative admission tests against the real router and the CLI's
+  session-creation path working against it.
+- **M4.2 TUI foundation:** Textual app shell, `mnerys` interactive entry,
+  `mnerys tui [--profile]`, Eclipse theme, help and shortcut discovery,
+  graceful exit, optional `mnerys-cli[tui]` extra. *Gate:* headless
+  `run_test` boots the installed wheel's TUI; base install stays
+  lightweight.
+- **M4.3 Conversation experience:** persisted history rendering, streamed
+  turns with ordered, idempotent event application, cancellation,
+  reconnection with cursor replay, multiline compose, safe Markdown/code
+  blocks. *Gate:* streaming, cancellation and replay matrix rows pass and
+  escape-injection payloads render inert.
+- **M4.4 Sessions and discovery:** session list/create/switch, history
+  reload, agent/model selection within server permissions. *Gate:* Web/TUI
+  continuity rows pass against the real router in isolation.
+- **M4.5 Tools and approvals:** tool status rendering, human-readable
+  approval cards, decisions through the sealed server store, denial/expiry/
+  replay handling. *Gate:* approval matrix rows pass with server authority
+  intact.
+- **M4.6 Acceptance, packaging and publication:** full acceptance matrix
+  evidence, cross-platform CI results, packaging, docs, website and the
+  release. *Gate:* every M4 exit requirement evidenced; release published
+  with version-matched artifacts; website updated.
 
-**Done when:** a user can switch between Web and TUI and continue the same authorized conversation without losing state or bypassing approvals.
+The TUI uses the same Gateway/session/event contracts as CLI and Web, the
+Mnerys visual language (initially **Eclipse**) with terminal-appropriate
+contrast and reduced-motion support, and no fork of the agent core or any
+independent permission decision.
+
+**Done when:** a user can switch between Web and TUI and continue the same authorized conversation without losing state or bypassing approvals, all gates have evidence, and docs/website reflect the verified implementation.
 
 ### M5 — Web, CLI and TUI parity
 
