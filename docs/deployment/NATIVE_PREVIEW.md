@@ -80,7 +80,28 @@ The runner reads service names from protected private host files and uses a loca
 
 **Limitations and scope:** No concurrent live-version deployment is attempted; a short interruption is expected. `GET /api/ready` stays authenticated: the script checks its access guard externally and uses a **separate trusted local readiness check** for database and storage. Running two application processes against shared SQLite/background jobs is unsafe. Candidate tests validate code; they do **not** exercise a full second running instance. The rollback procedure automatically reverses **application code and service configuration**, not user data or an irreversible schema migration; those require review and explicit authorization. No automatic periodic deployment is configured: each rollout must be intentionally invoked.
 
-### Rollback and retired service
+#### M2 schema and feature switches (November 6, 2026)
+
+The M2 code adds three additive schema upgrades that **fail the app
+startup on PostgreSQL 17 until installed**:
+
+- `sessions.revision`, `sessions.incarnation_id` and
+  `background_tool_jobs.origin_incarnation_id` for revision/incarnation
+  write fencing (`scripts/migrations/session_revision_fencing_v1.py`).
+- `gateway_turns`, `gateway_turn_events` and `gateway_approvals` for
+  durable turn/event/approval records
+  (`scripts/migrations/gateway_turn_records_v1.py`).
+
+Both migrations are read-only by default (`--check`) and refuse `--apply`
+without a verified backup/restore and the explicit approval environment
+flag. The migrations are additive and code-rollback safe: a pre-M2 build
+ignores the extra columns/tables. No production migration has been run.
+
+The production Web turn can run through the Gateway composition behind the
+disabled-by-default `MNERYS_M21_WEB_CORE_CUTOVER` switch; the preview keeps
+the legacy path until the authorized rollout flips it.
+
+## Rollback and retired service
 
 For normal startup failures the runner attempts a verified rollback to the previously healthy code, keeping the original data and backup intact. If rollback itself fails or the database schema changes, preserve the backup, stop unsafe operations and investigate before any manual state restoration. Do not restore persistent data blindly; coordinate migrations and validate compatibility.
 
