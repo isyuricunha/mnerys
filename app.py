@@ -466,7 +466,7 @@ if AUTH_ENABLED:
                         request.state.api_token_scopes = matched_scopes
                         return await call_next(request)
                 except Exception:
-                    logger.warning("API token auth error", exc_info=False)
+                    logger.warning("API token auth error", exc_info=True)
                 # Invalid bearer token — reject immediately
                 return JSONResponse(status_code=401, content={"error": "Invalid API token"})
 
