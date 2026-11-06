@@ -48,12 +48,12 @@
           <div class="eyebrow"><span class="signal-dot" aria-hidden="true"></span> Open source <span class="eyebrow-sep">/</span> Self-hosted <span class="eyebrow-sep">/</span> Your way</div>
           <h1 id="hero-title">Your AI workspace.<br><span class="accent-text">Built to be yours.</span></h1>
           <p class="hero-lead">A place for your conversations, models, tools, and knowledge—designed around one simple idea: <strong>software should adapt to you.</strong></p>
-          <p class="hero-detail">Mnerys is an independent, modular AI platform: a shared Python <strong>Agent Core</strong> and one authenticated <strong>Gateway</strong> now power the Web workspace, with durable sessions, events, and approvals. The CLI and TUI are the next milestones.</p>
+          <p class="hero-detail">Mnerys is an independent, modular AI platform: a shared Python <strong>Agent Core</strong> and one authenticated <strong>Gateway</strong> power the Web and the <strong>mnerys CLI</strong>, with durable sessions, events, and approvals. The TUI is the next milestone.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="#platform">Explore the platform <span aria-hidden="true">↗</span></a>
             <a class="button button-ghost" href="https://github.com/isyuricunha/mnerys" target="_blank" rel="noopener noreferrer">View the source <span aria-hidden="true">↗</span></a>
           </div>
-          <p class="hero-footnote"><span class="footnote-mark" aria-hidden="true">✳</span> M2 complete · Web turns run on the shared Agent Core/Gateway · CLI and TUI planned</p>
+          <p class="hero-footnote"><span class="footnote-mark" aria-hidden="true">✳</span> M2 and M3 complete · Web and CLI on the shared Agent Core/Gateway · TUI planned</p>
         </div>
         <div class="hero-visual" aria-label="Architecture illustration, not an application screenshot">
           <div class="orbit orbit-one" aria-hidden="true"></div>
@@ -95,7 +95,7 @@
           <article class="feature-card"><span class="feature-icon" aria-hidden="true">◇</span><h3>Your choice of models</h3><p>Connect configured local or remote model providers, with authorized fallback, without tying your workspace to one model family.</p><span class="feature-label">Implemented</span></article>
           <article class="feature-card"><span class="feature-icon" aria-hidden="true">▦</span><h3>Make it yours</h3><p>Themes, modular integrations, and settings are the foundation for a more personal AI experience.</p><span class="feature-label">Implemented</span></article>
         </div>
-        <p class="section-note"><span aria-hidden="true">ⓘ</span> The Agent Core and Gateway are implemented and tested at the source level and verified in the private preview. The CLI, TUI, Telegram, and other client adapters remain planned.</p>
+        <p class="section-note"><span aria-hidden="true">ⓘ</span> The Agent Core, Gateway, Web adapter and CLI are implemented and tested at the source level, with the Gateway and Web verified in the private preview. The TUI, Telegram, and other client adapters remain planned.</p>
       </div>
     </section>
 
@@ -132,8 +132,8 @@
           <div><p class="kicker">03 / WHERE WE'RE HEADED</p><h2 id="architecture-title">One core.<br><em>Every way you work.</em></h2></div>
           <p>A unified platform, not three disconnected agents. The Gateway owns access, sessions, events, and permissions across every client; the Web adapter already runs on it.</p>
         </div>
-        <div class="architecture-diagram" role="img" aria-label="Target architecture: Web, CLI, and TUI connect to one Gateway, which connects to a shared Python Agent Core and pluggable models and persistence. The Gateway and Agent Core are implemented and the Web adapter is active; CLI and TUI are planned.">
-          <div class="architecture-clients"><span>WEB <small>active adapter</small></span><span>CLI <small>planned</small></span><span>TUI <small>planned</small></span></div>
+        <div class="architecture-diagram" role="img" aria-label="Target architecture: Web and CLI connect to one Gateway, which connects to a shared Python Agent Core and pluggable models and persistence. The Gateway, Agent Core, Web adapter and CLI are implemented; the TUI is planned.">
+          <div class="architecture-clients"><span>WEB <small>active adapter</small></span><span>CLI <small>active adapter</small></span><span>TUI <small>planned</small></span></div>
           <div class="architecture-line" aria-hidden="true"></div>
           <div class="architecture-node gateway-node"><span class="node-tag">CENTRAL AUTHORITY / IMPLEMENTED</span><strong>Mnerys Gateway</strong><p>Auth · sessions · events · permissions · approvals</p></div>
           <div class="architecture-line" aria-hidden="true"></div>
@@ -149,12 +149,12 @@
       <div class="shell">
         <div class="section-heading">
           <div><p class="kicker">04 / THE JOURNEY</p><h2 id="roadmap-title">Building in the open.<br><em>One milestone at a time.</em></h2></div>
-          <p>An honest view of where Mnerys stands today. M1 and M2 are complete; the CLI, TUI, and Telegram clients are the next planned milestones.</p>
+          <p>An honest view of where Mnerys stands today. M1, M2 and M3 are complete; the TUI and Telegram are the next planned milestones.</p>
         </div>
         <div class="milestone-list">
           <article class="milestone"><span class="milestone-id">M1</span><div><h3>Audit and shared contract</h3><p>Map the inherited runtime, define ownership and authorization boundaries, and establish the shared contracts.</p></div><span class="milestone-state done">Complete</span></article>
           <article class="milestone"><span class="milestone-id">M2</span><div><h3>Agent Core and Gateway</h3><p>One owner-admitted turn composition and a single authenticated control plane: the Web path runs through the shared Core, with durable <a href="https://github.com/isyuricunha/mnerys/blob/main/docs/architecture/M2_3_DURABLE_TURNS.md" target="_blank" rel="noopener noreferrer">session/turn/event/approval records</a>, revision-fenced session writers, a versioned <a href="https://github.com/isyuricunha/mnerys/blob/main/docs/architecture/M2_5_ACCEPTANCE.md" target="_blank" rel="noopener noreferrer">Gateway API v1</a>, SQLite and PostgreSQL 17 support, and a verified rollout in the private preview (Web cutover active).</p></div><span class="milestone-state done">Complete</span></article>
-          <article class="milestone"><span class="milestone-id">M3</span><div><h3>Global CLI</h3><p>Package an authenticated global <code>mnerys</code> command for local and remote operation.</p></div><span class="milestone-state upcoming">Planned</span></article>
+          <article class="milestone"><span class="milestone-id">M3</span><div><h3>Global CLI</h3><p>The <code>mnerys</code> command installs per user, runs authenticated turns against the shared Gateway (remote mode), boots the local runtime with <code>serve</code> (local mode), and manages profiles and credentials safely. Read the <a href="https://github.com/isyuricunha/mnerys/blob/main/docs/cli.md" target="_blank" rel="noopener noreferrer">CLI documentation</a>.</p></div><span class="milestone-state done">Complete</span></article>
           <article class="milestone"><span class="milestone-id">M4</span><div><h3>First-party TUI</h3><p>An interactive terminal client with the same Gateway-authorized sessions and tools.</p></div><span class="milestone-state upcoming">Planned</span></article>
           <article class="milestone"><span class="milestone-id">M5+</span><div><h3>More clients</h3><p>Telegram and other adapters, each reusing the same Gateway permissions without a parallel runtime.</p></div><span class="milestone-state upcoming">Planned</span></article>
         </div>

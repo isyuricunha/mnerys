@@ -139,33 +139,25 @@ authorized control-plane rollout.
 
 ### M3 — Global `mnerys` CLI and packaging
 
-**Planned.**
+**Implemented (November 6, 2026).** The `mnerys` command is a real Python
+console-script package (`packages/mnerys-cli`) with `httpx` as its only
+runtime dependency; remote-only installs carry no web server, database
+stack or agent runtime. It supports per-user installation (`uv tool
+install`, or `pip install .`), named profiles with restrictive credential
+storage, a remote mode against the authenticated Gateway API v1 (chat
+streaming with terminal events and cancellation, discovery, doctor), a
+local mode (`mnerys serve` boots the same application the preview runs,
+and local chat uses the identical Gateway contract), explicit exit codes,
+and clean install/upgrade/uninstall. Acceptance builds and installs the
+wheel in a fresh user-level environment, exercises the installed binary
+against a real loopback Gateway over HTTP, and validates the local-mode
+round trip. Public PyPI publication remains a separate future decision;
+until then the package installs from the repository or its built
+distributions.
 
-- Package the CLI as a real Python console-script entry point (for example `[project.scripts]` in `pyproject.toml`); avoid hand-written symlink hacks or requiring `sudo` for regular client installs.
-- Support per-user global installation, e.g. via `uv tool install`, with documented installation, upgrades, uninstallation and version checks.
-- Keep the **remote client lightweight**: it must not need the complete web server, database stack, schedulers or local models.
-- Provide **remote mode** (authenticated connection to an existing Mnerys Gateway) and **local mode** (local agent runtime, when its dependencies are installed and configured).
-- Maintain configuration profiles and secure credential storage; no secrets in command history, URLs printed in logs, public examples or Git.
-- Offer reproducible behavior on Linux, macOS and Windows (including PowerShell); automated checks must validate the actual supported platforms.
-
-**Proposed command UX — not implemented yet:**
-
-```bash
-mnerys                      # Open the TUI in an interactive terminal
-mnerys tui                  # Explicitly open the TUI
-mnerys chat "Olá"           # Non-interactive agent turn
-mnerys agents list          # Inspect configured agents
-mnerys models list          # Inspect available models
-mnerys tools list           # Inspect authorized tools
-mnerys connect              # Configure/select a remote Gateway profile
-mnerys serve                # Run a configured local server
-mnerys doctor               # Diagnose installation and connectivity
-mnerys --version            # Print CLI version
-```
-
-Running `mnerys` without arguments should open the TUI **when attached to an interactive terminal**. In scripts/non-interactive contexts, present useful usage information or an explicit error rather than unexpectedly launching an interactive process. Final commands, options and packaging details will be confirmed during implementation.
-
-**Done when:** a fresh user-level install exposes `mnerys` on the PATH, supports a real authenticated remote chat/agent turn, and uninstalls cleanly without disturbing server data.
+**Done when:** a fresh user-level install exposes `mnerys` on the PATH,
+supports a real authenticated remote chat/agent turn, and uninstalls
+cleanly without disturbing server data. Verified; see [CLI documentation](cli.md).
 
 ### M4 — First-party terminal UI (TUI)
 

@@ -5,6 +5,7 @@ This index is the entry point for **current Mnerys documentation**. Documents in
 ## Product and architecture
 
 - [Mnerys roadmap](ROADMAP.md) — official priorities and planned milestones, including the global CLI, TUI, Agent Core and Gateway.
+- [mnerys CLI](cli.md) — installation, commands, profiles, credentials, local and remote mode, exit codes.
 - [Architecture index](architecture/README.md) — M1 Agent Core/Gateway source audit, internal seams and inherited contracts.
 - [M1 design exit review](architecture/M1_EXIT_REVIEW.md) — verified audit/contract-design completion, not a shipped independent Gateway.
 - [M2 Gateway execution plan](architecture/M2_GATEWAY_IMPLEMENTATION_PLAN.md) — ordered implementation, authorization, migration and cross-transport acceptance gates.
