@@ -293,7 +293,8 @@ async def discovery_models(request: Request) -> dict:
     registry = getattr(request.app.state, "model_discovery", None)
     if registry is None:
         raise HTTPException(status_code=503, detail="Model discovery unavailable")
-    return {"models": registry}
+    items = registry() if callable(registry) else registry
+    return {"models": items or []}
 
 
 @router.get("/agents")

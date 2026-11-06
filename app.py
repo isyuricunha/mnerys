@@ -786,6 +786,40 @@ app.include_router(setup_embedding_routes())
 from routes.model_routes import setup_model_routes
 app.include_router(setup_model_routes(model_discovery))
 
+# Gateway API v1: the same control plane the Web cutover uses, exposed to
+# authorized remote clients. Only names and metadata are advertised here;
+# execution, ownership and approvals stay in the shared services.
+from core.database import ModelEndpoint
+from routes.gateway_api import router as gateway_api_router
+from src.gateway_turns import gateway_turns
+from src.tool_approvals import tool_approval_store
+from src.tool_index import BUILTIN_TOOL_DESCRIPTIONS
+from src.turn_service import turn_service
+
+
+def _gateway_model_snapshot() -> list[dict]:
+    """Deterministic model discovery: enabled endpoints, names only."""
+    items: list[dict] = []
+    try:
+        with SessionLocal() as db:
+            rows = db.query(ModelEndpoint).filter(
+                ModelEndpoint.is_enabled.is_(True),
+            ).all()
+        for row in rows:
+            host = str(row.base_url or "").split("//")[-1].split("/")[0]
+            items.append({"id": str(row.model or ""), "host": host})
+    except Exception:
+        logger.warning("Gateway model discovery snapshot failed", exc_info=True)
+    return items
+
+
+app.state.gateway_turns = gateway_turns
+app.state.turn_service = turn_service
+app.state.tool_approval_store = tool_approval_store
+app.state.model_discovery = _gateway_model_snapshot
+app.state.tool_discovery = sorted(BUILTIN_TOOL_DESCRIPTIONS)
+app.include_router(gateway_api_router)
+
 # GitHub Copilot device-flow login
 from routes.copilot_routes import setup_copilot_routes
 app.include_router(setup_copilot_routes())
