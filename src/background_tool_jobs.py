@@ -48,8 +48,13 @@ class BackgroundToolJobs:
                 if previous.session_id != session_id or previous.owner != owner:
                     raise ValueError('Job is already bound to another chat')
                 return
+            # Bind the job to the exact session lifetime it was created
+            # under; a later delete/recreate of the same ID must never let
+            # the job deliver into the new generation.
+            origin_incarnation = getattr(session, 'incarnation_id', None)
             db.add(database.BackgroundToolJob(id=job_id, session_id=session_id, owner=owner,
-                tool=tool, query=query, rounds=rounds, status='running'))
+                tool=tool, query=query, rounds=rounds, status='running',
+                origin_incarnation_id=origin_incarnation))
             db.commit()
 
     def complete(self, job_id, report, sources, *, error=False):
@@ -169,7 +174,28 @@ class BackgroundToolJobs:
                     session = db.get(database.Session, job.session_id)
                     if not session or session.owner != job.owner:
                         continue
-                    message_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f'odysseus:background:{job.id}:{job.session_id}'))
+                    # A deleted-and-recreated session ID carries a new
+                    # incarnation; a job bound to the old lifetime must never
+                    # deliver into it. Legacy jobs without an origin binding
+                    # keep the inherited behavior.
+                    if (
+                        job.origin_incarnation_id is not None
+                        and getattr(session, 'incarnation_id', None)
+                        != job.origin_incarnation_id
+                    ):
+                        job.status = 'discarded'
+                        db.commit()
+                        logger.info(
+                            'Discarding background job %s: session %s was recreated',
+                            job_id, job.session_id,
+                        )
+                        continue
+                    message_id_seed = (
+                        f'odysseus:background:{job.id}:{job.session_id}:{job.origin_incarnation_id}'
+                        if job.origin_incarnation_id
+                        else f'odysseus:background:{job.id}:{job.session_id}'
+                    )
+                    message_id = str(uuid.uuid5(uuid.NAMESPACE_URL, message_id_seed))
                     if not db.get(database.ChatMessage, message_id):
                         content = job.summary
                         if not payload.get('error'):
@@ -184,8 +210,33 @@ class BackgroundToolJobs:
                         db.add(database.ChatMessage(id=message_id, session_id=job.session_id,
                             role=prepared.role, content=prepared.content,
                             meta_data=prepared.metadata_json, timestamp=now))
-                        session.message_count = (session.message_count or 0) + 1
-                        session.last_message_at = now
+                        # Fenced counter update: the delivery must not bump a
+                        # session that changed (or was recreated) mid-flight.
+                        session_rev = getattr(session, 'revision', None)
+                        session_inc = getattr(session, 'incarnation_id', None)
+                        if (
+                            type(session_rev) is int and session_rev >= 0
+                            and type(session_inc) is str and session_inc
+                        ):
+                            matched = db.query(database.Session).filter(
+                                database.Session.id == job.session_id,
+                                database.Session.incarnation_id == session_inc,
+                                database.Session.revision == session_rev,
+                            ).update({
+                                database.Session.message_count: (session.message_count or 0) + 1,
+                                database.Session.last_message_at: now,
+                                database.Session.revision: session_rev + 1,
+                            }, synchronize_session=False)
+                            if matched != 1:
+                                logger.warning(
+                                    'Background delivery skipped: session %s changed concurrently',
+                                    job.session_id,
+                                )
+                                db.rollback()
+                                continue
+                        else:
+                            session.message_count = (session.message_count or 0) + 1
+                            session.last_message_at = now
                     job.message_id = message_id
                     job.status = 'delivered'
                     db.commit()  # message + delivery marker are one transaction

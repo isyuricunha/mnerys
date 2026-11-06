@@ -221,3 +221,112 @@ async def test_unavailable_summary_model_cannot_stall_delivery_forever(store):
     assert row['status'] == 'delivered'
     assert 'could not generate' in row['message']['content']
     assert '#research-rp-timeout' in row['message']['content']
+
+
+@pytest.fixture
+def fenced_store(tmp_path, monkeypatch):
+    engine = create_engine(f'sqlite:///{tmp_path / "fenced_jobs.db"}')
+    database.Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    monkeypatch.setattr(database, 'SessionLocal', factory)
+    with factory() as db:
+        db.add(database.Session(
+            id='origin', owner='alice', name='origin', model='test',
+            endpoint_url='http://model.test',
+            revision=0, incarnation_id='epoch-a',
+        ))
+        db.commit()
+    yield factory
+    engine.dispose()
+
+
+async def _deliver(factory, *, job_id='rp-fenced'):
+    from src.background_tool_jobs import BackgroundToolJobs
+    jobs = BackgroundToolJobs(is_busy=lambda sid: False, summarize=lambda s, p: 'Summary.')
+    jobs.register(job_id, 'origin', 'alice', 'research', 'query', 2)
+    jobs.complete(job_id, 'Findings.', [])
+    await jobs.tick()
+    return jobs
+
+
+@pytest.mark.asyncio
+async def test_registered_job_binds_the_origin_incarnation(fenced_store):
+    from src.background_tool_jobs import BackgroundToolJobs
+    jobs = BackgroundToolJobs(is_busy=lambda sid: False)
+    jobs.register('rp-bind', 'origin', 'alice', 'research', 'query', 2)
+    with fenced_store() as db:
+        job = db.get(database.BackgroundToolJob, 'rp-bind')
+        assert job.origin_incarnation_id == 'epoch-a'
+
+
+@pytest.mark.asyncio
+async def test_fenced_delivery_commits_message_and_bumps_revision(fenced_store):
+    jobs = await _deliver(fenced_store)
+    with fenced_store() as db:
+        job = db.get(database.BackgroundToolJob, 'rp-fenced')
+        session = db.get(database.Session, 'origin')
+        assert job.status == 'delivered'
+        assert session.revision == 1
+        assert session.message_count == 1
+        assert db.get(database.ChatMessage, job.message_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_recreated_session_discards_the_stale_job(fenced_store):
+    from src.background_tool_jobs import BackgroundToolJobs
+    jobs = BackgroundToolJobs(is_busy=lambda sid: False, summarize=lambda s, p: 'Summary.')
+    jobs.register('rp-fenced', 'origin', 'alice', 'research', 'query', 2)
+    jobs.complete('rp-fenced', 'Findings.', [])
+    # Recreate the session ID through a raw connection without the FK
+    # cascade (a second process or an admin script can do exactly this),
+    # leaving the ready job bound to the deleted lifetime behind.
+    engine = fenced_store.kw["bind"]
+    with engine.begin() as conn:
+        conn.exec_driver_sql('PRAGMA foreign_keys=OFF')
+        conn.exec_driver_sql("delete from sessions where id='origin'")
+        conn.exec_driver_sql(
+            "insert into sessions (id, name, endpoint_url, model, owner,"
+            " revision, incarnation_id, created_at, updated_at, message_count)"
+            " values ('origin', 'origin-new', 'http://model.test', 'test',"
+            " 'alice', 0, 'epoch-b', current_timestamp, current_timestamp, 0)"
+        )
+    await jobs.tick()
+    with fenced_store() as db:
+        job = db.get(database.BackgroundToolJob, 'rp-fenced')
+        session = db.get(database.Session, 'origin')
+        count = db.query(database.ChatMessage).filter(
+            database.ChatMessage.session_id == 'origin'
+        ).count()
+        assert job.status == 'discarded'
+        assert session.message_count == 0
+        assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_fenced_delivery_is_idempotent_across_ticks(fenced_store):
+    jobs = await _deliver(fenced_store)
+    await jobs.tick()
+    with fenced_store() as db:
+        session = db.get(database.Session, 'origin')
+        count = db.query(database.ChatMessage).filter(
+            database.ChatMessage.session_id == 'origin'
+        ).count()
+        assert session.revision == 1
+        assert session.message_count == 1
+        assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_unmigrated_session_and_job_keep_legacy_delivery(store):
+    from src.background_tool_jobs import BackgroundToolJobs
+    jobs = BackgroundToolJobs(is_busy=lambda sid: False, summarize=lambda s, p: 'Summary.')
+    jobs.register('rp-legacy', 'origin', 'alice', 'research', 'query', 2)
+    with store() as db:
+        job = db.get(database.BackgroundToolJob, 'rp-legacy')
+        assert job.origin_incarnation_id is None
+    jobs.complete('rp-legacy', 'Findings.', [])
+    await jobs.tick()
+    with store() as db:
+        job = db.get(database.BackgroundToolJob, 'rp-legacy')
+        assert job.status == 'delivered'
+        assert db.get(database.ChatMessage, job.message_id) is not None
