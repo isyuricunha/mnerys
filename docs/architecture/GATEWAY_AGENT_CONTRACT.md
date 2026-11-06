@@ -1,6 +1,13 @@
 # Proposed Gateway / Agent Core contract (M1)
 
-**Status: M1 design baseline completed; public v1 API and durable schema remain proposals.** The first internal runtime and admission seams are implemented, but the cross-transport contract is **not** a deployed service.
+**Status: M1 design baseline completed and the v1 Gateway API is
+implemented under M2.4.** The routes, the durable records, the sealed
+approvals, the detached run manager and the independent scripted remote
+client are implemented behind the explicit migrations and the standard
+authenticated app routers; production schema migration and preview
+deployment remain separately authorized. The proposals below that are
+marked "planned" still describe later milestones.
+
 Related: [M1 exit review](M1_EXIT_REVIEW.md), [M2 execution plan](M2_GATEWAY_IMPLEMENTATION_PLAN.md), [M1 source audit](AGENT_CORE_GATEWAY_M1_AUDIT.md), [Mnerys roadmap](../ROADMAP.md).
 
 ## Goal and boundaries
