@@ -19,7 +19,16 @@ A regular `pip install .` inside the package directory works as well. The
 only runtime dependency is `httpx`; a remote-only install does not install
 the server, the database stack or the agent runtime.
 
-Upgrade: run the same install command again after a new release.
+Every Mnerys release also publishes a version-matched wheel and sdist as
+GitHub Release assets, so the CLI installs without Git or a repository
+checkout:
+
+```bash
+uv tool install https://github.com/isyuricunha/mnerys/releases/download/vX.Y.Z/mnerys_cli-X.Y.Z-py3-none-any.whl
+```
+
+Upgrade: run the same install command again after a new release; upgrades
+preserve profiles, stored tokens and server data.
 Uninstall:
 
 ```bash
@@ -89,6 +98,26 @@ Gateway contract; no separate agent engine exists in the CLI. Remote-only
 installations get an explicit error from `serve` instead of a partial
 runtime.
 
+## Version policy
+
+Mnerys uses one unified release version. The Git tags that semantic-release
+creates (`vX.Y.Z`) are the only authority for released versions; the
+`mnerys-cli` distribution derives its version from the corresponding tag at
+build time and keeps no independent version sequence of its own.
+
+- `mnerys --version` reports the version of the installed distribution
+  metadata and never reads Git at runtime.
+- A release tag build is exact: tag `vX.Y.Z` produces package version
+  `X.Y.Z`, and the wheel metadata, sdist metadata and installed CLI all
+  agree, verified by `scripts/verify_cli_release.py` in the release
+  workflow.
+- Builds from a development tree are identifiable development builds
+  (`X.Y.Z.devN+g<hash>`), never a released version number.
+- A missing or invalid installation fails with exit code 6 instead of
+  reporting a wrong version.
+- The wheel and sdist are attached to the corresponding GitHub Release;
+  there is no PyPI package for the CLI.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -99,6 +128,7 @@ runtime.
 | 3 | configuration error (no profile, no local runtime) |
 | 4 | authentication/authorization failure (401/403) |
 | 5 | cancelled by the user |
+| 6 | version metadata unavailable (broken installation) |
 
 ## Security notes
 

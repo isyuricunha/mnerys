@@ -33,13 +33,20 @@ For v0.1.0, expected tags are v0.1.0 (release), v0 (rolling major line), latest 
 
 Release images inject MNERYS_RELEASE_VERSION from the checked Git tag. This controls the version shown by the runtime API. A native checkout uses a development baseline plus a separate source-commit identifier; this does not prove a release was published.
 
-No globally installable Mnerys CLI is published yet. The CLI, TUI and independent Gateway remain planned.
+The globally installable `mnerys` CLI ships with every release: see [mnerys-cli distribution artifacts](#mnerys-cli-distribution-artifacts).
+
+## mnerys-cli distribution artifacts
+
+Mnerys keeps one unified release version. The semantic-release Git tags (`vX.Y.Z`) remain the only authority; the `mnerys-cli` distribution derives its version from the corresponding tag at build time (hatch-vcs) and stores no independent version sequence. The release workflow builds the wheel and sdist from the exact released tag, and `scripts/verify_cli_release.py` fails the job when wheel or sdist metadata does not match the tag. The job also installs the wheel into a fresh environment outside the repository, rebuilds the wheel from the sdist without Git metadata, and rechecks the reported `mnerys --version` before attaching the artifacts to the GitHub Release.
+
+Development builds between releases are identifiable `X.Y.Z.devN+g<hash>` versions and never claim a released number; a missing or invalid installation fails with a dedicated exit code instead of reporting a wrong version. The CLI has no PyPI package: install it from GitHub Release assets or from the repository (see [the CLI guide](../cli.md)).
 
 ## Validation and failures
 
 - Current CI must be green; any red or cancelled CI run blocks GitHub Release publication.
 - The new release rules, workflow permissions, CI gate, tag derivation and build-version behavior have dedicated tests.
 - Publishing the GitHub Release and publishing container images are separate jobs. If the latter fails, investigate and rerun that job; do not invent another version to disguise a failure.
+- The CLI wheel/sdist job runs only when a release was actually published. It blocks on metadata verification against the release tag; if it fails, fix the version source or the packaging, never hand-edit release assets.
 - Version tagging and GHCR publication do not redeploy the private native preview or modify its PostgreSQL database.
 
 ## CI regression baselines during rebranding

@@ -42,6 +42,7 @@ The diagram is a **target architecture**, not a claim that all components are al
 | Web workspace and initial agents, tools, MCP integrations | Inherited foundation | Existing code is functional in part, but is not yet a unified independent Mnerys Core |
 | Private native development preview | Running | Versioned source, systemd and a stable private gateway, with deploy validation and rollback |
 | Persistence | Partially implemented | SQLite remains the installation default; PostgreSQL 17 is supported for the primary database and used by the maintainer preview; auxiliary stores remain separate |
+| Unified release versioning | Implemented | One version authority: semantic-release tags drive the CLI distribution at build time, and every release attaches a verified, version-matched CLI wheel and sdist |
 | Global `mnerys` executable | Planned | No public installation contract or packaged command yet |
 | Mnerys CLI and TUI | Planned | Command examples below are proposals, **not currently available** |
 | Unified Gateway and permissioned agent core | Planned | Existing interfaces/runtime must be audited and adapted |
