@@ -65,8 +65,8 @@ def test_fresh_userlevel_install_exposes_mnerys(tmp_path, built_distributions):
     _run([str(pip), "install", "--no-deps", str(wheel)], tmp_path)
     entry = bin_dir / ("mnerys" + (".exe" if os.name == "nt" else ""))
     assert entry.is_file(), f"console script missing: {entry}"
-    version = _run([str(entry), "--version"], tmp_path)
-    assert version.returncode == 0
+    version = _run([str(entry), "--version"], tmp_path, check=False)
+    assert version.returncode == 0, f"stderr: {version.stderr!r}"
     assert version.stdout.strip().startswith("mnerys ")
     help_out = _run([str(entry), "--help"], tmp_path)
     assert "connect" in help_out.stdout and "chat" in help_out.stdout
