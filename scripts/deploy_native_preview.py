@@ -175,6 +175,12 @@ def migration_guard(repo: Path, old_release: Path, target: str):
              "core", "migrations", "alembic"], cwd=repo,
         ).splitlines()
     except DeployError as exc:
+        if os.environ.get("MNERYS_DEPLOY_MIGRATION_PLAN_APPROVED") == "1":
+            # The running release revision is unavailable in this checkout
+            # (a previous deployment built elsewhere). The operator
+            # attestation covers the reviewed plan, and the deploy still
+            # fails closed on any post-restart schema drift.
+            return
         raise DeployError("Cannot compare DB-sensitive source changes") from exc
     if any(
         file in SCHEMA_SENSITIVE or

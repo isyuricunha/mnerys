@@ -18,6 +18,18 @@ def _fake_old_release(tmp_path: Path) -> Path:
     return release
 
 
+def test_migration_guard_handles_missing_old_revision_with_attestation(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("MNERYS_DEPLOY_MIGRATION_PLAN_APPROVED", "1")
+    # A release revision that does not exist in this checkout is refused by
+    # default and accepted only under the explicit operator attestation.
+    ghost = tmp_path / "c3aa320804f1"
+    ghost.mkdir()
+    (ghost / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+    migration_guard(REPO, ghost, _TARGET)
+
+
 def test_migration_guard_refuses_without_an_attested_plan(tmp_path, monkeypatch):
     monkeypatch.delenv("MNERYS_DEPLOY_MIGRATION_PLAN_APPROVED", raising=False)
     with pytest.raises(DeployError, match="reviewed migration"):
