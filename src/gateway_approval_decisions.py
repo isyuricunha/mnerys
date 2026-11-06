@@ -6,12 +6,14 @@ consumption to the existing sealed in-memory ToolApprovalStore. This is not
 durable approval persistence or a remote approval API.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any
-
 from src.agent_core_events import CoreApprovalEvent
 from src.gateway_admission import AdmittedSession, AdmissionDenied, require_admitted_session
 from src.tool_approvals import ExactToolApproval, PendingToolApproval, ToolApprovalStore
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -42,12 +44,19 @@ def consume_admitted_tool_approval(
     plan_mode: bool,
     internal_tool_request: bool,
     store: ToolApprovalStore,
+    records: Any = None,
+    session: Any = None,
 ) -> ToolApprovalDecision:
     """Validate and consume an existing sealed action for one admitted session.
 
-    A failed check must not consume another owner's pending approval. The store
-    owns the atomic destructive consumption; the Gateway never reconstructs a
-    sealed action or treats an approval as new model/tool authorization.
+    A failed check must not consume another owner's pending approval. The
+    store owns the atomic destructive consumption; the Gateway never
+    reconstructs a sealed action or treats an approval as new model/tool
+    authorization. With ``records`` (a SqlTurnRecords) and the owning
+    ``session``, the sealed decision is durably recorded after consumption
+    against the original owner, session, turn, tool, operation digest and
+    resource identity; recording is best-effort audit and never retries or
+    unbinds the in-memory decision.
     """
     pending, normalized_decision = inspect_admitted_tool_approval(
         admission, approval_id, decision, plan_mode=plan_mode,
@@ -64,6 +73,42 @@ def consume_admitted_tool_approval(
     )
     if normalized_decision in {"approve", "approve_task"} and exact is None:
         raise AdmissionDenied(409, "This tool approval could not be consumed.")
+
+    if records is not None and exact is not None:
+        from datetime import datetime, timezone
+
+        from src.gateway_turn_records import TurnRecordError
+
+        try:
+            incarnation = getattr(session, "incarnation_id", None)
+            exact_pending = exact.pending
+            records.record_approval(
+                approval_id=str(approval_id), owner=owner,
+                session_id=session_id,
+                incarnation_id=incarnation if isinstance(incarnation, str) else "",
+                turn_id=exact_pending.origin_run_id,
+                tool_name=exact_pending.tool_name,
+                operation_digest=exact_pending.digest,
+                resource_identity=exact_pending.document_id or None,
+                effective_authority=(
+                    f"admitted:{owner}:{session_id}"
+                ),
+                expires_at=(
+                    datetime.fromtimestamp(exact_pending.expires_at, tz=timezone.utc)
+                    if exact_pending.expires_at and exact_pending.expires_at > 0 else None
+                ),
+            )
+            records.decide_approval(
+                approval_id=str(approval_id), owner=owner,
+                decision=normalized_decision,
+            )
+        except TurnRecordError:
+            # The in-memory decision was already consumed; the durable
+            # record is an audit trail that must not block execution.
+            logger.warning(
+                "Durable approval recording failed for %s", approval_id,
+                exc_info=True,
+            )
     return ToolApprovalDecision(normalized_decision, pending, exact)
 
 

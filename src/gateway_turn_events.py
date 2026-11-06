@@ -14,8 +14,11 @@ from collections.abc import AsyncIterator
 from contextlib import aclosing
 from dataclasses import dataclass
 import json
+import logging
 import re
 from typing import Any, Literal
+
+logger = logging.getLogger(__name__)
 
 from src.agent_core_events import (
     CoreTerminalEvent, CoreTextEvent, CoreMetricsEvent, CoreFailureEvent, CoreNativeEvent,
@@ -51,6 +54,7 @@ class TypedTurnDelivery:
 
     events: AsyncIterator[TurnEvent]
     outcome: TurnOutcome
+    turn_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +165,9 @@ async def translate_legacy_turn_events(
     outcome: TurnOutcome,
     *,
     client_rendering: bool = False,
+    records: Any = None,
+    turn_id: str | None = None,
+    turn_owner: str | None = None,
 ) -> AsyncIterator[TurnEvent]:
     """Translate safe legacy SSE signals and terminate a process-local turn.
 
@@ -170,15 +177,47 @@ async def translate_legacy_turn_events(
     Tool arguments/results, hidden reasoning, SSE IDs, provider diagnostics
     and unknown payloads never enter typed events.
 
+    With ``records`` and an explicit ``turn_id``, every emitted typed event
+    is persisted as an ordered, sanitized durable event and the turn is
+    finalized exactly once at its terminal state.
+
     Closing this iterator explicitly closes the inherited Agent Loop before
     its bridge and contract contextvars are reset.
     """
+    if type(client_rendering) is not bool:
+        raise ValueError("Invalid trusted client rendering flag")
+    if records is not None and (
+        type(turn_id) is not str or not turn_id
+        or type(turn_owner) is not str or not turn_owner
+    ):
+        raise ValueError("Durable turn recording requires a turn id and owner")
     if not isinstance(outcome, TurnOutcome):
         raise TypeError("A server-created turn outcome is required")
     if outcome.state != "pending":
         raise ValueError("Turn outcomes cannot be reused")
-    if type(client_rendering) is not bool:
-        raise ValueError("Invalid trusted client rendering flag")
+
+    def durable(event_value: TurnEvent) -> None:
+        """Persist one sanitized typed event; recording never blocks the turn."""
+        if records is None:
+            return
+        try:
+            records.append_event(
+                turn_id=turn_id, owner=turn_owner,
+                sequence=event_value.sequence,
+                kind=event_value.type, payload=event_value.payload,
+            )
+        except Exception:
+            # Recording is an audit trail; a failure must not alter the
+            # user-visible stream or retry the model.
+            logger.warning("Durable turn event recording failed", exc_info=True)
+
+    def durable_terminal(status: str) -> None:
+        if records is None:
+            return
+        try:
+            records.finalize_turn(turn_id=turn_id, owner=turn_owner, status=status)
+        except Exception:
+            logger.warning("Durable turn finalization failed", exc_info=True)
 
     outcome.state = "running"
     buffer = ""
@@ -189,7 +228,9 @@ async def translate_legacy_turn_events(
 
     def event(kind: str, payload: dict[str, Any]) -> TurnEvent:
         outcome.last_sequence += 1
-        return TurnEvent(outcome.last_sequence, kind, payload)
+        result = TurnEvent(outcome.last_sequence, kind, payload)
+        durable(result)
+        return result
 
     try:
         async with aclosing(frames) as source:
@@ -298,6 +339,7 @@ async def translate_legacy_turn_events(
                         yield event("turn.failed", {
                             "code": chunk.code, "status": status,
                         })
+                        durable_terminal("failed")
                     continue
                 if isinstance(chunk, CoreTerminalEvent):
                     # Core-native completion for admitted, tools-disabled
@@ -317,6 +359,9 @@ async def translate_legacy_turn_events(
                     yield event(
                         "turn.awaiting_approval" if awaiting_approval else "turn.completed",
                         {"approval_id": awaiting_approval} if awaiting_approval else {},
+                    )
+                    durable_terminal(
+                        "awaiting_approval" if awaiting_approval else "completed",
                     )
                     continue
                 if not isinstance(chunk, str):
@@ -349,6 +394,7 @@ async def translate_legacy_turn_events(
                         yield event("turn.failed", {
                             "code": "provider_error", "status": status,
                         })
+                        durable_terminal("failed")
                         continue
                     if raw == "[DONE]":
                         outcome.content = (
@@ -360,6 +406,9 @@ async def translate_legacy_turn_events(
                         yield event(
                             "turn.awaiting_approval" if awaiting_approval else "turn.completed",
                             {"approval_id": awaiting_approval} if awaiting_approval else {},
+                        )
+                        durable_terminal(
+                            "awaiting_approval" if awaiting_approval else "completed",
                         )
                         continue
                     try:
@@ -384,6 +433,7 @@ async def translate_legacy_turn_events(
                         yield event("turn.failed", {
                             "code": "agent_terminal", "status": status,
                         })
+                        durable_terminal("failed")
                     elif kind == "final_response" and isinstance(data.get("content"), str):
                         final_response = data["content"]
                     elif kind == "usage":
@@ -439,14 +489,17 @@ async def translate_legacy_turn_events(
         if outcome.state == "running":
             outcome.state = "failed"
             outcome.failure_code = "incomplete_stream"
+            durable_terminal("failed")
             yield event("turn.failed", {"code": "incomplete_stream", "status": None})
     except (asyncio.CancelledError, GeneratorExit):
         if outcome.state == "running":
             outcome.state = "cancelled"
             outcome.failure_code = None
+            durable_terminal("cancelled")
         raise
     except BaseException:
         if outcome.state == "running":
             outcome.state = "failed"
             outcome.failure_code = "stream_exception"
+            durable_terminal("failed")
         raise

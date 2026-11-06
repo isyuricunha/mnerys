@@ -82,6 +82,13 @@ class SqlTurnRecords:
                 if idempotency_key is not None and existing.idempotency_key != idempotency_key:
                     raise TurnRecordError("Idempotency key reuse with a different turn")
                 return turn_id
+            if idempotency_key is not None:
+                same_key = db.query(self.turn_model).filter(
+                    self.turn_model.owner == owner,
+                    self.turn_model.idempotency_key == idempotency_key,
+                ).first()
+                if same_key is not None:
+                    raise TurnRecordError("Idempotency key reuse with a different turn")
             row = self.turn_model(
                 id=turn_id, owner=owner, session_id=session_id,
                 incarnation_id=incarnation_id,

@@ -9,6 +9,7 @@ from contextlib import aclosing
 from dataclasses import dataclass, replace
 from collections.abc import Mapping
 from typing import Any, AsyncGenerator, Callable, Iterable, Optional
+from uuid import uuid4
 
 from src.agent_runtime.authority import RequestAuthority
 from src.action_intents import ToolIntent
@@ -939,8 +940,14 @@ class GatewayTurns:
         plan_mode: bool,
         internal_tool_request: bool,
         store: ToolApprovalStore,
+        records: Any = None,
+        session: Any = None,
     ) -> ToolApprovalDecision:
-        """Validate and consume one existing approval under trusted admission."""
+        """Validate and consume one existing approval under trusted admission.
+
+        With ``records`` (a SqlTurnRecords) and the owning ``session``, the
+        sealed decision is durably recorded after consumption.
+        """
         return consume_admitted_tool_approval(
             admission,
             approval_id,
@@ -948,6 +955,8 @@ class GatewayTurns:
             plan_mode=plan_mode,
             internal_tool_request=internal_tool_request,
             store=store,
+            records=records,
+            session=session,
         )
 
     def save_interrupted_assistant_response(
@@ -1020,6 +1029,8 @@ class GatewayTurns:
         approval_store: ToolApprovalStore | None = None,
         persistence: TrustedTextPersistence | None = None,
         client_rendering: bool = False,
+        records: Any = None,
+        turn_id: str | None = None,
     ) -> TypedTurnDelivery:
         """Offer typed process-local events from the safe direct composer.
 
@@ -1027,9 +1038,45 @@ class GatewayTurns:
         this is neither a remote API nor a durable replayable event stream.
         With ``client_rendering``, the trusted client adapter receives the
         browser-facing frame families it owns instead of filtered metadata.
+        With ``records`` (a SqlTurnRecords) and an optional ``turn_id``, a
+        durable owner-scoped turn record is opened and every typed event is
+        persisted with sanitized payloads until an exactly-once terminal.
         """
         if type(client_rendering) is not bool:
             raise AdmissionDenied(403, "Invalid trusted client rendering flag")
+        durable_records = None
+        durable_turn_id = None
+        if records is not None:
+            from src.gateway_turn_records import SqlTurnRecords, TurnRecordError
+            if not isinstance(records, SqlTurnRecords):
+                raise AdmissionDenied(403, "Invalid durable turn record store")
+            session_id = require_admitted_session(admission)
+            owner = owner_for_admitted_context(admission, session, session_id)
+            if turn_id is None:
+                turn_id = uuid4().hex
+            if (
+                type(turn_id) is not str or not turn_id
+                or len(turn_id) > 128
+            ):
+                raise AdmissionDenied(403, "Invalid durable turn id")
+            incarnation_id = getattr(session, "incarnation_id", None)
+            if type(incarnation_id) is not str or not incarnation_id:
+                raise AdmissionDenied(
+                    409, "Durable turn recording requires a fenced session lifetime",
+                )
+            try:
+                records.open_turn(
+                    owner=owner, session_id=session_id,
+                    incarnation_id=incarnation_id, turn_id=turn_id,
+                )
+            except TurnRecordError as exc:
+                raise AdmissionDenied(409, str(exc)) from exc
+            durable_records, durable_turn_id = records, turn_id
+            # Reuse the admitted owner for event persistence; the
+            # translator validates the record ownership per event.
+            durable_owner = owner
+        else:
+            durable_owner = None
         outcome = TurnOutcome()
         stream = stream_composed_text_turn(
             admission, session, self._turns,
@@ -1049,13 +1096,15 @@ class GatewayTurns:
         )
         events = translate_legacy_turn_events(
             stream, outcome, client_rendering=client_rendering,
+            records=durable_records, turn_id=durable_turn_id,
+            turn_owner=durable_owner,
         )
         if persistence is not None:
             events = persist_completed_text_events(
                 events, outcome, admission=admission, session=session,
                 context_owner=context_owner, persistence=persistence,
             )
-        return TypedTurnDelivery(events=events, outcome=outcome)
+        return TypedTurnDelivery(events=events, outcome=outcome, turn_id=durable_turn_id)
 
     def preview_composed_plain_text_web_sse(
         self,
@@ -1366,6 +1415,8 @@ class GatewayTurns:
         web_strict_text: bool = False,
         web_native_notes: bool = False,
         client_rendering: bool = False,
+        records: Any = None,
+        turn_id: str | None = None,
     ) -> TypedTurnStream:
         """Run the same direct composer behind the inherited detach/replay manager.
 
@@ -1408,6 +1459,8 @@ class GatewayTurns:
             approval_store=approval_store,
             persistence=persistence,
             client_rendering=client_rendering,
+            records=records,
+            turn_id=turn_id,
         )
         # start_detached_typed creates the inherited drain task immediately.
         # ContextVars are copied into that task, sealing its approvals as
