@@ -60,7 +60,12 @@ def legacy_engine(request, tmp_path):
             engine.dispose()
             raise RuntimeError("Refusing to run against a non-isolated PostgreSQL 17 database")
     try:
+        # The PG17 drill reuses one disposable database across suites; drop
+        # any previous suite's sessions/jobs tables before creating the
+        # legacy schema.
         with engine.begin() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS background_tool_jobs"))
+            conn.execute(text("DROP TABLE IF EXISTS sessions"))
             conn.execute(text(LEGACY_SESSIONS))
             conn.execute(text(LEGACY_JOBS))
             conn.execute(text(

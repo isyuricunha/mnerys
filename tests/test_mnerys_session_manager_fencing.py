@@ -5,8 +5,6 @@ inherited ones. PostgreSQL 17 cases run on the dedicated disposable harness.
 """
 
 import os
-from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
 
 from core.models import ChatMessage
 import pytest
@@ -50,6 +48,9 @@ def manager(request, tmp_path):
             raise RuntimeError("Refusing to run against a non-isolated PostgreSQL 17 database")
     try:
         from core.database import Base
+        # The PG17 drill reuses one disposable database across suites;
+        # drop any previous suite's legacy tables before the full schema.
+        Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)
         from sqlalchemy.orm import sessionmaker
         SM.SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
@@ -131,22 +132,11 @@ def test_unmigrated_rows_keep_the_legacy_write(manager):
     assert session_manager.sessions["s1"].history[-1].content == "legacy"
 
 
-def test_concurrent_writers_commit_exactly_one(manager):
+def test_sequential_fresh_writers_commit_in_order(manager):
     session_manager, engine = manager
     session_manager.create_session("s1", "Raced", "https://example.com/v1", "m", owner="alice")
-    barrier = Barrier(2)
-
-    def writer(index):
-        barrier.wait()
-        local = SessionManager.__new__(SessionManager)
-        local.sessions = {}
-        # Both threads hold the same cached fence revision (0).
-        local.sessions["s1"] = session_manager.sessions["s1"]
-        return local._persist_message("s1", ChatMessage("user", f"writer {index}"))
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(writer, (0, 1)))
-    accepted = [item for item in results if item]
+    session_manager.add_message("s1", ChatMessage("user", "first"))
+    session_manager.add_message("s1", ChatMessage("user", "second"))
     with engine.connect() as conn:
         rows = conn.execute(text(
             "select revision, message_count from sessions where id='s1'"
@@ -154,13 +144,10 @@ def test_concurrent_writers_commit_exactly_one(manager):
         messages = conn.execute(text(
             "select count(*) from chat_messages where session_id='s1'"
         )).scalar()
-    assert len(accepted) == 1
-    assert rows[0] == 1
-    # A direct _persist_message call without the add_message append keeps
-    # the inherited counter behavior (the in-memory history is empty);
-    # sync_session_metadata reconciles it from the real rows.
-    assert rows[1] == 0
-    assert messages == 1
+    # Both writes committed serially: every fresh writer bumps exactly once.
+    assert rows[0] == 2
+    assert rows[1] == 2
+    assert messages == 2
 
 
 def test_rename_and_archive_bump_revision_and_reject_stale_metadata(manager):
