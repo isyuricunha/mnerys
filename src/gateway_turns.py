@@ -6,7 +6,8 @@ Web adapters from calling the unrestricted legacy run manager directly.
 """
 
 from contextlib import aclosing
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from collections.abc import Mapping
 from typing import Any, AsyncGenerator, Callable, Iterable, Optional
 
 from src.agent_runtime.authority import RequestAuthority
@@ -63,6 +64,7 @@ from src.gateway_turn_composer import (
     TextTurnRequest, ToolApprovalTurnRequest,
     TrustedTextTurnSettings,
     stream_composed_text_turn,
+    _ACTIVE_EMAIL_REVIEW_DISABLED_TOOLS,
 )
 from src.gateway_text_persistence import (
     TrustedTextPersistence, persist_completed_text_events,
@@ -71,6 +73,7 @@ from src.gateway_text_persistence import (
 )
 from src.gateway_web_compat_events import serialize_plain_text_web_sse
 from src.gateway_context_ports import ChatContextPorts
+from src.gateway_chat_context import assemble_chat_context
 from src.tool_execution import AgentExecutionBridge
 from src.gateway_turn_runtime_state import (
     AdmittedRuntimeUIState,
@@ -108,8 +111,126 @@ from src.gateway_turn_contract_selection import (
 from src.gateway_execution_policy import (
     FinalTurnToolPolicy,
     finalize_admitted_turn_tool_policy,
+    execution_limits_for_admission,
 )
+from src.tool_policy import build_effective_tool_policy
 
+
+@dataclass(frozen=True)
+class WebTurnComposition:
+    """Everything a trusted Web adapter supplies for one production turn.
+
+    Untrusted request data arrives pre-parsed and normalized by the adapter.
+    The composition re-derives every authority from the same admitted
+    Gateway services, in the inherited Web turn's exact order, so the HTTP
+    layer keeps only parsing, serialization and session/endpoint recovery.
+    """
+
+    # Issued proof and loaded session
+    admission: AdmittedSession
+    session: Any
+    session_id: str
+    # The trusted adapter may inject its own sealed approval store; the
+    # process-wide singleton remains the default.
+    approval_store: ToolApprovalStore | None = None
+    # Pre-normalized request inputs (the adapter owns parsing/validation)
+    message: str = ""
+    chat_mode: str = ""
+    att_ids: tuple[str, ...] = ()
+    search_enabled: bool = False
+    use_web: Any = None
+    use_rag: Any = None
+    no_memory: bool = False
+    incognito: bool = False
+    compare_mode: bool = False
+    search_context: str | None = None
+    preset_id: str | None = None
+    thinking_mode: str | None = None
+    reasoning_effort: str | None = None
+    temperature_override: float | None = None
+    plan_mode: bool = False
+    approved_plan: str = ""
+    allow_bash: Any = None
+    allow_web_search: Any = None
+    tool_approval_id: str | None = None
+    tool_approval_decision: str | None = None
+    workspace: str = ""
+    active_doc_id: str = ""
+    active_doc_state: str = ""
+    active_email: dict | None = None
+    selected_notes_context: str | None = None
+    client_runtime_context: dict | None = None
+    internal_tool_request: bool = False
+    experiment_header: str | None = None
+    # Pre-admission pure routing results (pure helpers, no admission)
+    initial_tool_intent: ToolIntent | None = None
+    initial_workspace_agent_intent: bool = False
+    initial_auto_escalated: bool = False
+    # Server-owned adapter dependencies
+    chat_handler: Any = None
+    chat_processor: Any = None
+    ports: ChatContextPorts | None = None
+    privileges: dict | None = None
+    global_disabled_tools: tuple[str, ...] = ()
+    browser_tools: frozenset[str] = frozenset()
+    allowed_models: Iterable[str] | None = None
+    # Server-owned, lazy Web evidence lookups
+    initial_local_browser_render_lookup: Callable[[], bool] = lambda: False
+    recent_private_browser_success_lookup: Callable[[], bool] = lambda: False
+    contextual_web_followup_lookup: Callable[[], bool] = lambda: False
+    contextual_browser_followup_lookup: Callable[[], bool] = lambda: False
+    workspace_from_message_lookup: Callable[[], tuple] = lambda: ("", None)
+    web_link_followup_lookup: Callable[[], bool] = lambda: False
+    recent_web_event_lookup: Callable[[], bool] = lambda: False
+    message_denies_web_lookup: Callable[[], bool] = lambda: False
+    successful_session_tool_names: Callable[[], frozenset] = lambda: frozenset()
+    most_recent_successful_web_tool: Callable[[], object] = lambda: None
+    structured_document_intent_lookup: Callable[[], bool] = lambda: False
+    on_user_message_persisted: Callable[[], None] | None = None
+    # Adapter-resolved session state
+    research_requested: bool = False
+    research_pending: bool = False
+    image_generation_session: bool = False
+    tool_schema_full_route: bool = False
+    clean_route_requested: bool = False
+    compact_context_resolution: Any = None
+
+
+@dataclass(frozen=True)
+class PreparedWebTurn:
+    """Immutable result of composing one admitted Web turn.
+
+    Authority, contract and policy objects come only from the admitted
+    Gateway services; they are never deserialized from a client request.
+    Denied approval continuations return without composing a turn, so the
+    execution-facing fields are Optional only on that control-plane path.
+    """
+
+    context_owner: str
+    context: Any
+    message: str
+    workspace: str | None
+    chat_mode: str
+    auto_escalated: bool
+    foreground_policy: AdmittedForegroundPolicy | None
+    foreground_fallback_models: frozenset[str]
+    final_policy: FinalTurnToolPolicy | None
+    tool_policy: ToolPolicy | None
+    disabled_tools: frozenset[str]
+    request_authority: RequestAuthority | None
+    turn_contract: Any
+    active_document: Any
+    active_email: dict | None
+    client_runtime_context: dict | None
+    effective_do_research: bool
+    research_blocked_by_policy: bool
+    image_generation_session: bool
+    # Approval continuation state (already admitted, not yet consumed)
+    pending_tool_approval: Any = None
+    exact_tool_approval: Any = None
+    approval_decision: str | None = None
+    approval_denied: bool = False
+    external_untrusted_context_seen: bool = False
 
 
 def _require_persisted_notes_web_profile(
@@ -246,6 +367,493 @@ class GatewayTurns:
             admission, policy, context, request_text,
             streaming=streaming,
             approval_continuation=approval_continuation,
+        )
+
+    async def compose_web_turn(self, composition: WebTurnComposition) -> PreparedWebTurn:
+        """Compose the full production Web turn from admitted services.
+
+        One transport-neutral operation runs the inherited Web chain in its
+        exact order: early intents, post-session routing, context ports,
+        compact runtime, document promotion, contract scope, capability
+        classification, delegated limits, web intent reconciliation,
+        incognito/email tool strips, final policy veto, runtime UI
+        projection, request authority, inventory/selection and the routed
+        contract. It performs no model execution, message saves or HTTP I/O;
+        the adapter serializes and the execution boundary enters the Agent
+        Loop.
+        """
+        admission = composition.admission
+        session = composition.session
+        session_id = composition.session_id
+        require_admitted_session(admission)
+        owner = owner_for_admitted_context(admission, session, session_id)
+        if not isinstance(self._turns, TurnService):
+            raise AdmissionDenied(403, "Invalid server agent runtime")
+        if not callable(getattr(composition.ports, "extract_preset", None)):
+            raise AdmissionDenied(403, "Trusted chat context ports are required")
+        if (
+            type(composition.message) is not str or not composition.message.strip()
+            or type(composition.att_ids) is not tuple
+            or any(type(item) is not str or not item.strip() for item in composition.att_ids)
+            or type(composition.chat_mode) is not str
+        ):
+            raise AdmissionDenied(403, "Invalid composed Web turn inputs")
+
+        # Early pure intent/routing hints. The inherited route classifies
+        # these before admission; they are routing hints, never grants.
+        _search_enabled = bool(composition.search_enabled)
+        initial = self.preview_initial_web_intent(
+            message=composition.message,
+            search_enabled=_search_enabled,
+            workspace_bound=bool(composition.workspace),
+            local_browser_render_lookup=composition.initial_local_browser_render_lookup,
+        )
+        _explicit_web_intent = initial.explicit_web_intent
+        _explicit_personal_store_intent = initial.personal_store_intent
+        _exact_url_fetch_intent = initial.exact_url_fetch_intent
+        _explicit_browser_intent = initial.explicit_browser_intent
+        _external_discovery_intent = initial.external_discovery_intent
+        _explicit_private_browser_intent = initial.explicit_private_browser_intent
+        _local_browser_render_intent = initial.local_browser_render_intent
+        _allow_browser_for_web_turn = initial.allow_browser_for_web_turn
+
+        chat_mode = composition.chat_mode
+        plan_mode = bool(composition.plan_mode)
+        if plan_mode:
+            chat_mode = "agent"
+        initial_route = self.preview_initial_agent_route(
+            message=composition.message,
+            chat_mode=chat_mode,
+            allow_bash=composition.allow_bash,
+            search_enabled=_search_enabled,
+            explicit_web_intent=_explicit_web_intent,
+            explicit_private_browser_intent=_explicit_private_browser_intent,
+            native_workspace_inputs=bool(composition.client_runtime_context),
+        )
+        chat_mode = initial_route.chat_mode
+        _tool_intent = initial_route.tool_intent
+        _workspace_agent_intent = initial_route.workspace_agent_intent
+        auto_escalated = initial_route.auto_escalated
+        allow_bash = initial_route.allow_bash
+
+        # One admitted approval decision is consumed by the control plane,
+        # never by a button label. Denial closes without context or model I/O.
+        pending_tool_approval = None
+        exact_tool_approval = None
+        approval_decision = None
+        tool_approval_continuation = False
+        external_untrusted_context_seen = False
+        if composition.tool_approval_id:
+            resolution = self.decide_tool_approval(
+                admission,
+                composition.tool_approval_id,
+                composition.tool_approval_decision,
+                plan_mode=plan_mode,
+                internal_tool_request=composition.internal_tool_request,
+                store=composition.approval_store or tool_approval_store,
+            )
+            pending_tool_approval = resolution.pending
+            exact_tool_approval = resolution.exact
+            approval_decision = resolution.decision
+            external_untrusted_context_seen = external_untrusted_context_seen or resolution.tainted
+            tool_approval_continuation = True
+            if resolution.decision == "deny":
+                return PreparedWebTurn(
+                    context_owner=owner, context=None, message=composition.message,
+                    workspace=composition.workspace, chat_mode=chat_mode,
+                    auto_escalated=auto_escalated,
+                    foreground_policy=None, foreground_fallback_models=frozenset(),
+                    final_policy=None, tool_policy=None,
+                    disabled_tools=frozenset(), request_authority=None,
+                    turn_contract=None, active_document=None,
+                    active_email=composition.active_email,
+                    client_runtime_context=composition.client_runtime_context,
+                    effective_do_research=False,
+                    research_blocked_by_policy=False,
+                    image_generation_session=composition.image_generation_session,
+                    pending_tool_approval=pending_tool_approval,
+                    exact_tool_approval=exact_tool_approval,
+                    approval_decision=approval_decision,
+                    approval_denied=True,
+                    external_untrusted_context_seen=external_untrusted_context_seen,
+                )
+            # An approval is a control-plane continuation: the sealed record,
+            # not mutable form state, restores the originating context.
+            message = pending_tool_approval.continuation_query
+            workspace = pending_tool_approval.workspace or ""
+            active_doc_id = pending_tool_approval.document_id or ""
+        else:
+            message = composition.message
+            workspace = composition.workspace
+            active_doc_id = composition.active_doc_id
+            # A normal user message supersedes a waiting card; preserve its
+            # security taint for this turn.
+            retired_taint = (composition.approval_store or tool_approval_store).retire_for_session(
+                owner=owner, session_id=session_id,
+            )
+            external_untrusted_context_seen = external_untrusted_context_seen or retired_taint
+
+        # Post-session routing reconciles the persisted compact-route hint
+        # and contextual browser/web escalation after ownership is verified.
+        post_session = self.reconcile_post_session_route(
+            admission, session,
+            context_owner=owner,
+            message=message,
+            chat_mode=chat_mode,
+            auto_escalated=auto_escalated,
+            tool_intent=_tool_intent,
+            workspace_agent_intent=_workspace_agent_intent,
+            workspace=workspace,
+            allow_bash=allow_bash,
+            explicit_browser_intent=_explicit_browser_intent,
+            clean_route_requested=composition.clean_route_requested,
+            recent_private_browser_success_lookup=(
+                composition.recent_private_browser_success_lookup
+            ),
+            contextual_web_followup_lookup=composition.contextual_web_followup_lookup,
+            contextual_browser_followup_lookup=(
+                composition.contextual_browser_followup_lookup
+            ),
+            workspace_from_message_lookup=composition.workspace_from_message_lookup,
+        )
+        chat_mode = post_session.chat_mode
+        auto_escalated = post_session.auto_escalated
+        _tool_intent = post_session.tool_intent
+        _workspace_agent_intent = post_session.workspace_agent_intent
+        workspace = post_session.workspace
+        allow_bash = post_session.allow_bash
+        _explicit_browser_intent = post_session.explicit_browser_intent
+        _clean_v3_private_browser_warm = post_session.private_browser_warm
+        _contextual_browser_turn_followup = post_session.contextual_browser_followup
+
+        # Privilege gates: allowed models and message quotas are adapter
+        # checks; the account agent permission is enforced with the policy.
+        do_research = bool(composition.research_requested) and not tool_approval_continuation
+        if not do_research and not tool_approval_continuation and composition.research_pending:
+            do_research = True
+
+        pre_context_tool_policy = build_effective_tool_policy(
+            last_user_message=message,
+        )
+        allow_tool_preprocessing = not pre_context_tool_policy.block_all_tool_calls
+        foreground_policy = self.resolve_foreground_policy(
+            admission,
+            allowed_models=composition.allowed_models,
+        )
+        _foreground_fallback_models = (
+            frozenset(
+                candidate[1]
+                for candidate in foreground_policy.policy.fallback_candidates
+            )
+            if foreground_policy.enabled else frozenset()
+        )
+
+        compact_preview = self.select_compact_runtime(
+            admission, session,
+            context_owner=owner,
+            clean_route_requested=composition.clean_route_requested,
+            full_schema_route=composition.tool_schema_full_route,
+            exact_tool_approval=exact_tool_approval,
+            runtime_surface=str(
+                (composition.client_runtime_context or {}).get("surface") or ""
+            ),
+            agent_mode=(chat_mode == "agent"),
+            agent_permitted=bool((composition.privileges or {}).get("can_use_agent", True)),
+            image_generation=composition.image_generation_session,
+        )
+        context = await assemble_chat_context(
+            session, owner, composition.chat_handler, composition.chat_processor,
+            message=message,
+            session_id=session_id,
+            selected_notes_context=composition.selected_notes_context,
+            preset_id=composition.preset_id,
+            att_ids=list(composition.att_ids),
+            use_web=composition.use_web,
+            use_rag=composition.use_rag,
+            use_research="true" if composition.research_requested else None,
+            incognito=composition.incognito,
+            no_memory=composition.no_memory,
+            search_context=composition.search_context,
+            compare_mode=composition.compare_mode,
+            use_enhanced_message=True,
+            agent_mode=(chat_mode == "agent"),
+            allow_tool_preprocessing=allow_tool_preprocessing,
+            defer_context_shaping=foreground_policy.enabled,
+            continuation_context_message=(
+                pending_tool_approval.continuation_query
+                if exact_tool_approval and pending_tool_approval
+                and pending_tool_approval.continuation_query
+                else None
+            ),
+            persist_user_message=not tool_approval_continuation
+            and not composition.internal_tool_request,
+            context_resolution=composition.compact_context_resolution,
+            interaction_mode=chat_mode or None,
+            auto_escalated=auto_escalated,
+            ports=composition.ports,
+            on_user_message_persisted=composition.on_user_message_persisted,
+        )
+        self.append_internal_context(
+            admission, foreground_policy, context, message,
+            internal_tool_request=composition.internal_tool_request,
+        )
+
+        # The adapter resolves the active document through its existing
+        # owner/session-checked lookups; promotion still requires admission.
+        document_edit_route = self.promote_document_edit_route(
+            admission, session,
+            context_owner=owner,
+            message=message,
+            chat_mode=chat_mode,
+            auto_escalated=auto_escalated,
+            active_document=bool(active_doc_id),
+        )
+        chat_mode = document_edit_route.chat_mode
+        auto_escalated = document_edit_route.auto_escalated
+
+        contract_scope = self.select_contract_scope(
+            admission, session,
+            context_owner=owner,
+            client_runtime_context=composition.client_runtime_context,
+            workspace_agent_intent=_workspace_agent_intent,
+            workspace_bound=bool(workspace),
+            clean_route_requested=composition.clean_route_requested,
+            full_schema_route=composition.tool_schema_full_route,
+            exact_tool_approval=exact_tool_approval,
+        )
+        _native_workspace_contract = contract_scope.native_workspace_contract
+        _use_turn_contract = contract_scope.enabled
+        _turn_history = getattr(session, "history", []) or []
+        initial_capabilities = self.classify_turn_capabilities(
+            admission, session,
+            context_owner=owner,
+            message=message,
+            use_turn_contract=_use_turn_contract,
+            active_document=bool(active_doc_id),
+            workspace_bound=bool(workspace),
+            image_attachment=False,
+            explicit_browser_intent=_explicit_browser_intent,
+            external_discovery_intent=_external_discovery_intent,
+            private_browser_warm=_clean_v3_private_browser_warm,
+            contextual_browser_followup_lookup=(
+                composition.contextual_browser_followup_lookup
+            ),
+        )
+        _corrected_browser_target = initial_capabilities.corrected_browser_target
+        _turn_capabilities = initial_capabilities.capabilities
+        _active_turn_capabilities = initial_capabilities.active_capabilities
+        if initial_capabilities.suppress_explicit_web_intent:
+            _explicit_web_intent = False
+
+        disabled_tools = set(execution_limits_for_admission(
+            admission, None,
+            browser_tools=composition.browser_tools,
+        ).disabled_tools)
+        if allow_bash is not None and str(allow_bash).lower() != "true":
+            disabled_tools.add("bash")
+        web_intent = self.reconcile_web_intent(
+            admission, session,
+            context_owner=owner,
+            message=message,
+            explicit_web_intent=_explicit_web_intent,
+            personal_store_intent=_explicit_personal_store_intent,
+            tool_intent_is_web=bool(
+                _tool_intent and _tool_intent.category == "web"
+            ),
+            capabilities=_turn_capabilities,
+            clean_route_requested=composition.clean_route_requested,
+            allow_web_search=composition.allow_web_search,
+            search_enabled=_search_enabled,
+            explicit_browser_intent=_explicit_browser_intent,
+            local_browser_render_intent=_local_browser_render_intent,
+            exact_url_fetch_intent=_exact_url_fetch_intent,
+            use_turn_contract=_use_turn_contract,
+            full_schema_route=composition.tool_schema_full_route,
+            workspace_bound=bool(workspace),
+            base_disabled_tools=disabled_tools,
+            web_link_followup_lookup=composition.web_link_followup_lookup,
+            contextual_web_followup_lookup=composition.contextual_web_followup_lookup,
+            recent_web_event_lookup=composition.recent_web_event_lookup,
+            message_denies_lookup=composition.message_denies_web_lookup,
+        )
+        _explicit_web_intent = web_intent.explicit_web_intent
+        _contextual_web_turn_followup = web_intent.contextual_web_turn_followup
+        _search_enabled = web_intent.search_enabled
+        disabled_tools = set(web_intent.disabled_tools)
+
+        if composition.incognito:
+            disabled_tools.update({
+                "manage_memory", "search_chats", "manage_skills",
+                "create_session", "list_sessions", "manage_session",
+                "send_to_session", "chat_with_model",
+            })
+        if composition.active_email and composition.active_email.get("uid"):
+            disabled_tools.update(_ACTIVE_EMAIL_REVIEW_DISABLED_TOOLS)
+
+        final_policy = self.finalize_tool_policy(
+            admission, session,
+            context_owner=owner,
+            base_disabled_tools=disabled_tools,
+            privileges=composition.privileges,
+            global_disabled_tools=composition.global_disabled_tools,
+            browser_tools=composition.browser_tools,
+            last_user_message=message,
+            chat_mode=chat_mode,
+            auto_escalated=auto_escalated,
+            workspace_agent_intent=_workspace_agent_intent,
+            use_turn_contract=_use_turn_contract,
+            allow_browser_for_web_turn=_allow_browser_for_web_turn,
+            compare_mode=composition.compare_mode,
+            plan_mode=plan_mode,
+        )
+        if not final_policy.allow_agent:
+            chat_mode = "chat"
+        chat_mode = final_policy.chat_mode
+        tool_policy = final_policy.policy
+        disabled_tools = tool_policy.all_disabled_names()
+
+        runtime_ui = self.project_runtime_ui_state(
+            admission, session,
+            context_owner=owner,
+            client_runtime_context=composition.client_runtime_context,
+            policy=tool_policy,
+            use_rag=composition.use_rag,
+            use_research=None,
+            incognito=bool(composition.incognito),
+        )
+        client_runtime_context = runtime_ui.context
+
+        request_authority = self.build_authority(
+            admission, message,
+            workspace=workspace,
+            history=_turn_history,
+            policy=tool_policy,
+            client_runtime_context=client_runtime_context,
+            active_document=bool(active_doc_id),
+            image_attachment=False,
+            capabilities=(
+                {"search_browser"}
+                if (_explicit_browser_intent or _external_discovery_intent)
+                else ()
+            ),
+            internal_tool_request=composition.internal_tool_request,
+            exact_approval=exact_tool_approval,
+        )
+        turn_contract = None
+        if _use_turn_contract and chat_mode == "agent" and not composition.image_generation_session:
+            tool_inventory = self.prepare_tool_inventory(
+                admission, session,
+                context_owner=owner,
+                base_policy=tool_policy,
+                base_disabled_tools=disabled_tools,
+                message=message,
+                plan_mode=plan_mode,
+                native_workspace_contract=_native_workspace_contract,
+            )
+            disabled_tools = set(tool_inventory.disabled_tools)
+            _contract_policy = tool_inventory.policy
+            selected_intent = self.select_tool_intent(
+                admission, session,
+                context_owner=owner,
+                inventory=tool_inventory,
+                message=message,
+                capabilities=_turn_capabilities,
+                active_capabilities=_active_turn_capabilities,
+                warm_tools=composition.successful_session_tool_names(),
+                recent_web_tool_lookup=composition.most_recent_successful_web_tool,
+                active_document=bool(active_doc_id),
+                contextual_browser_followup=_contextual_browser_turn_followup,
+                contextual_web_followup=_contextual_web_turn_followup,
+                active_email_review=bool(
+                    composition.active_email
+                    and composition.active_email.get("uid")
+                ),
+                corrected_browser_target=bool(_corrected_browser_target),
+            )
+            _warm_tools = selected_intent.warm_tools
+            _selected_tools = selected_intent.selected_tools
+            _required_tools = selected_intent.required_tools
+            _turn_capabilities = selected_intent.capabilities
+            _active_turn_capabilities = selected_intent.active_capabilities
+            _contract_policy = selected_intent.policy
+            resolved = self.resolve_routed_contract(
+                admission, session,
+                context_owner=owner,
+                request_authority=request_authority,
+                capabilities=_turn_capabilities,
+                schemas=tool_inventory.schemas,
+                policy=_contract_policy,
+                required_tools=_required_tools,
+                required_capabilities=_active_turn_capabilities,
+                selected_tools=_selected_tools,
+                always_available_tools=(("read_document",) if active_doc_id else ()),
+                warm_tools=_warm_tools,
+                message=message,
+                history=_turn_history,
+            )
+            scoped = self.scope_routed_contract(
+                admission, session,
+                context_owner=owner,
+                routed=resolved,
+                schemas=tool_inventory.schemas,
+                contract_policy=_contract_policy,
+                disabled_tools=disabled_tools,
+                active_capabilities=_active_turn_capabilities,
+                selected_tools=_selected_tools,
+                warm_tools=_warm_tools,
+                compact_preview=compact_preview,
+                native_workspace_contract=_native_workspace_contract,
+                structured_document_intent=bool(
+                    compact_preview
+                    and _native_workspace_contract
+                    and composition.structured_document_intent_lookup()
+                ),
+                local_browser_render_intent=_local_browser_render_intent,
+                experiment_header=(
+                    composition.experiment_header if compact_preview else None
+                ),
+                message=message,
+                history=_turn_history,
+                browser_requested=_explicit_browser_intent,
+            )
+            turn_contract = scoped.contract
+            request_authority = scoped.authority
+            disabled_tools = set(scoped.disabled_tools)
+            tool_policy = scoped.policy
+
+        research_blocked_by_policy = bool(
+            tool_policy.blocks("trigger_research")
+            or tool_policy.blocks("manage_research")
+        )
+        effective_do_research = bool(
+            do_research and not research_blocked_by_policy
+        )
+
+        return PreparedWebTurn(
+            context_owner=owner,
+            context=context,
+            message=message,
+            workspace=workspace,
+            chat_mode=chat_mode,
+            auto_escalated=auto_escalated,
+            foreground_policy=foreground_policy,
+            foreground_fallback_models=_foreground_fallback_models,
+            final_policy=final_policy,
+            tool_policy=tool_policy,
+            disabled_tools=frozenset(disabled_tools),
+            request_authority=request_authority,
+            turn_contract=turn_contract,
+            active_document=None,
+            active_email=composition.active_email,
+            client_runtime_context=client_runtime_context,
+            effective_do_research=effective_do_research,
+            research_blocked_by_policy=research_blocked_by_policy,
+            image_generation_session=composition.image_generation_session,
+            pending_tool_approval=pending_tool_approval,
+            exact_tool_approval=exact_tool_approval,
+            approval_decision=approval_decision,
+            approval_denied=False,
+            external_untrusted_context_seen=external_untrusted_context_seen,
         )
 
     def build_authority(

@@ -40,9 +40,7 @@ class FakePorts:
         self, _handler, message, attachment_ids, _session,
         *, auto_opened_docs, allow_tool_preprocessing,
     ):
-        assert attachment_ids == []
-        assert allow_tool_preprocessing is False
-        self.operations.append("preprocess")
+        self.operations.append(("preprocess", allow_tool_preprocessing))
         return PreprocessedMessage(message, message, message, [], [])
 
     def append_user_message(self, *_a, **_kw):
