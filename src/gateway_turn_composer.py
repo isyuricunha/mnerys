@@ -112,6 +112,20 @@ class TrustedTextTurnSettings:
     # The HTTP Web adapter alone may persist a verified text-only upload
     # after a second owner/hash read, without storing the upload as user prose.
     persist_verified_text_attachments: bool = False
+    # Server-selected context features for one composed turn. A trusted
+    # adapter enables the owner's normal Web context; these are never
+    # deserialized from untrusted request fields. Defaults preserve the
+    # original direct profile (no memory/RAG/web preprocessing).
+    enable_memory: bool = False
+    enable_rag: bool = False
+    enable_web: bool = False
+    # Incognito keeps the turn out of persisted session history and memory.
+    # A composed incognito turn is always non-persisting.
+    incognito: bool = False
+    # Explicit server-selected preprocessing mode. True reuses the inherited
+    # ChatHandler URL/YouTube/vision probes and lets memory/RAG inject, as in
+    # the ordinary Web path; False keeps the original tools-disabled behavior.
+    allow_tool_preprocessing: bool = False
     # A server-selected M2.1 profile may persist a single native manage_notes
     # turn through the inherited writers. Tool permissions and
     # approval consumption remain owned by the Agent Loop and dispatcher.
@@ -267,6 +281,19 @@ async def stream_composed_text_turn(
         raise AdmissionDenied(403, "Text attachments require a read-only turn")
     if type(settings.persist_verified_native_tools) is not bool:
         raise AdmissionDenied(403, "Invalid trusted native tool persistence option")
+    if (
+        type(settings.enable_memory) is not bool
+        or type(settings.enable_rag) is not bool
+        or type(settings.enable_web) is not bool
+        or type(settings.incognito) is not bool
+        or type(settings.allow_tool_preprocessing) is not bool
+    ):
+        raise AdmissionDenied(403, "Invalid trusted context feature flags")
+    if settings.incognito and (persistence is not None or continuation):
+        # Incognito composed turns never persist conversation messages and
+        # never resume a persisted approval; the Web incognito path owns any
+        # legacy approval continuation outside this composer.
+        raise AdmissionDenied(403, "Incognito composed turns cannot persist or resume approvals")
     native_tool_persistence = bool(
         persistence is not None and settings.persist_verified_native_tools
     )
@@ -525,11 +552,12 @@ async def stream_composed_text_turn(
         ports=ports,
         continuation_context_message=message if attachment_ids else None,
         allow_attachment_preprocessing=bool(attachment_ids),
-        use_web=False,
-        use_rag="false",
-        no_memory=True,
+        use_web=settings.enable_web,
+        use_rag=settings.enable_rag,
+        no_memory=not settings.enable_memory,
+        incognito=settings.incognito,
         agent_mode=settings.interaction_mode == "agent",
-        allow_tool_preprocessing=False,
+        allow_tool_preprocessing=settings.allow_tool_preprocessing,
         # Validate uploaded text *after* asynchronous preprocessing and
         # before any irreversible user write; ordinary plain text is unchanged.
         persist_user_message=persistence is not None and not attachment_ids and not continuation,
