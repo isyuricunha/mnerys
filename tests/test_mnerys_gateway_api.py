@@ -313,6 +313,12 @@ def test_remote_turn_continues_the_session_when_persistence_is_wired(monkeypatch
 
     def saver(current, manager, session_id, text, metrics, **kwargs):
         saved.append(text)
+        from core.models import ChatMessage
+
+        current.history.append(ChatMessage(
+            "assistant", text,
+            metadata={"_db_id": f"fixture-assistant-{len(current.history) + 1}"},
+        ))
         return "remote-saved-answer"
 
     client_app.app.state.text_persistence = TrustedTextPersistence(

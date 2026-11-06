@@ -9,6 +9,8 @@ turn records. Capability discovery never grants execution rights.
 """
 
 import json
+import logging
+from collections.abc import AsyncIterator
 from dataclasses import replace
 from typing import Any, Optional
 
@@ -23,6 +25,44 @@ from src.gateway_admission import (
 from src.gateway_turn_composer import TextTurnRequest, TrustedTextTurnSettings
 from src.gateway_turn_records import TurnRecordError
 from src.gateway_turns import GatewayTurns
+
+logger = logging.getLogger("mnerys.gateway_api")
+
+
+async def _finalize_on_terminal(
+    events: AsyncIterator[Any], turn_id: str, owner: str, records: Any,
+) -> AsyncIterator[Any]:
+    """Forward events and finalize the durable record on the terminal state.
+
+    The detached run owns the in-process lifecycle; the durable record
+    mirrors only the authentic terminal event seen on the stream, never the
+    mutable outcome snapshot. Finalization is best-effort: a writer failure
+    is logged, never raised into the stream.
+    """
+    terminal_status: str | None = None
+
+    def _record_terminal() -> None:
+        status = terminal_status or "cancelled"
+        try:
+            records.finalize_turn(turn_id=turn_id, owner=owner, status=status)
+        except TurnRecordError as exc:
+            logger.warning(
+                "Turn finalization skipped for %s: %s", turn_id, exc,
+            )
+
+    async for event in events:
+        kind = getattr(event, "type", None) or getattr(event, "kind", None)
+        kind = str(kind or "").replace("_", "").replace(".", "")
+        if kind in {"turncompleted", "turncompletedwithapproval"}:
+            terminal_status = "completed"
+        elif kind in {"turnfailed", "turnaborted"}:
+            terminal_status = "failed"
+        elif kind in {"turncancelled", "cancelled"}:
+            terminal_status = "cancelled"
+        elif kind in {"turnapprovalrequired", "approvalrequired"}:
+            terminal_status = "awaiting_approval"
+        yield event
+    _record_terminal()
 
 router = APIRouter(prefix="/api/v1", tags=["gateway"])
 
@@ -173,8 +213,14 @@ async def create_turn(body: TurnCreateBody, request: Request) -> dict:
             ),
         )
 
+    events = delivered.events
+    if records is not None:
+        events = _finalize_on_terminal(
+            events, turn_id, admission.principal.owner_id, records,
+        )
+
     stream = request.app.state.turn_service.start_detached_typed(
-        body.session_id, delivered.events, delivered.outcome,
+        body.session_id, events, delivered.outcome,
         run_id=turn_id,
     )
     return {
