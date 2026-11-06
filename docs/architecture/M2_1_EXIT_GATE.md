@@ -1,6 +1,13 @@
 # M2.1 exit gate — one reusable admitted Agent turn
 
-**Status: NEARLY COMPLETE — the composed Web cutover, typed display events, real-provider acceptance and HTTP parity tests are implemented behind a disabled-by-default operator switch; the remaining items are the operator audit pass and roadmap flip once the hosted CI for the current batch is green.**
+**Status: COMPLETE (November 6, 2026). The composition covers the full
+Web feature set, the production `/api/chat_stream` runs ordinary
+chat/agent turns through it in the authorized private preview with
+`MNERYS_M21_WEB_CORE_CUTOVER=1`, typed display events and the
+client-rendering passthrough are implemented, a controlled real-provider
+acceptance turn passed through the composer, and route-level HTTP tests
+prove parity with the preserved legacy chain. The legacy path remains
+available verbatim behind the flag for rollback.**
 
 This is the bounded, verifiable completion checklist for [M2.1 in the implementation plan](M2_GATEWAY_IMPLEMENTATION_PLAN.md#m21--finish-the-internal-authority-and-turn-boundary), under the [M1 design contract](GATEWAY_AGENT_CONTRACT.md). It replaces open-ended extraction targets with acceptance criteria. An item is complete only when its implementation and negative tests can be identified in the current source.
 

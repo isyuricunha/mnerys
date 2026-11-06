@@ -70,14 +70,15 @@ See [native preview deployment](deployment/NATIVE_PREVIEW.md) and [PostgreSQL 17
 
 ### M2 — Mnerys Agent Core and Gateway
 
-**In progress — M2.1 through M2.5 implemented, published and rolled out
-to the private preview (November 6, 2026).** The authorized preview
+**In progress — M2.1 through M2.5 implemented, published, rolled out to
+the private preview, and the Web execution path is now the shared
+Gateway composition (November 6, 2026).** The authorized preview
 rollout applied both migrations to the PostgreSQL 17 primary database
-after a verified backup and isolated restore test, and deployed the
-published revision with all native runner checks passing. The remaining
-step before the owner's final acceptance is the logged-in chat parity
-validation on the preview (the `MNERYS_M21_WEB_CORE_CUTOVER` switch
-stays off until then).
+after a verified backup and isolated restore test, deployed the
+published revision with all native runner checks passing, and the owner
+validated the logged-in chat before the authorized
+`MNERYS_M21_WEB_CORE_CUTOVER` activation; the composition now serves
+the preview's Web chat and Agent turns end to end.
 
 **M2.1 (authoritative internal turn boundary).** One owner-admitted,
 transport-neutral turn composer now covers the full production Web feature

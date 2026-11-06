@@ -27,13 +27,19 @@ tables are installed only by the explicit, approval-gated migrations.
   with liveness/readiness/login/auth checks passed, real-provider
   acceptance turn passed on the deployed build, and the login page
   verified in real Chromium at desktop and mobile viewports with no
-  console errors. The Web chat cutover switch stays OFF until the owner
-  validates the logged-in chat parity; nothing in the documented M2
-  acceptance requires the switch to be on.
-- **Owner logged-in validation (2026-11-06):** the owner confirmed the
-  preview chat works in the browser with real authorized models; this was
-  the last human acceptance step. M2 implementation, validation and the
-  authorized preview rollout are complete.
+  console errors.
+- **Web cutover status (2026-11-06, authorized):**
+  `MNERYS_M21_WEB_CORE_CUTOVER=1` is active in the private preview. A
+  real Chromium end-to-end test with an isolated non-admin test user
+  (deleted afterwards with its sessions) logged in and ran both a chat
+  turn and an Agent-mode turn with the native `manage_notes` tool
+  through the live route: stream 200, sanitized frames, model deltas,
+  `[DONE]`, and the inherited external-context policy correctly denying
+  a private read. Fenced writers persisted the turns (revision bumps on
+  the session rows; the idempotent migration repaired one late
+  scheduler-created row, and the scheduler now allocates fences
+  itself). Yuri's manual logged-in validation covered the legacy path
+  before the flip; the automated tests cover the composition path.
 - The photo-editor browser release-gate suite still requires the full
   local development boot and remains outside this environment and the CI
   jobs; the gateway-notes browser suites (5) and browser-to-HTTP

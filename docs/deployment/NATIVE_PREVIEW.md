@@ -108,13 +108,21 @@ The deployed service runs the M2 build against the migrated schema; the
 deployment guard now accepts only operator-attested migration plans and
 the startup schema guard remains fail-closed for the application.
 
-The production Web turn can run through the Gateway composition behind the
-disabled-by-default `MNERYS_M21_WEB_CORE_CUTOVER` switch; the preview
-keeps the legacy path until the operator deliberately flips it.
-**Owner logged-in validation passed 2026-11-06:** the owner tested the
-preview chat in the browser (two turns answered by two different real
-authorized models, sidebar areas and usage display rendered normally).
-Commit `7f4aa8b5a32a` includes this page's rollout record.
+The production Web turn now runs through the Gateway composition in the
+private preview: `MNERYS_M21_WEB_CORE_CUTOVER=1` was added to the private
+runtime environment and the service restarted (authorized 2026-11-06).
+The live `/api/chat_stream` executed a real provider-backed chat turn and
+an Agent-mode turn with the native `manage_notes` tool through the
+composition (stream 200, `turn_mode`/`model_info` frames, deltas,
+terminal `[DONE]`, policy denial rendered correctly when the inherited
+external-context policy blocked a private read), and the fenced writers
+persisted the turns (revision/incarnation on the test session rows; the
+idempotent migration repaired one late row created by the then-unfenced
+task scheduler, which now allocates fences itself). Automated browser
+tests used an isolated, non-admin test user that was deleted together
+with its test sessions afterwards; this is separate from Yuri's manual
+logged-in validation of the legacy path on the same day. Commit
+`7f4aa8b5a32a` carried the rollout; later commits carry these records.
 
 ## Rollback and retired service
 
