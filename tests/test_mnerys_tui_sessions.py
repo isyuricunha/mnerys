@@ -178,10 +178,13 @@ async def test_create_failure_with_control_characters_renders_inert_in_the_place
         await pilot.press("n")
         await pilot.press("N", "a", "m", "e")
         await pilot.press("enter")
-        await _settle(pilot, "create failed: bad")
         input_box = app.screen.query_one("#new-session-input", Input)
+        for _ in range(40):
+            await pilot.pause(0.05)
+            if "create failed" in input_box.placeholder:
+                break
+        assert "create failed: badname" in input_box.placeholder
         assert "\x1b" not in input_box.placeholder
-        assert "badname" in input_box.placeholder
 
 
 async def test_open_switches_to_the_selected_session():
