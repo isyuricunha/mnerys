@@ -153,6 +153,7 @@ async def create_turn(body: TurnCreateBody, request: Request) -> dict:
             client_rendering=False,
             records=records,
             turn_id=turn_id,
+            persistence=getattr(request.app.state, "text_persistence", None),
         )
     except AdmissionDenied as exc:
         raise HTTPException(
