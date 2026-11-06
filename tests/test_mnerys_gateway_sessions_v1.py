@@ -44,9 +44,6 @@ def _principal(request):
     return Principal(None, "browser", frozenset())
 
 
-gateway_api.principal_for_chat_request = _principal
-
-
 class FakeManager:
     """The manager surface the v1 routes need, backed by the real DB."""
 
@@ -151,7 +148,12 @@ class FakePendingApproval:
 
 @pytest.fixture()
 def v1_app(tmp_path, monkeypatch):
-    """The real router on a small app with a real temporary SQLite DB."""
+    """The real router on a small app with a real temporary SQLite DB.
+
+    The principal lookup is patched through monkeypatch so the real,
+    unpatched router authentication is restored after each test.
+    """
+    monkeypatch.setattr(gateway_api, "principal_for_chat_request", _principal)
     engine = create_engine(
         f"sqlite:///{tmp_path / 'gateway-v1.sqlite'}",
         connect_args={"timeout": 15},
