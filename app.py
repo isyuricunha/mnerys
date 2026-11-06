@@ -796,6 +796,7 @@ from core.database import ModelEndpoint
 from routes.gateway_api import router as gateway_api_router
 from routes.chat_helpers import save_assistant_response
 from src.gateway_text_persistence import TrustedTextPersistence
+from src.gateway_turn_records import SqlTurnRecords
 from src.gateway_turns import gateway_turns
 from src.tool_approvals import tool_approval_store
 from src.tool_index import BUILTIN_TOOL_DESCRIPTIONS
@@ -841,6 +842,7 @@ app.state.chat_processor = chat_processor
 app.state.text_persistence = TrustedTextPersistence(
     session_manager, saver=save_assistant_response,
 )
+app.state.gateway_turn_records = SqlTurnRecords(SessionLocal)
 app.include_router(gateway_api_router)
 
 # GitHub Copilot device-flow login
