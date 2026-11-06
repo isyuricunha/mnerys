@@ -105,8 +105,8 @@ runtime.
 - Delegated credentials never decide approvals: an approval-required turn
   prints the pending state and the authorized approval path (for example
   the Web UI); the CLI does not simulate a browser approval.
-The CLI validates the endpoint scheme (`http://` or `https://`) and
-never disables TLS certificate verification.
+- The CLI validates the endpoint scheme (`http://` or `https://`) and
+  never disables TLS certificate verification.
 - Server responses are data: tool output is rendered as text, never
   executed or interpreted as instructions.
 - Private deployment details (Tailscale addresses, ports, tokens) are
