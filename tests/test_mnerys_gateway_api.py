@@ -40,7 +40,7 @@ class FakeComposerGateway:
     def open_composed_text_events(self, admission, session, *, context_owner,
                                   request, ports, chat_handler, chat_processor,
                                   settings, client_rendering, records=None,
-                                  turn_id=None):
+                                  turn_id=None, persistence=None):
         outcome = TurnOutcome()
 
         async def frames():
