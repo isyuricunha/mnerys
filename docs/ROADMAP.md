@@ -157,7 +157,8 @@ distributions.
 
 **Done when:** a fresh user-level install exposes `mnerys` on the PATH,
 supports a real authenticated remote chat/agent turn, and uninstalls
-cleanly without disturbing server data. Verified; see [CLI documentation](cli.md).
+cleanly without disturbing server data. Verified; see [CLI documentation](cli.md)
+and the [M3 acceptance evidence](architecture/M3_ACCEPTANCE.md).
 
 ### M4 — First-party terminal UI (TUI)
 
