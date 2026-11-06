@@ -264,6 +264,43 @@ async def test_unapproved_or_untrusted_event_never_becomes_web_action(event):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("typed,frame", [
+    (TurnEvent(1, "thinking.delta", {"text": "Thinking about it"}),
+     {"delta": "Thinking about it", "thinking": True}),
+    (TurnEvent(1, "agent.step", {"round": 2}),
+     {"type": "agent_step", "round": 2}),
+    (TurnEvent(1, "turn.control", {"reason": "rounds_exhausted"}),
+     {"type": "rounds_exhausted"}),
+    (TurnEvent(1, "sources.web", {
+        "sources": [{"url": "https://example.com/a", "title": "A"}],
+    }), {"type": "web_sources", "data": [
+        {"url": "https://example.com/a", "title": "A"},
+    ]}),
+])
+async def test_display_families_map_to_the_browser_vocabulary(typed, frame):
+    output = await frames(
+        source(typed, TurnEvent(2, "turn.completed", {})),
+        require_saved_receipt=False,
+    )
+    assert decoded(output[0]) == frame
+    assert output[-1] == "data: [DONE]\n\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", [
+    TurnEvent(1, "thinking.delta", {"text": ""}),
+    TurnEvent(1, "thinking.delta", {"text": 7}),
+    TurnEvent(1, "thinking.delta", {"delta": "wrong key"}),
+    TurnEvent(1, "agent.step", {"round": 0}),
+    TurnEvent(1, "turn.control", {"reason": "unknown_reason"}),
+    TurnEvent(1, "sources.web", {"sources": "nope"}),
+])
+async def test_bad_display_families_fail_closed(bad):
+    with pytest.raises(ValueError):
+        await frames(source(bad), require_saved_receipt=False)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("events,match", [
     (
         [TurnEvent(1, "message.delta", {"text": "Draft"}),

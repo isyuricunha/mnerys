@@ -497,7 +497,9 @@ async def test_interrupted_writer_receives_only_filtered_visible_deltas(monkeypa
         admission, session, **kw,
     )
     events = await collect(delivery)
-    assert [e.type for e in events] == ["message.delta", "turn.failed"]
+    assert [e.type for e in events] == [
+        "thinking.delta", "message.delta", "turn.failed",
+    ]
     assert partials[0][0] == "Visible answer"
     assert "never-save" not in repr(partials)
     assert "hidden diagnostic" not in repr(partials)

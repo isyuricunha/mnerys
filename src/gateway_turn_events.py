@@ -104,6 +104,34 @@ def _safe_metrics(payload: Any) -> dict[str, int]:
     }
 
 
+_WEB_SOURCE_MAX_ITEMS = 50
+_WEB_SOURCE_MAX_CHARS = 4096
+_URL_PATTERN = re.compile(r"https?://[^\s\"'<>]{1,2048}")
+
+
+def _safe_web_sources(payload: Any) -> list[dict[str, str]] | None:
+    """Filter a provider-derived web source list to bounded public metadata."""
+    if not isinstance(payload, list) or len(payload) > _WEB_SOURCE_MAX_ITEMS:
+        return None
+    sources: list[dict[str, str]] = []
+    for item in payload:
+        if not isinstance(item, dict) or len(item) > 16:
+            return None
+        url = item.get("url")
+        if type(url) is not str or not _URL_PATTERN.fullmatch(url):
+            return None
+        filtered = {"url": url}
+        for key in ("title", "snippet", "content"):
+            if key in item:
+                value = item.get(key)
+                if type(value) is not str or len(value) > _WEB_SOURCE_MAX_CHARS:
+                    return None
+                if value:
+                    filtered[key] = value
+        sources.append(filtered)
+    return sources
+
+
 async def translate_legacy_turn_events(
     frames: AsyncIterator[str | CoreNativeEvent],
     outcome: TurnOutcome,
@@ -326,6 +354,39 @@ async def translate_legacy_turn_events(
                         final_response = data["content"]
                     elif kind == "usage":
                         yield event("usage", _safe_metrics(data.get("data")))
+                    elif kind == "agent_step":
+                        # Round progress: one bounded integer, no other fields.
+                        round_value = data.get("round")
+                        if type(round_value) is int and 0 < round_value <= 100000:
+                            yield event("agent.step", {"round": round_value})
+                    elif kind in (
+                        "rounds_exhausted", "budget_exceeded",
+                        "loop_breaker_triggered", "intent_nudge_exhausted",
+                    ):
+                        # Turn-control annotations carry no model content;
+                        # the browser only needs the reason.
+                        yield event("turn.control", {"reason": kind})
+                    elif kind == "web_sources":
+                        sources = _safe_web_sources(data.get("data"))
+                        if sources is not None:
+                            yield event("sources.web", {"sources": sources})
+                    elif kind in (None, "delta") and (
+                        data.get("thinking") is True
+                        or data.get("reasoning") is True
+                        or data.get("channel") in ("analysis", "thinking", "reasoning")
+                        or isinstance(data.get("reasoning_content"), str)
+                    ):
+                        # Hidden reasoning is a display-only channel; the
+                        # browser wraps it in a collapsible thinking block and
+                        # the persistence layer never accumulates it as answer
+                        # text.
+                        value = (
+                            data.get("reasoning_content")
+                            if isinstance(data.get("reasoning_content"), str)
+                            else data.get("delta")
+                        )
+                        if isinstance(value, str) and value:
+                            yield event("thinking.delta", {"text": value})
                     elif (
                         kind in (None, "delta")
                         and isinstance(data.get("delta"), str)

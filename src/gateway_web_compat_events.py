@@ -82,6 +82,29 @@ def serialize_plain_text_turn_event(event: TurnEvent) -> tuple[str, bool]:
         if type(message_id) is not str or not _SAVED_ID_RE.fullmatch(message_id):
             raise ValueError("Invalid admitted assistant message receipt")
         return _data_frame({"type": "message_saved", "id": message_id}), False
+    if kind == "thinking.delta":
+        text = data.get("text")
+        if type(text) is not str or not text or len(text) > _MAX_TEXT_CHARS:
+            raise ValueError("Invalid hidden reasoning text in typed event")
+        return _data_frame({"delta": text, "thinking": True}), False
+    if kind == "agent.step":
+        round_number = data.get("round")
+        if type(round_number) is not int or round_number <= 0:
+            raise ValueError("Invalid typed agent step round")
+        return _data_frame({"type": "agent_step", "round": round_number}), False
+    if kind == "turn.control":
+        reason = data.get("reason")
+        if reason not in {
+            "rounds_exhausted", "budget_exceeded",
+            "loop_breaker_triggered", "intent_nudge_exhausted",
+        }:
+            raise ValueError("Unknown typed turn-control reason")
+        return _data_frame({"type": reason}), False
+    if kind == "sources.web":
+        sources = data.get("sources")
+        if not isinstance(sources, list):
+            raise ValueError("Invalid typed web source list")
+        return _data_frame({"type": "web_sources", "data": sources}), False
     if kind in {"metrics", "usage"}:
         if any(
             key not in _SAFE_METRICS or type(value) is not int or value < 0

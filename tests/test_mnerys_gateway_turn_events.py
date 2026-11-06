@@ -103,14 +103,11 @@ async def test_usage_exposes_only_nonnegative_integer_counts():
 
 
 @pytest.mark.asyncio
-async def test_unknown_tools_approvals_reasoning_and_provider_details_stay_private():
+async def test_unknown_tools_approvals_and_provider_details_stay_private():
     sensitive_events = [
         {"type":"tool_result","output":"secret-output"},
         {"type":"approval_requested","args":{"token":"secret-token"}},
         {"type":"thinking","content":"secret-reasoning"},
-        {"type":"delta","delta":"secret-reasoning","thinking":True},
-        {"type":"delta","delta":"secret-reasoning","channel":"analysis"},
-        {"type":"delta","delta":"secret-reasoning","reasoning_content":"secret-reasoning"},
         {"type":"reasoning.delta","delta":"secret-reasoning"},
         {"type":"model_actual","headers":{"Authorization":"secret-token"}},
     ]
@@ -126,6 +123,92 @@ async def test_unknown_tools_approvals_reasoning_and_provider_details_stay_priva
     ]
     assert result.content == "Public answer"
     assert "secret" not in repr(events)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hidden", [
+    {"delta":"Reasoning text","thinking":True},
+    {"delta":"Reasoning text","reasoning":True},
+    {"delta":"Reasoning text","channel":"analysis"},
+    {"reasoning_content":"Reasoning text"},
+])
+async def test_hidden_reasoning_is_a_display_only_typed_channel(hidden):
+    frames = [
+        'data: '+json.dumps(hidden)+'\n\n',
+        'data: {"delta":"Public answer"}\n\n',
+        "data: [DONE]\n\n",
+    ]
+    stream, result = open_test_events(frames)
+    events = await collect_events(stream)
+    assert [e.type for e in events] == [
+        "thinking.delta", "message.delta", "message.final", "turn.completed",
+    ]
+    assert events[0].payload == {"text": "Reasoning text"}
+    # Reasoning never becomes answer content or a saved response.
+    assert result.content == "Public answer"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("frame,expected", [
+    ('{"type":"agent_step","round":2}', ("agent.step", {"round": 2})),
+    ('{"type":"rounds_exhausted"}', ("turn.control", {"reason": "rounds_exhausted"})),
+    ('{"type":"budget_exceeded"}', ("turn.control", {"reason": "budget_exceeded"})),
+    ('{"type":"loop_breaker_triggered","reason":"artifact_recovery_unoffered_tool","round":3,"attempt":2}',
+     ("turn.control", {"reason": "loop_breaker_triggered"})),
+    ('{"type":"intent_nudge_exhausted"}', ("turn.control", {"reason": "intent_nudge_exhausted"})),
+])
+async def test_lifecycle_frames_become_bounded_typed_events(frame, expected):
+    stream, outcome = open_test_events([
+        "data: " + frame + "\n\n",
+        'data: {"delta":"Done"}\n\n',
+        "data: [DONE]\n\n",
+    ])
+    events = await collect_events(stream)
+    assert (events[0].type, events[0].payload) == expected
+    assert outcome.content == "Done"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_sources", [
+    "not-a-list",
+    [{"title": "no url"}],
+    [{"url": "javascript:alert(1)"}],
+    [{"url": "https://example.com/a", "title": 7}],
+    [{"url": "https://example.com/a", "snippet": "x" * 5000}],
+    [{"url": "https://example.com/a"}, {"malformed": True}],
+])
+async def test_unsafe_web_source_lists_are_dropped(bad_sources):
+    frame = 'data: ' + json.dumps({"type": "web_sources", "data": bad_sources}) + '\n\n'
+    stream, _outcome = open_test_events([
+        frame,
+        'data: {"delta":"Done"}\n\n',
+        "data: [DONE]\n\n",
+    ])
+    events = await collect_events(stream)
+    assert [e.type for e in events] == [
+        "message.delta", "message.final", "turn.completed",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_safe_web_source_list_is_typed_with_bounded_metadata():
+    sources = [
+        {"url": "https://example.com/a", "title": "A", "snippet": "s",
+         "private_field": "dropped"},
+        {"url": "https://example.com/b", "title": "B"},
+    ]
+    frame = 'data: ' + json.dumps({"type": "web_sources", "data": sources}) + '\n\n'
+    stream, _outcome = open_test_events([
+        frame,
+        'data: {"delta":"Done"}\n\n',
+        "data: [DONE]\n\n",
+    ])
+    events = await collect_events(stream)
+    assert events[0].type == "sources.web"
+    assert events[0].payload == {"sources": [
+        {"url": "https://example.com/a", "title": "A", "snippet": "s"},
+        {"url": "https://example.com/b", "title": "B"},
+    ]}
 
 
 @pytest.mark.asyncio
