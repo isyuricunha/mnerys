@@ -309,9 +309,9 @@ def test_web_cancel_paths_are_admission_bound_and_save_success_once():
     stream = source[source.index('@router.post("/api/chat_stream")'):]
     assert stream.count("gateway_turns.save_interrupted_assistant_response(") == 2
     # The two existing stopped-response branches retain their own admitted
-    # writer calls. The opt-in Gateway text path adds one trusted writer
-    # binding, without creating a third direct cancellation save.
-    assert stream.count("writer=append_interrupted_assistant_response") == 3
+    # writer calls. Strict text and notes_v1 each add a trusted writer
+    # binding, but neither adds another direct cancellation save.
+    assert stream.count("writer=append_interrupted_assistant_response") == 4
     assert "if full_response and not incognito and not _chat_terminal_saved:" in stream
     assert "if full_response and not incognito and not _terminal_saved:" in stream
     assert stream.count("_chat_terminal_saved = True") == 2
@@ -352,6 +352,24 @@ def test_web_cancel_paths_are_admission_bound_and_save_success_once():
     }.items():
         assert isinstance(cutover_keywords[key], ast.Name)
         assert cutover_keywords[key].id == expected
+
+    notes_calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "start_restricted_notes_web_response"
+    ]
+    assert len(notes_calls) == 1
+    notes_keywords = {kw.arg: kw.value for kw in notes_calls[0].keywords}
+    for key, expected in {
+        "gateway": "gateway_turns",
+        "assistant_writer": "save_assistant_response",
+        "interrupted_writer": "append_interrupted_assistant_response",
+        "decision_fence": "_native_decision_fence",
+        "event_journal": "_native_event_journal",
+    }.items():
+        assert isinstance(notes_keywords[key], ast.Name)
+        assert notes_keywords[key].id == expected
 
 
 def test_service_imports_no_web_or_duplicate_database_writer():

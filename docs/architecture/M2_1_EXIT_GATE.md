@@ -1296,6 +1296,21 @@ restarted, and no signed approval is reconstituted. This verifies durable
 **metadata-only** recovery across process boundaries, not durable SSE delivery,
 resumable tool execution, multi-worker coordination or production restart.
 
+### Hosted source-contract regression follow-up — November 6, 2026
+
+The first hosted CI run for commit `6d285d1c` passed shards 1, 2 and 3,
+Python/JS syntax and the CodeQL analyses, but shard 4 found **two stale
+source-shape assertions**: the original `ask_user` renderer is now invoked
+through the notes-aware wrapper, and the notes route adds a fourth trusted
+interrupted-writer binding. The
+[card persistence contract](../../tests/test_ask_user_persistence.py) now
+requires both the live/replayed wrapper and unchanged legacy renderer; the
+[admitted persistence contract](../../tests/test_mnerys_gateway_assistant_persistence.py)
+now checks the exact notes call and original inherited writer. **93 focused
+tests passed locally** including required-read isolation. This is a test
+contract repair, not an expansion of tool permissions or restart recovery.
+A new hosted all-shard CI run is still required for acceptance.
+
 **Still not implemented:** durable raw SSE replay, signed approval-card
 restoration after process failure, multi-worker session leadership,
 transactional whole-turn persistence, approved retention automation,

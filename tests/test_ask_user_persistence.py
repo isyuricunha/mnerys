@@ -91,7 +91,11 @@ def test_frontend_uses_one_renderer_for_live_and_restored_cards():
     chat = (ROOT / "static" / "js" / "chat.js").read_text(encoding="utf-8")
     renderer = (ROOT / "static" / "js" / "chatRenderer.js").read_text(encoding="utf-8")
 
-    assert "chatRenderer.renderAskUserCard(json.data || {})" in chat
+    # The shared renderer now sits behind an opt-in notes_v1 adapter; the
+    # legacy ask_user path must still reach the original card unchanged.
+    assert "_renderNotesAwareApprovalCard(json.data || {}, streamGatewayProfile);" in chat
+    assert "return chatRenderer.renderAskUserCard(payload, options);" in chat
+    assert "_renderNotesAwareApprovalCard(pendingNotesReview, resumeGatewayProfile, {" in chat
     assert "export function renderAskUserCard" in renderer
     assert "renderAskUserCard(pendingAskUser" in renderer
     assert "function _answerAskUserCards(root, text)" in renderer
