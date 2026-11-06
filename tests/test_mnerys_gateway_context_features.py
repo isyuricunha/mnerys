@@ -154,3 +154,89 @@ async def test_non_boolean_feature_flags_are_rejected(monkeypatch, flag):
     admission, session, ports, kwargs = feature_fixture(**{flag: "true"})
     with pytest.raises(AdmissionDenied, match="feature flags"):
         [chunk async for chunk in run(monkeypatch, admission, session, kwargs)]
+
+
+def email_fixture(**flags):
+    admission, session, ports, kwargs = feature_fixture(**flags)
+    return admission, session, ports, kwargs
+
+
+options_received: dict = {}
+
+
+async def options_model(_endpoint, _model, _messages, **options):
+    options_received.update(options)
+    yield 'data: {"delta":"Answer"}\n\n'
+    yield "data: [DONE]\n\n"
+
+
+ACTIVE_EMAIL = {"uid": "42", "folder": "INBOX", "account": "work"}
+
+
+@pytest.mark.asyncio
+async def test_active_email_context_reaches_the_agent_loop(monkeypatch):
+    admission, session, _ports, kwargs = email_fixture(
+        interaction_mode="agent",
+        offered_tools=frozenset({"manage_notes"}),
+        active_email=ACTIVE_EMAIL,
+    )
+    monkeypatch.setattr(turn_module, "stream_agent_loop", options_model)
+    await gather(GatewayTurns(TurnService()).stream_composed_text_turn(
+        admission, session, **kwargs,
+    ))
+    assert options_received["active_email"] == ACTIVE_EMAIL
+
+
+@pytest.mark.asyncio
+async def test_active_email_review_denies_compose_tools(monkeypatch):
+    admission, session, _ports, kwargs = email_fixture(
+        interaction_mode="agent",
+        offered_tools=frozenset({
+            "manage_notes", "send_email", "reply_to_email", "create_document",
+        }),
+        active_email=ACTIVE_EMAIL,
+    )
+    received = {}
+
+    async def model(_endpoint, _model, _messages, **options):
+        received.update(options)
+        yield 'data: {"delta":"Answer"}\n\n'
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(turn_module, "stream_agent_loop", model)
+    await gather(GatewayTurns(TurnService()).stream_composed_text_turn(
+        admission, session, **kwargs,
+    ))
+    policy = received["tool_policy"]
+    assert policy.blocks("send_email")
+    assert policy.blocks("reply_to_email")
+    assert policy.blocks("create_document")
+    assert not policy.blocks("manage_notes")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_context", [
+    {"folder": "INBOX"},                                  # missing uid
+    {"uid": "  "},                                        # blank uid
+    {"uid": "42", "extra": "x"},                          # unknown key
+    {"uid": "42", "subject": 7},                          # non-string field
+    {"uid": "x" * 300},                                   # oversized uid
+    {"uid": "42", "body_preview": "y" * 3000},            # oversized preview
+])
+async def test_invalid_active_email_context_is_rejected(monkeypatch, bad_context):
+    admission, session, _ports, kwargs = email_fixture(active_email=bad_context)
+    monkeypatch.setattr(turn_module, "stream_agent_loop", options_model)
+    with pytest.raises(AdmissionDenied, match="email"):
+        [chunk async for chunk in GatewayTurns(TurnService()).stream_composed_text_turn(
+            admission, session, **kwargs,
+        )]
+
+
+@pytest.mark.asyncio
+async def test_without_active_email_the_loop_receives_none(monkeypatch):
+    admission, session, _ports, kwargs = email_fixture()
+    monkeypatch.setattr(turn_module, "stream_agent_loop", options_model)
+    await gather(GatewayTurns(TurnService()).stream_composed_text_turn(
+        admission, session, **kwargs,
+    ))
+    assert options_received["active_email"] is None

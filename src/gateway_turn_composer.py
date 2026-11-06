@@ -68,6 +68,14 @@ from src.gateway_text_persistence import (
 
 logger = logging.getLogger(__name__)
 
+# The visible email review window denies the compose/creation tools that
+# could drift away from the reviewed email, matching the inherited Web
+# turn's denylist ordering before the final account/global policy veto.
+_ACTIVE_EMAIL_REVIEW_DISABLED_TOOLS = frozenset({
+    "create_document", "send_email", "reply_to_email",
+    "mcp__email__send_email", "mcp__email__reply_to_email",
+})
+
 
 @dataclass(frozen=True)
 class TextTurnRequest:
@@ -132,6 +140,10 @@ class TrustedTextTurnSettings:
     # admits owner-checked image uploads for non-persisting vision turns.
     # Selected by the trusted adapter, never by request fields.
     attachment_profile: str = "text"
+    # Server-selected active email reader context (uid/folder/account plus
+    # bounded cached subject/from/preview). Resolved by the adapter from its
+    # authenticated email cache; never deserialized from untrusted fields.
+    active_email: Mapping[str, Any] | None = None
     # A server-selected M2.1 profile may persist a single native manage_notes
     # turn through the inherited writers. Tool permissions and
     # approval consumption remain owned by the Agent Loop and dispatcher.
@@ -312,6 +324,34 @@ async def stream_composed_text_turn(
         # non-persisting in this slice; persisted multimodal writes remain
         # inherited Web behavior until the persistence wrapper covers them.
         raise AdmissionDenied(403, "Image attachments require enabled preprocessing and a non-persisting turn")
+    active_email = None
+    if settings.active_email is not None:
+        if (
+            not isinstance(settings.active_email, Mapping)
+            or type(settings.active_email.get("uid")) is not str
+            or not settings.active_email["uid"].strip()
+            or len(settings.active_email["uid"]) > 256
+        ):
+            raise AdmissionDenied(403, "Invalid trusted active email context")
+        folder = settings.active_email.get("folder")
+        account = settings.active_email.get("account")
+        extra_keys = {
+            "subject", "from", "body_preview",
+        } & set(settings.active_email)
+        if (
+            type(folder) is not str or len(folder) > 256
+            or type(account) is not str or len(account) > 256
+            or any(
+                type(settings.active_email.get(key)) is not str
+                or len(settings.active_email[key]) > 2048
+                for key in extra_keys
+            )
+            or set(settings.active_email) - {
+                "uid", "folder", "account", *extra_keys,
+            }
+        ):
+            raise AdmissionDenied(403, "Invalid trusted active email context")
+        active_email = dict(settings.active_email)
     native_tool_persistence = bool(
         persistence is not None and settings.persist_verified_native_tools
     )
@@ -431,10 +471,13 @@ async def stream_composed_text_turn(
 
     # The server's adapter surface can only remove tools. Build every
     # subsequent selection from the same original policy and dispatcher.
+    base_disabled = frozenset(known_tool_names()) - settings.offered_tools
+    if active_email is not None:
+        base_disabled |= _ACTIVE_EMAIL_REVIEW_DISABLED_TOOLS
     final = finalize_admitted_turn_tool_policy(
         admission, session,
         context_owner=owner,
-        base_disabled_tools=frozenset(known_tool_names()) - settings.offered_tools,
+        base_disabled_tools=base_disabled,
         privileges=settings.privileges,
         global_disabled_tools=list(settings.global_disabled_tools),
         browser_tools=frozenset(),
@@ -486,7 +529,8 @@ async def stream_composed_text_turn(
             warm_tools=frozenset(), recent_web_tool_lookup=lambda: None,
             active_document=active_document is not None,
             contextual_browser_followup=False,
-            contextual_web_followup=False, active_email_review=False,
+            contextual_web_followup=False,
+            active_email_review=active_email is not None,
             corrected_browser_target=False,
         )
         # This first composed tool profile is native-only. Independent MCP
@@ -794,6 +838,7 @@ async def stream_composed_text_turn(
         context_length=context.context_length,
         uploaded_files=[],
         active_document=active_document,
+        active_email=active_email,
         approval_store=store,
         **fallback_options,
         **({
