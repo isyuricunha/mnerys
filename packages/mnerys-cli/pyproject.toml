@@ -27,6 +27,11 @@ dependencies = [
 [project.scripts]
 mnerys = "mnerys_cli.cli:main"
 
+[project.optional-dependencies]
+# The interactive TUI extra: a terminal application dependency, never a
+# runtime requirement of the remote-only base install.
+tui = ["textual>=8.2.8,<9"]
+
 # One unified release version: semantic-release Git tags (vX.Y.Z) are the
 # authoritative source and the distribution derives its version from them.
 [tool.hatch.version]

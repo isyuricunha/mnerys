@@ -50,10 +50,30 @@ mnerys models list
 mnerys tools list
 mnerys doctor
 mnerys serve [--host 127.0.0.1] [--port 7021]
+mnerys tui [--profile NAME]
 ```
 
-`mnerys` and `mnerys tui` are reserved for the planned interactive TUI
-(M4); until then, running `mnerys` without arguments prints usage.
+## Interactive TUI
+
+`mnerys tui` launches the first-party terminal interface (Textual), and
+bare `mnerys` in an interactive terminal launches the same interface; in a
+pipe or script, bare `mnerys` keeps printing the command help instead of a
+full-screen application. The TUI reuses the named profiles and stored
+tokens exactly like every other command (`--profile NAME` selects one) and
+reports the unified release version.
+
+The TUI extra is optional and keeps remote-only installs light:
+
+```bash
+uv tool install --force --with textual <mnerys_cli wheel URL>
+# or, on a source install: pip install 'mnerys-cli[tui]'
+```
+
+A base installation without the extra answers `mnerys tui` with the
+installation hint above and exit code 3. The current shell shows the real
+Gateway connection state (endpoint, version, discovery counts) with `q`
+quit, `?` help and `r` refresh; sessions, conversation streaming, tools and
+approvals arrive with the recorded M4 submilestones.
 
 ## Profiles and credentials
 

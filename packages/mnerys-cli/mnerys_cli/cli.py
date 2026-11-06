@@ -8,6 +8,7 @@ authenticated Gateway API v1.
 import argparse
 import sys
 
+from mnerys_cli.config import load_profiles, resolve_endpoint
 from mnerys_cli.errors import MnerysCliError
 from mnerys_cli.version import distribution_version
 
@@ -52,6 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="print the installed mnerys-cli version and exit",
     )
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
+
+    tui = subparsers.add_parser(
+        "tui", help="launch the interactive Mnerys terminal interface",
+    )
+    tui.add_argument("--profile", default=None, help="named profile to use")
 
     connect = subparsers.add_parser(
         "connect", help="configure and select an authenticated Gateway profile",
@@ -112,12 +118,44 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _interactive_terminal() -> bool:
+    """True when both stdin and stdout are attached to a TTY."""
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def _launch_tui(args: argparse.Namespace) -> int:
+    """Resolve the profile and hand the loop to the Textual application."""
+    profiles = load_profiles()
+    profile = getattr(args, "profile", None)
+    try:
+        endpoint, token = resolve_endpoint(profiles, profile)
+    except MnerysCliError as exc:
+        print(f"mnerys: {exc}", file=sys.stderr)
+        return exc.exit_code
+    from mnerys_cli.tui import run_tui
+
+    try:
+        return run_tui(endpoint, token, profile=profile)
+    except MnerysCliError as exc:
+        print(f"mnerys: {exc}", file=sys.stderr)
+        return exc.exit_code
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:
+        if _interactive_terminal():
+            # An interactive terminal attached to a real profile launches the
+            # TUI; everything else keeps the classic help behavior.
+            return _launch_tui(args)
         parser.print_help()
         return 0
+    if args.command == "tui":
+        return _launch_tui(args)
     # Commands import the network client lazily so --version/--help work
     # even when optional runtime dependencies are missing or installing.
     from mnerys_cli import commands

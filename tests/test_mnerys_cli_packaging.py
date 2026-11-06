@@ -221,6 +221,110 @@ def test_reinstall_preserves_profiles_and_tokens(built_distributions, tmp_path):
     assert version.stdout.strip().startswith("mnerys ")
 
 
+def test_tui_extra_is_optional_and_declared(built_distributions):
+    """Textual ships only behind the [tui] extra, never as a hard dependency."""
+    wheel, _sdist = built_distributions
+    with zipfile.ZipFile(wheel) as archive:
+        metadata_name = next(
+            name for name in archive.namelist()
+            if name.endswith(".dist-info/METADATA")
+        )
+        message = email.message_from_bytes(archive.read(metadata_name))
+    requires = message.get_all("Requires-Dist") or []
+    tui_markers = [
+        line for line in requires
+        if line.startswith("textual") and "extra == 'tui'" in line
+    ]
+    assert tui_markers, f"no textual extra marker in: {requires}"
+    hard_textual = [
+        line for line in requires
+        if line.startswith("textual") and line not in tui_markers
+    ]
+    assert not hard_textual, "textual leaked into the base dependencies"
+
+
+def test_tui_without_the_extra_fails_with_the_install_hint(
+    built_distributions, tmp_path,
+):
+    wheel, _sdist = built_distributions
+    bin_dir = _fresh_venv(tmp_path)
+    pip = bin_dir / ("pip" + (".exe" if os.name == "nt" else ""))
+    env = {
+        "XDG_CONFIG_HOME": str(tmp_path / "xdg-config"),
+        "MNERYS_ENDPOINT": "http://127.0.0.1:9",
+        "MNERYS_TOKEN": "",
+    }
+    _run([str(pip), "install", "--no-deps", str(wheel)], tmp_path, env=env)
+    result = _run(
+        [str(bin_dir / "mnerys"), "tui"], tmp_path, env=env, check=False,
+    )
+    assert result.returncode == 3, f"stderr: {result.stderr!r}"
+    assert "mnerys-cli[tui]" in result.stderr
+
+
+def test_tui_boots_from_the_installed_wheel(built_distributions, tmp_path):
+    """The installed wheel's TUI runs headless, independent of the repo."""
+    wheel, _sdist = built_distributions
+    bin_dir = _fresh_venv(tmp_path)
+    pip = bin_dir / ("pip" + (".exe" if os.name == "nt" else ""))
+    _run([str(pip), "install", str(wheel), "textual>=8.2.8,<9"], tmp_path)
+    probe = tmp_path / "tui_probe.py"
+    probe.write_text(
+        """\
+import asyncio
+
+import httpx
+
+from mnerys_cli.async_client import AsyncGatewayClient
+from mnerys_cli.tui.app import MnerysTui
+from textual.widgets import Static
+
+
+def handler(request):
+    path = request.url.path
+    if path == "/api/health":
+        body = {"status": "ok"}
+    elif path.endswith("models"):
+        body = {"models": [{"id": "m1"}]}
+    else:
+        body = {"agents": [{"id": "chat"}]}
+    return httpx.Response(
+        200, json=body, request=httpx.Request("GET", "http://g.test"),
+    )
+
+
+async def main():
+    client = AsyncGatewayClient(
+        "http://g.test", "t", transport=httpx.MockTransport(handler),
+    )
+    try:
+        app = MnerysTui(client, "http://g.test")
+        async with app.run_test(size=(100, 30)) as pilot:
+            texts = ""
+            for _ in range(40):
+                await pilot.pause(0.05)
+                texts = " | ".join(str(s.render()) for s in app.query(Static))
+                if "connected as default profile" in texts:
+                    print("TUI-OK")
+                    return
+        raise AssertionError(f"never connected: {texts}")
+    finally:
+        await client.close()
+
+
+asyncio.run(main())
+""",
+        encoding="utf-8",
+    )
+    exe = "python" + (".exe" if os.name == "nt" else "")
+    result = _run(
+        [str(bin_dir / exe), str(probe)], tmp_path,
+        env={"MNERYS_ENDPOINT": "", "MNERYS_TOKEN": ""},
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr[-2000:]!r}"
+    assert "TUI-OK" in result.stdout
+
+
 def test_verify_script_matches_the_tag_or_fails(tmp_path):
     """The release verifier accepts an exact tag and rejects any drift."""
     import io
