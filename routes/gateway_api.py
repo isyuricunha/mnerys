@@ -112,6 +112,10 @@ def _admit(request: Request, session_id: str) -> tuple[Any, Any]:
             session = getter(session_id)
         except KeyError:
             session = None
+        if session is None and hasattr(manager, "sessions"):
+            # Fixtures and in-memory managers keep sessions in the cache
+            # only; the real manager hydrates from the database.
+            session = manager.sessions.get(session_id)
         if session is None or getattr(session, "owner", None) != owner:
             raise HTTPException(status_code=404, detail="Session not found")
     else:
