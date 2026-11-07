@@ -1,21 +1,25 @@
 """M4 stabilization: turn lifecycle transcript invariants on real writers.
 
-Drives the REAL composed turn pipeline (composer, engine, durable records,
-trusted persistence, real SessionManager) with only the provider HTTP layer
-replaced by a deterministic fake. The same suite runs on disposable SQLite
-and PostgreSQL 17 databases.
+Drives the REAL composed turn pipeline (composer facade, engine, durable
+records, trusted persistence, real SessionManager) with only the provider
+HTTP layer replaced by a deterministic fake. The same suite runs on
+disposable SQLite and PostgreSQL 17 databases.
 
 Invariants under test:
-- One committed user message and one assistant message per successful turn.
+- One confirmed user message and one assistant message per successful turn.
 - A refused user append fails the turn before the provider; no orphan
   assistant row is ever persisted.
 - Client disconnection mid-turn never loses the user input nor the reply:
   the detached run completes the transcript server-side.
-- Cancellation terminates exactly the target turn; a terminal retry stays
-  exactly-once.
+- Cancellation terminates exactly the target run; sibling sessions and
+  stale run ids never cross the fence.
+- Terminal outcomes are exactly-once under duplicate/replayed events.
+- A service restart reconciles stale running turn records at startup, and
+  an unavailable database cannot break that reconciliation.
 """
 
 import asyncio
+import datetime as dt_module
 import json
 import os
 from types import SimpleNamespace
@@ -27,8 +31,8 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 import core.session_manager as SM
-from src import llm_core
 from core.session_manager import SessionManager
+from src import llm_core
 from src.gateway_turns import GatewayTurns
 from src.turn_service import TurnService
 
@@ -74,6 +78,7 @@ def runtime(request, tmp_path, monkeypatch):
     # Cross-test hygiene: the process-global run registry holds event-loop
     # bound tasks; a previous suite's run must not leak into this loop.
     from src import agent_runs as agent_runs_module
+
     for stale in list(agent_runs_module._RUNS.values()):
         if stale.evict_task and not stale.evict_task.done():
             try:
@@ -98,6 +103,7 @@ def runtime(request, tmp_path, monkeypatch):
 
         # The composer uses the shared SessionLocal for its own reads.
         import core.database as core_database
+
         monkeypatch.setattr(core_database, "SessionLocal", factory)
         yield manager, engine, factory
     finally:
@@ -118,17 +124,14 @@ class ProviderRecorder:
             recorder.calls += 1
             return httpx.Response(
                 200, text=recorder.script,
-                request=httpx.Request("POST", "http://provider.test/v1/chat/completions"),
+                request=httpx.Request(
+                    "POST", "http://provider.test/v1/chat/completions",
+                ),
             )
 
         fake = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         monkeypatch.setattr(llm_core, "_http_client", fake)
         return fake
-
-
-def _sse_stream(body_text: str, *, delay: float = 0.0):
-    """Provider SSE body: the engine parses these frames directly."""
-    return body_text
 
 
 def _openai_stream(text: str):
@@ -163,8 +166,15 @@ class _LifecycleChatHandler:
     async def preprocess_message(self, message, *args, **kwargs):
         # No preprocessing surface is enabled on composed turns: the text
         # passes through unchanged in the 5-tuple the handler contract uses.
-        text = message if isinstance(message, str) else str(message or "")
-        return (text, text, text, [], [])
+        value = message if isinstance(message, str) else str(message or "")
+        return (value, value, value, [], [])
+
+
+def suppress_cancelled():
+    """Context manager swallowing the CancelledError of an awaited task."""
+    import contextlib
+
+    return contextlib.suppress(asyncio.CancelledError)
 
 
 def _gateway(manager):
@@ -172,30 +182,36 @@ def _gateway(manager):
 
 
 def _admission_session(manager, *, model="minimaxai/minimax-m3.1-flash", owner="alice"):
-    created = manager.create_session(
+    return manager.create_session(
         "s1", "Lifecycle", "http://provider.test/v1", model, owner=owner,
     )
-    return created
 
 
-async def _run_composed_turn(manager, gateway, *, mode="chat", message="13+13, respond with just the number"):
-    """Admit + run one composed turn through the exact v1 facade."""
-    from routes.chat_helpers import LegacyChatContextPorts, save_assistant_response
-    from src.gateway_text_persistence import TrustedTextPersistence
+def _admit(manager, session_id):
     from src.gateway_admission import GatewayAdmission, Principal
-    from src.gateway_turn_composer import TextTurnRequest, TrustedTextTurnSettings
     from src.session_repository import SessionOwnership
 
-    persistence = TrustedTextPersistence(manager, saver=save_assistant_response)
-    session = manager.get_session("s1")
-    admission = GatewayAdmission().admit(
+    return GatewayAdmission().admit(
         Principal("alice", "bearer", frozenset({"chat"})),
-        "s1",
+        session_id,
         lambda sid: SessionOwnership(owner_id=manager.get_session(sid).owner)
         if manager.get_session(sid) is not None else None,
     )
-    delivery = gateway.open_composed_text_events(
-        admission, session,
+
+
+def _persistence(manager):
+    from routes.chat_helpers import save_assistant_response
+    from src.gateway_text_persistence import TrustedTextPersistence
+
+    return TrustedTextPersistence(manager, saver=save_assistant_response)
+
+
+def _open_turn(manager, gateway, session, session_id, message, *, mode="chat"):
+    from routes.chat_helpers import LegacyChatContextPorts
+    from src.gateway_turn_composer import TextTurnRequest, TrustedTextTurnSettings
+
+    return gateway.open_composed_text_events(
+        _admit(manager, session_id), session,
         context_owner="alice",
         request=TextTurnRequest(message),
         ports=LegacyChatContextPorts(),
@@ -204,10 +220,27 @@ async def _run_composed_turn(manager, gateway, *, mode="chat", message="13+13, r
             build_context_preface=lambda **options: ([], [], []),
         ),
         settings=TrustedTextTurnSettings(interaction_mode=mode),
-        persistence=persistence,
+        persistence=_persistence(manager),
     )
-    events = [e async for e in delivery.events]
-    return events
+
+
+async def _run_composed_turn(manager, gateway, *, mode="chat", message="13+13, respond with just the number"):
+    """Run one composed turn through the exact v1 facade."""
+    session = manager.get_session("s1")
+    delivery = _open_turn(manager, gateway, session, "s1", message, mode=mode)
+    return [event async for event in delivery.events]
+
+
+def test_boot_instant_is_bound_at_import_not_at_first_reap():
+    """The stale-turn bound must exist the moment the module loads: a lazily
+    bound instant would equal the SELECT time and make the filter inert."""
+    from src import process_reaper
+
+    assert process_reaper._PROCESS_STARTED_AT is not None
+    # Re-running the reconciliation must not move the bound instant.
+    before = process_reaper._PROCESS_STARTED_AT
+    process_reaper.reap_stale_turn_records()
+    assert process_reaper._PROCESS_STARTED_AT is before
 
 
 async def test_successful_turn_persists_one_user_and_one_assistant_row(runtime, monkeypatch):
@@ -218,7 +251,7 @@ async def test_successful_turn_persists_one_user_and_one_assistant_row(runtime, 
     gateway = _gateway(manager)
 
     events = await _run_composed_turn(manager, gateway)
-    kinds = [e.type for e in events if hasattr(e, "type")]
+    kinds = [e.type for e in events]
     assert "turn.completed" in kinds
     assert recorder.calls >= 1
 
@@ -243,11 +276,7 @@ async def test_refused_user_append_fails_before_the_provider(runtime, monkeypatc
 
     import core.session_manager as session_manager_module
 
-    real_prepare = session_manager_module.prepare_session_message
-    state = {"calls": 0}
-
     def failing_prepare(role, content, metadata):
-        state["calls"] += 1
         raise RuntimeError("injected transient commit failure")
 
     monkeypatch.setattr(
@@ -255,7 +284,7 @@ async def test_refused_user_append_fails_before_the_provider(runtime, monkeypatc
     )
 
     events = await _run_composed_turn(manager, gateway)
-    kinds = [e.type for e in events if hasattr(e, "type")]
+    kinds = [e.type for e in events]
     assert kinds and kinds[-1] == "turn.failed"
     # The provider never ran: no assistant reply can exist without its user
     # input, and the refused append left no transcript row behind.
@@ -275,52 +304,12 @@ async def test_client_disconnect_mid_turn_completes_the_transcript(runtime, monk
     recorder.install(monkeypatch)
     _admission_session(manager)
     gateway = _gateway(manager)
-
-    from src.gateway_admission import AdmittedSession, Principal
-    from routes.chat_helpers import LegacyChatContextPorts
-    from src.gateway_turn_composer import TextTurnRequest, stream_composed_text_turn
-    from src.gateway_turn_composer import TrustedTextTurnSettings
-    from src.gateway_admission import GatewayAdmission, Principal
-    from src.session_repository import SessionOwnership
-
-    session = manager.get_session("s1")
-    admission = GatewayAdmission().admit(
-        Principal("alice", "bearer", frozenset({"chat"})),
-        "s1",
-        lambda sid: SessionOwnership(owner_id=manager.get_session(sid).owner)
-        if manager.get_session(sid) is not None else None,
-    )
-    service = gateway._turns
-
-    from routes.chat_helpers import LegacyChatContextPorts, save_assistant_response
-    from src.gateway_text_persistence import TrustedTextPersistence
-    from src.gateway_admission import GatewayAdmission, Principal
-    from src.gateway_turn_composer import TextTurnRequest, TrustedTextTurnSettings
-    from src.session_repository import SessionOwnership
-
-    persistence = TrustedTextPersistence(manager, saver=save_assistant_response)
-    session = manager.get_session("s1")
-    admission = GatewayAdmission().admit(
-        Principal("alice", "bearer", frozenset({"chat"})),
-        "s1",
-        lambda sid: SessionOwnership(owner_id=manager.get_session(sid).owner)
-        if manager.get_session(sid) is not None else None,
-    )
-
     from src import agent_runs
 
-    delivery = gateway.open_composed_text_events(
-            admission, session,
-            context_owner="alice",
-            request=TextTurnRequest("13+13, respond with just the number"),
-            ports=LegacyChatContextPorts(),
-            chat_handler=_LifecycleChatHandler(),
-            chat_processor=SimpleNamespace(
-                build_context_preface=lambda **options: ([], [], []),
-            ),
-            settings=TrustedTextTurnSettings(interaction_mode="chat"),
-            persistence=persistence,
-        )
+    session = manager.get_session("s1")
+    delivery = _open_turn(
+        manager, gateway, session, "s1", "13+13, respond with just the number",
+    )
     # The route starts the run detached from any subscriber: a walking
     # subscriber must not tear the run down with it.
     run = agent_runs.start(
@@ -338,7 +327,6 @@ async def test_client_disconnect_mid_turn_completes_the_transcript(runtime, monk
     if run.task is not None:
         await run.task
 
-
     with engine.connect() as conn:
         rows = conn.execute(text(
             "SELECT role FROM chat_messages WHERE session_id='s1' ORDER BY timestamp",
@@ -350,87 +338,44 @@ async def test_client_disconnect_mid_turn_completes_the_transcript(runtime, monk
     assert roles.count("assistant") == 1
 
 
-async def test_cancellation_terminates_only_the_target_turn(runtime, monkeypatch):
+async def test_cancel_terminates_exactly_the_target_run(runtime, monkeypatch):
+    """Cancelling the active run of one session leaves a concurrently
+    running sibling session untouched, and a stale run id fails closed."""
     manager, engine, _factory = runtime
-    recorder = ProviderRecorder(SUCCESS_BODY)
-    recorder.install(monkeypatch)
+    ProviderRecorder(_openai_stream("26")).install(monkeypatch)
     _admission_session(manager)
+    manager.create_session(
+        "s2", "Sibling", "http://provider.test/v1",
+        "minimaxai/minimax-m3.1-flash", owner="alice",
+    )
     gateway = _gateway(manager)
+    from src import agent_runs
 
-    from src.gateway_admission import AdmittedSession, Principal
-    from routes.chat_helpers import LegacyChatContextPorts
-    from src.gateway_turn_composer import TextTurnRequest, stream_composed_text_turn
-    from src.gateway_turn_composer import TrustedTextTurnSettings
-
-    from src.gateway_admission import GatewayAdmission, Principal
-    from src.session_repository import SessionOwnership
-
-    session = manager.get_session("s1")
-    admission = GatewayAdmission().admit(
-        Principal("alice", "bearer", frozenset({"chat"})),
-        "s1",
-        lambda sid: SessionOwnership(owner_id=manager.get_session(sid).owner)
-        if manager.get_session(sid) is not None else None,
+    delivery_a = _open_turn(
+        manager, gateway, manager.get_session("s1"), "s1", "explain primes in detail",
     )
-    service = gateway._turns
-
-    from routes.chat_helpers import LegacyChatContextPorts, save_assistant_response
-    from src.gateway_text_persistence import TrustedTextPersistence
-    from src.gateway_admission import GatewayAdmission, Principal
-    from src.gateway_turn_composer import TextTurnRequest, TrustedTextTurnSettings
-    from src.session_repository import SessionOwnership
-
-    persistence = TrustedTextPersistence(manager, saver=save_assistant_response)
-    session = manager.get_session("s1")
-    admission = GatewayAdmission().admit(
-        Principal("alice", "bearer", frozenset({"chat"})),
-        "s1",
-        lambda sid: SessionOwnership(owner_id=manager.get_session(sid).owner)
-        if manager.get_session(sid) is not None else None,
+    run_a = agent_runs.start(
+        "s1", delivery_a.events, mode="typed", outcome=delivery_a.outcome,
     )
-
-    delivery_a = gateway.open_composed_text_events(
-            admission, session,
-            context_owner="alice",
-            request=TextTurnRequest("explain primes in detail"),
-            ports=LegacyChatContextPorts(),
-            chat_handler=_LifecycleChatHandler(),
-            chat_processor=SimpleNamespace(
-                build_context_preface=lambda **options: ([], [], []),
-            ),
-            settings=TrustedTextTurnSettings(interaction_mode="chat"),
-            persistence=persistence,
-        )
-    delivery_b = gateway.open_composed_text_events(
-            admission, session,
-            context_owner="alice",
-            request=TextTurnRequest("2+2, respond with just the number"),
-            ports=LegacyChatContextPorts(),
-            chat_handler=_LifecycleChatHandler(),
-            chat_processor=SimpleNamespace(
-                build_context_preface=lambda **options: ([], [], []),
-            ),
-            settings=TrustedTextTurnSettings(interaction_mode="chat"),
-            persistence=persistence,
-        )
-    kinds_b = []
-    async def run_a():
-        async for _event in delivery_a.events:
-            pass
-    async def run_b():
-        async for event in delivery_b.events:
-            kinds_b.append(event.type)
-    await asyncio.gather(run_a(), run_b())
-
-    # Both composed runs complete on their own; a cancel of one turn never
-    # silently terminal-izes the other (the route cancels by exact turn id).
-    assert kinds_b and kinds_b[-1] in ("turn.completed", "turn.failed")
-    with engine.connect() as conn:
-        rows = conn.execute(text(
-            "SELECT role FROM chat_messages WHERE session_id='s1' ORDER BY timestamp",
-        )).fetchall()
-    roles = [r[0] for r in rows]
-    assert roles.count("assistant") >= 1
+    delivery_b = _open_turn(
+        manager, gateway, manager.get_session("s2"), "s2", "2+2, respond with just the number",
+    )
+    run_b = agent_runs.start(
+        "s2", delivery_b.events, mode="typed", outcome=delivery_b.outcome,
+    )
+    # Cancelling session s1's exact run must not touch session s2's run.
+    assert agent_runs.stop("s1", run_a.run_id) is True
+    # A cancelled task raises CancelledError at the awaiting site; the drain
+    # already terminalized the outcome, so the raise is expected here.
+    with suppress_cancelled():
+        if run_a.task is not None:
+            await run_a.task
+    if run_b.task is not None:
+        await run_b.task
+    assert run_a.outcome.state in ("cancelled", "failed")
+    assert run_b.outcome.state == "completed"
+    # A stale run id fails closed instead of killing the active run.
+    assert agent_runs.stop("s1", "not-the-active-run-id") is False
 
 
 async def test_terminal_event_replay_is_exactly_once(runtime, monkeypatch):
@@ -444,7 +389,7 @@ async def test_terminal_event_replay_is_exactly_once(runtime, monkeypatch):
     gateway = _gateway(manager)
 
     events = await _run_composed_turn(manager, gateway)
-    terminals = [e.type for e in events if hasattr(e, "type") and e.type == "turn.completed"]
+    terminals = [e.type for e in events if e.type == "turn.completed"]
     assert len(terminals) == 1
 
     with engine.connect() as conn:
@@ -453,21 +398,20 @@ async def test_terminal_event_replay_is_exactly_once(runtime, monkeypatch):
         )).scalar_one()
     assert count == 2  # one user + one assistant, no matter the replay
 
+
 def test_startup_reconciliation_closes_stale_running_turns(runtime, monkeypatch):
     """A service restart kills in-process runs; their durable records must
     reach an honest terminal state at the next startup instead of polling
     forever, and already-terminal records are never touched."""
     manager, engine, _factory = runtime
-    from core.database import GatewayTurn, utcnow_naive
+    from core.database import utcnow_naive
+    from src import process_reaper
 
     now = utcnow_naive()
     # Bind the boot instant AFTER these rows were created: the reconciliation
     # only closes records older than this process.
     monkeypatch.setattr(
-        process_reaper := __import__(
-            "src.process_reaper", fromlist=["process_reaper"],
-        ),
-        "_PROCESS_STARTED_AT", now + __import__("datetime").timedelta(seconds=1),
+        process_reaper, "_PROCESS_STARTED_AT", now + dt_module.timedelta(seconds=1),
         raising=False,
     )
     with engine.begin() as conn:
@@ -494,6 +438,49 @@ def test_startup_reconciliation_closes_stale_running_turns(runtime, monkeypatch)
         )).fetchone()
     assert stale[0] == "failed" and stale[1] is not None
     assert done[0] == "completed"
+
+
+async def test_reconciliation_never_touches_this_process_turns(runtime, monkeypatch):
+    """A turn admitted in the boot window (after the process started) is
+    alive; the startup reconciliation must leave it running."""
+    _manager, engine, _factory = runtime
+    from core.database import utcnow_naive
+    from src import process_reaper
+
+    # Bind the boot instant in the past: this process has been up for a bit.
+    monkeypatch.setattr(
+        process_reaper, "_PROCESS_STARTED_AT",
+        dt_module.datetime.now(dt_module.timezone.utc).replace(tzinfo=None)
+        - dt_module.timedelta(seconds=10),
+        raising=False,
+    )
+    now = utcnow_naive()
+    with engine.begin() as conn:
+        # Created BEFORE the bound boot instant: a true orphan.
+        conn.execute(text(
+            "INSERT INTO gateway_turns (id, owner, session_id, incarnation_id,"
+            " status, created_at) VALUES ('t-old-1', 'alice', 's1', 'i1',"
+            " 'running', :ts)",
+        ), {"ts": now - dt_module.timedelta(seconds=30)})
+        # Created AFTER the bound boot instant: this process owns it.
+        conn.execute(text(
+            "INSERT INTO gateway_turns (id, owner, session_id, incarnation_id,"
+            " status, created_at) VALUES ('t-live-1', 'alice', 's1', 'i2',"
+            " 'running', :ts)",
+        ), {"ts": now + dt_module.timedelta(seconds=5)})
+
+    report = process_reaper.reap_orphans()
+    assert report["stale_turn_records"] == 1
+
+    with engine.connect() as conn:
+        old_row = conn.execute(text(
+            "SELECT status FROM gateway_turns WHERE id='t-old-1'",
+        )).scalar_one()
+        live_row = conn.execute(text(
+            "SELECT status, terminal_at FROM gateway_turns WHERE id='t-live-1'",
+        )).fetchone()
+    assert old_row == "failed"
+    assert live_row[0] == "running" and live_row[1] is None
 
 
 def test_startup_reconciliation_survives_database_unavailability(monkeypatch):
@@ -529,9 +516,7 @@ def test_owner_security_reuses_the_bound_auth_manager(monkeypatch):
             return owner == "admin"
 
     monkeypatch.setattr(tool_security, "_bound_auth_manager", None)
-    monkeypatch.setattr(
-        "core.auth.AuthManager", CountingAuth,
-    )
+    monkeypatch.setattr("core.auth.AuthManager", CountingAuth)
     # Unbound: a fresh manager is built (the legacy fallback behaviour).
     assert tool_security.owner_is_admin_or_single_user("admin") is True
     assert len(created) == 1
@@ -553,53 +538,10 @@ def test_owner_security_reuses_the_bound_auth_manager(monkeypatch):
         tool_security.bind_auth_manager(None)
 
 
-async def test_reconciliation_never_touches_this_process_turns(runtime, monkeypatch):
-    """A turn admitted in the boot window (after the process started) is
-    alive; the startup reconciliation must leave it running."""
-    manager, engine, _factory = runtime
-    from core.database import GatewayTurn, utcnow_naive
-    from src import process_reaper
-
-    # Bind the boot instant in the past: this process has been up for a bit.
-    monkeypatch.setattr(
-        process_reaper, "_PROCESS_STARTED_AT",
-        __import__("datetime").datetime.utcnow() - __import__("datetime").timedelta(seconds=10),
-        raising=False,
-    )
-    now = utcnow_naive()
-    with engine.begin() as conn:
-        # Created BEFORE the bound boot instant: a true orphan.
-        conn.execute(text(
-            "INSERT INTO gateway_turns (id, owner, session_id, incarnation_id,"
-            " status, created_at) VALUES ('t-old-1', 'alice', 's1', 'i1',"
-            " 'running', :ts)",
-        ), {"ts": now - __import__("datetime").timedelta(seconds=30)})
-        # Created AFTER the bound boot instant: this process owns it.
-        conn.execute(text(
-            "INSERT INTO gateway_turns (id, owner, session_id, incarnation_id,"
-            " status, created_at) VALUES ('t-live-1', 'alice', 's1', 'i2',"
-            " 'running', :ts)",
-        ), {"ts": now + __import__("datetime").timedelta(seconds=5)})
-
-    report = process_reaper.reap_orphans()
-    assert report["stale_turn_records"] == 1
-
-    with engine.connect() as conn:
-        old_row = conn.execute(text(
-            "SELECT status FROM gateway_turns WHERE id='t-old-1'",
-        )).scalar_one()
-        live_row = conn.execute(text(
-            "SELECT status, terminal_at FROM gateway_turns WHERE id='t-live-1'",
-        )).fetchone()
-    assert old_row == "failed"
-    assert live_row[0] == "running" and live_row[1] is None
-
-
 async def test_typed_failure_log_omits_exception_message(caplog, runtime, monkeypatch):
     """The retained traceback must never include the exception's message
     (provider/writer payloads can embed user data); frames only."""
     import logging
-    from src import agent_runs
 
     with caplog.at_level(logging.ERROR, logger="mnerys.agent_runs"):
         try:
@@ -609,6 +551,7 @@ async def test_typed_failure_log_omits_exception_message(caplog, runtime, monkey
             raise RuntimeError("provider said: " + marker)
         except Exception as exc:
             import traceback as tb_module
+
             frames = tb_module.format_exception(type(exc), exc, exc.__traceback__)[:-1]
             logging.getLogger("mnerys.agent_runs").error(
                 "[agent-run] typed run failed: traceback (message elided)\n%s",
@@ -616,63 +559,4 @@ async def test_typed_failure_log_omits_exception_message(caplog, runtime, monkey
             )
     text = "".join(record.getMessage() for record in caplog.records)
     assert "USER-CONTENT-SHOULD-NOT-LEAK" not in text
-    assert "RuntimeError" in text or "traceback" in text
-
-
-async def test_cancel_terminates_exactly_the_target_run(runtime, monkeypatch):
-    """Cancelling one detached run must cancel exactly that run's outcome and
-    leave a concurrently running sibling untouched."""
-    manager, engine, _factory = runtime
-    ProviderRecorder(_openai_stream("26")).install(monkeypatch)
-    _admission_session(manager)
-    gateway = _gateway(manager)
-
-    from routes.chat_helpers import LegacyChatContextPorts, save_assistant_response
-    from src import agent_runs
-    from src.gateway_admission import GatewayAdmission, Principal
-    from src.gateway_turn_composer import TextTurnRequest, TrustedTextTurnSettings
-    from src.gateway_text_persistence import TrustedTextPersistence
-    from src.session_repository import SessionOwnership
-
-    persistence = TrustedTextPersistence(manager, saver=save_assistant_response)
-    session = manager.get_session("s1")
-    admission = GatewayAdmission().admit(
-        Principal("alice", "bearer", frozenset({"chat"})),
-        "s1",
-        lambda sid: SessionOwnership(owner_id=manager.get_session(sid).owner),
-    )
-
-    def open_turn(message):
-        return gateway.open_composed_text_events(
-            admission, session,
-            context_owner="alice",
-            request=TextTurnRequest(message),
-            ports=LegacyChatContextPorts(),
-            chat_handler=_LifecycleChatHandler(),
-            chat_processor=SimpleNamespace(
-                build_context_preface=lambda **options: ([], [], []),
-            ),
-            settings=TrustedTextTurnSettings(interaction_mode="chat"),
-            persistence=persistence,
-        )
-
-    delivery_a = open_turn("explain primes in detail")
-    run_a = agent_runs.start(
-        "s1", delivery_a.events, mode="typed", outcome=delivery_a.outcome,
-    )
-    # A second run for the same session replaces the first as the registry's
-    # active run; hold an explicit reference to cancel the FIRST one.
-    first_run = run_a
-    delivery_b = open_turn("2+2, respond with just the number")
-    run_b = agent_runs.start(
-        "s1", delivery_b.events, mode="typed", outcome=delivery_b.outcome,
-    )
-    cancelled = agent_runs.stop("s1", first_run.run_id)
-    if cancelled and first_run.task is not None:
-        await first_run.task
-    if run_b.task is not None:
-        await run_b.task
-    # The sibling completed on its own; the cancelled run never produced a
-    # completed outcome.
-    assert run_b.outcome.state == "completed"
-    assert first_run.outcome.state in ("cancelled", "failed")
+    assert "traceback" in text

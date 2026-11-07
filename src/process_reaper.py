@@ -278,19 +278,13 @@ def reap_legacy_agent_tmux() -> Dict[str, Any]:
     return report
 
 
-# The process boot instant, bound at import (imports complete before the
-# server accepts any request): turn records created after it belong to this
-# process and are never stale.
-_PROCESS_STARTED_AT = None
+# The process boot instant, bound at import time: module imports always
+# complete before the server accepts any request, so turn records created
+# after it belong to this process and are never stale. core.database is
+# import-cycle-safe here (it only depends on src.runtime_paths).
+from core.database import utcnow_naive as _utcnow_naive
 
-
-def _process_started_at():
-    global _PROCESS_STARTED_AT
-    if _PROCESS_STARTED_AT is None:
-        from core.database import utcnow_naive
-
-        _PROCESS_STARTED_AT = utcnow_naive()
-    return _PROCESS_STARTED_AT
+_PROCESS_STARTED_AT = _utcnow_naive()
 
 
 def reap_stale_turn_records() -> int:
@@ -311,7 +305,7 @@ def reap_stale_turn_records() -> int:
             # must never be terminalized by the reconciliation.
             stale = db.query(GatewayTurn).filter(
                 GatewayTurn.status == "running",
-                GatewayTurn.created_at < _process_started_at(),
+                GatewayTurn.created_at < _PROCESS_STARTED_AT,
             ).all()
             if not stale:
                 return 0
