@@ -243,6 +243,23 @@ def _effects_store_root(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_bound_auth_manager():
+    """Keep the app-bound AuthManager from leaking between tests.
+
+    Importing the real app binds the shared AuthManager into owner security
+    checks; stub-based suites that replace core.auth.AuthManager expect the
+    unbound fallback, so the binding is reset around every test.
+    """
+    from src import tool_security
+
+    tool_security.bind_auth_manager(None)
+    try:
+        yield
+    finally:
+        tool_security.bind_auth_manager(None)
+
+
+@pytest.fixture(autouse=True)
 def _isolated_effects_store(_effects_store_root):
     """Keep durable effect claims out of the developer's real data directory.
 
