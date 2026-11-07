@@ -620,3 +620,23 @@ Use existing session/message tables and primary DB backend (SQLite default; Post
 | Remote client minimal install | no app startup, scheduler or server DB required |
 
 **Status:** this proposed contract is a **completed M1 design deliverable**, not an implemented public Gateway. None of the new routes or durable semantics should be described as operational until code and tests meet the [M2 acceptance plan](M2_GATEWAY_IMPLEMENTATION_PLAN.md).
+
+## M4 stabilization transcript invariants (implemented)
+
+The composed turn pipeline now carries these tested invariants (suite:
+`tests/test_mnerys_turn_lifecycle.py`, disposable SQLite and PostgreSQL 17):
+
+- One confirmed user message and one assistant message per successful turn;
+  the user receipt check fails the turn before the provider runs, so a
+  refused user append can never orphan an assistant reply.
+- A client that disconnects mid-turn never loses its input or the reply: the
+  detached run finishes server-side and the transcript is complete.
+- Terminal outcomes are exactly-once per turn: duplicate terminal events in
+  the provider stream or a replay cannot create a second assistant row.
+- Cancellation terminates exactly the targeted turn id; sibling turns are
+  untouched.
+- A service restart reconciles durable `running` turn records at startup
+  (marked failed with a terminal timestamp); already-terminal records are
+  never touched, and an unavailable database cannot break the reconciliation.
+- Owner security checks reuse the application-bound AuthManager; no runtime
+  re-instantiation of the auth store mid-turn.
