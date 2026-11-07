@@ -82,6 +82,24 @@ class TurnPump:
                 )
                 await asyncio.sleep(backoff)
                 continue
+            except Exception as exc:  # never crash the app on transport surprises
+                self.consecutive_failures += 1
+                if self.consecutive_failures > self.max_consecutive_failures:
+                    logger.exception(
+                        "Event pump gave up after an unexpected stream error",
+                    )
+                    self.tracker.status = "failed"
+                    raise MnerysCliError(
+                        "lost the Gateway while streaming turn "
+                        f"{self.turn_id}: unexpected stream error",
+                    ) from exc
+                await asyncio.sleep(
+                    min(
+                        self.poll_interval * (2 ** self.consecutive_failures),
+                        self.max_backoff,
+                    ),
+                )
+                continue
             if self.tracker.status in TERMINAL_STATUSES:
                 return self.tracker.status
             await asyncio.sleep(self.poll_interval)

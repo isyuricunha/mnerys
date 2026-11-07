@@ -91,6 +91,13 @@ class ChatScreen(Screen[None]):
     async def on_mount(self) -> None:
         self._update_header()
         await self.reload_history()
+        # Keyboard-first: typing must land in the composer the moment the
+        # conversation opens; the scroll list otherwise keeps the focus.
+        await self._focus_composer()
+
+    async def _focus_composer(self) -> None:
+        composer = self.query_one(ChatInput)
+        composer.focus()
 
     def _update_header(self) -> None:
         name = safe_markup(self.session_name or self.session_id)
@@ -129,6 +136,9 @@ class ChatScreen(Screen[None]):
 
     async def _on_session_picked(self, selected) -> None:
         if not selected:
+            # Cancelling the picker returns to this conversation with the
+            # composer ready for the next keystroke.
+            await self._focus_composer()
             return
         # Replace this conversation with the newly selected session.
         opened = await self.client.session_detail(selected)

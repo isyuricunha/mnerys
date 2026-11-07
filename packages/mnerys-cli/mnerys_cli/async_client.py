@@ -118,10 +118,17 @@ class AsyncGatewayClient:
                         # caller re-polls until the turn snapshot is terminal.
                         return
                     yield item
-        except httpx.TransportError as exc:
+        except (httpx.TransportError, httpx.StreamError) as exc:
+            # An aborted connection (server restart, proxy drop) surfaces as
+            # StreamError/ResponseNotRead, not as TransportError. The pump
+            # treats this as an interruption and reconnects with the cursor.
             raise MnerysCliError(f"Gateway stream interrupted: {exc}") from exc
         finally:
-            await response.aclose()
+            try:
+                await response.aclose()
+            except (httpx.TransportError, httpx.StreamError):
+                # The peer already died; there is nothing left to close.
+                pass
 
     async def cancel_turn(self, turn_id: str, session_id: str) -> dict:
         response = await self._request(

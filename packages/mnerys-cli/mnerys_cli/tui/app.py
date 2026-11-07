@@ -146,6 +146,7 @@ class MnerysTui(App[None]):
     CSS = ECLIPSE_CSS
     BINDINGS = [
         Binding("q", "quit", "Quit"),
+        Binding("ctrl+q", "quit", "Quit, always"),  # works while composing
         Binding("question_mark", "help", "Help"),
         Binding("r", "refresh", "Refresh"),
     ]

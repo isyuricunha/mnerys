@@ -183,6 +183,40 @@ async def test_pump_reconnects_with_the_same_cursor_and_no_duplicates():
     assert gateway.script == []
 
 
+async def test_pump_recovers_after_an_aborted_stream():
+    """One server-death interruption (converted to MnerysCliError) is
+    retried with the same cursor; the turn then completes without gaps."""
+    gateway = _ScriptedGateway([
+        MnerysCliError("Gateway stream interrupted: <ResponseNotRead ...>"),
+        [
+            {"sequence": 1, "kind": "message.delta", "payload": {"text": "ok"}},
+            {"sequence": 2, "kind": "turn.completed", "payload": {}},
+        ],
+    ])
+    tracker = TurnTracker()
+    pump = TurnPump(
+        gateway, "t1", "s1", tracker, lambda _kind: asyncio.sleep(0),
+        poll_interval=0.01,
+    )
+    assert await pump.run() == "completed"
+    assert tracker.rendered_text == "ok"
+    assert tracker.applied_sequence == 2
+
+
+async def test_pump_gives_up_on_unexpected_errors_without_leaking_them():
+    """A raw non-CLI exception must end as the bounded failure, never as an
+    unhandled crash escaping the pump."""
+    gateway = _ScriptedGateway([ValueError("whoops")] * 6)
+    tracker = TurnTracker()
+    pump = TurnPump(
+        gateway, "t1", "s1", tracker, lambda _kind: asyncio.sleep(0),
+        poll_interval=0.01, max_consecutive_failures=5,
+    )
+    with pytest.raises(MnerysCliError, match="unexpected stream error"):
+        await pump.run()
+    assert tracker.status == "failed"
+
+
 async def test_pump_gives_up_after_bounded_failures():
     gateway = _ScriptedGateway([MnerysCliError("down")] * 6)
     tracker = TurnTracker()
@@ -326,6 +360,19 @@ async def test_multiline_composer_inserts_newlines_and_sends_on_enter():
 
 
 from textual.app import App
+
+
+async def test_composer_holds_focus_when_the_conversation_opens():
+    client, _state = _turn_gateway({})
+    screen = ChatScreen(client, "s1", session_name="Hist")
+    app = MnerysTuiHarness(screen)
+    async with app.run_test(size=(110, 36)) as pilot:
+        await _settle(pilot, "persisted")
+        composer = app.screen.query_one(ChatInput)
+        assert composer.has_focus
+        # Keystrokes land immediately: no extra focus key is needed.
+        await pilot.press("k")
+        assert composer.text == "k"
 
 
 class MnerysTuiHarness(App[None]):

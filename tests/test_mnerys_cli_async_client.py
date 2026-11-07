@@ -136,6 +136,43 @@ async def test_turn_events_skips_malformed_frames():
     assert items[0]["sequence"] == 1
 
 
+async def test_aborted_stream_is_a_cli_error_not_a_crash():
+    """An abrupt server death (ResponseNotRead/StreamError) must surface as
+    MnerysCliError so the pump can reconnect instead of the app crashing."""
+
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        return httpx.Response(
+            200,
+            text='data: {"sequence": 1, "kind": "message.delta", "payload": {"text": "x"}}\n\n',
+            request=httpx.Request("GET", "http://gateway.test"),
+        )
+
+    class AbortingTransport(httpx.MockTransport):
+        """Yields the start of the body, then dies like a killed server."""
+
+        async def handle_async_request(self, request):
+            response = await super().handle_async_request(request)
+            async def broken_stream():
+                yield response.text.encode()
+                raise httpx.ResponseNotRead()
+
+            return httpx.Response(
+                200, content=broken_stream(),
+                headers={"content-type": "text/event-stream"},
+                request=httpx.Request("GET", "http://gateway.test"),
+            )
+
+    async with AsyncGatewayClient(
+        "http://gateway.test", "tok", transport=AbortingTransport(handler),
+    ) as client:
+        with pytest.raises(MnerysCliError, match="stream interrupted"):
+            items = [item async for item in client.turn_events("t1")]
+            assert items  # unreachable; the generator raises on iteration
+
+
 async def test_auth_failures_raise_the_shared_auth_error():
     def handler(request):
         return _ok({"detail": "nope"}, 401)
