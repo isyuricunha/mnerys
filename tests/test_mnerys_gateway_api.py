@@ -303,8 +303,34 @@ def test_remote_client_cannot_decide_approvals_by_design(monkeypatch, tmp_path):
 
 def test_remote_turn_continues_the_session_when_persistence_is_wired(monkeypatch, tmp_path):
     """The remote turn persists through the same writer wrapper as Web turns."""
-    from src.gateway_text_persistence import TrustedTextPersistence
+    from dataclasses import replace
+
+    from src.gateway_text_persistence import (
+        TrustedTextPersistence,
+        persist_completed_text_events,
+    )
     from tests.remote_gateway.client import RemoteGatewayClient
+
+    class InnerPersistingComposer(FakeComposerGateway):
+        """Mirror the production composer, which applies the trusted
+        persistence to its own delivered stream."""
+
+        def open_composed_text_events(self, admission, session, **kwargs):
+            persistence = kwargs.get("persistence")
+            delivered = super().open_composed_text_events(
+                admission, session, **kwargs,
+            )
+            if persistence is None:
+                return delivered
+            return replace(
+                delivered,
+                events=persist_completed_text_events(
+                    delivered.events, delivered.outcome,
+                    admission=admission, session=session,
+                    context_owner=kwargs.get("context_owner"),
+                    persistence=persistence,
+                ),
+            )
 
     client_app, _session, _admission = _make_app(
         monkeypatch, with_records=True, tmp_path=tmp_path,
@@ -321,6 +347,7 @@ def test_remote_turn_continues_the_session_when_persistence_is_wired(monkeypatch
         ))
         return "remote-saved-answer"
 
+    client_app.app.state.gateway_turns = InnerPersistingComposer()
     client_app.app.state.text_persistence = TrustedTextPersistence(
         session_manager=SimpleNamespace(), saver=saver,
         emit_message_saved_events=True,

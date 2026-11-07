@@ -11,7 +11,6 @@ turn records. Capability discovery never grants execution rights.
 import json
 import logging
 from collections.abc import AsyncIterator
-from dataclasses import replace
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -203,19 +202,6 @@ async def create_turn(body: TurnCreateBody, request: Request) -> dict:
         raise HTTPException(
             status_code=int(exc.status_code or 403), detail=str(exc),
         ) from exc
-
-    persistence = getattr(request.app.state, "text_persistence", None)
-    if persistence is not None:
-        from src.gateway_text_persistence import persist_completed_text_events
-
-        delivered = replace(
-            delivered,
-            events=persist_completed_text_events(
-                delivered.events, delivered.outcome, admission=admission,
-                session=session, context_owner=admission.principal.owner_id,
-                persistence=persistence,
-            ),
-        )
 
     events = delivered.events
     if records is not None:

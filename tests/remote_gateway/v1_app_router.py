@@ -95,6 +95,7 @@ class FakeManager:
             endpoint_url=row.endpoint_url, owner=row.owner,
             endpoint_id=row.endpoint_id, headers=row.headers or {},
             incarnation_id=row.incarnation_id, incognito=False, mode="chat",
+            history=[],
         )
         self.sessions[session_id] = session
         return session
