@@ -116,3 +116,49 @@ and automatic rollback on failure. The v1 session endpoints and the TUI
 require no schema change beyond the already-deployed M2 migrations; the
 new endpoints reuse the existing session, endpoint and durable-record
 tables.
+## Private preview operational rollout (v0.15.2 -> v0.15.3)
+
+Deployed through the versioned native promotion runner on the private
+preview: `1cdd61c6d375` (pre-M4) -> `7eb313d4dbe4` (v0.15.2) -> `v0.15.3`
+(necessary validated successor). Evidence recorded in docs/deployment/
+NATIVE_PREVIEW.md; the following operational categories were verified
+against the LIVE private Gateway, not fixtures:
+
+- Backup and recovery: fresh PostgreSQL 17 archive per promotion, verified
+  via pg_restore and an isolated restore into a disposable pg17 instance
+  with exact parity (22 sessions / 97 chat messages / durable records /
+  approvals all matching the live counts). Rollback procedure documented and
+  the previous release preserved.
+- Gateway contracts on the live service: owner-scoped session create/list/
+  detail with sanitized persisted history, server-resolved model selection
+  and PATCH round-trip, approvals surfaces, durable turn records with
+  ordered event replay, exact-turn cancellation (turn.cancelled), foreign
+  session 404s and invalid credentials 401s.
+- Real provider-backed turns: minimax-m3.1-flash on the integrated NVIDIA
+  endpoint completed with thinking stream, final message and token metrics
+  (turn.completed). Per-model rows without a pasted key fail closed with
+  provider_error 401, which is expected endpoint configuration, not a
+  client defect.
+- Web/CLI/TUI continuity on one authorized session: a CLI turn appeared in
+  the TUI; a TUI turn appeared in the v1 detail and in the Web history
+  reader; the Web UI (admin session) rendered the same conversation rows
+  created by the CLI and the TUI. The Web reader and the v1 detail read the
+  same ordered store rows.
+- Live terminal-security probes: a stored user message carrying SGR and
+  OSC 52 payloads plus fake rich markup rendered inert in a real PTY TUI
+  (zero ESC bytes, literal brackets), through the installed wheel.
+- Found and fixed during the rollout (root causes, with regression tests):
+  the v1 turn route double-persisted the assistant reply (outer wrap over
+  the composer's own persistence) writing two chat_messages rows per turn;
+  an aborted SSE connection (server restart mid-turn) crashed the TUI to
+  its error screen via httpx ResponseNotRead; the composer did not hold
+  keyboard focus on open; quit was unreachable while composing (ctrl+q
+  added). Each fix has coverage in the client, pump and pilot suites.
+- Honest limitations: Windows/macOS terminals remain unverified (no real
+  platform evidence); signup is disabled on the private preview so the
+  disposable identity could not log into the Web interactively (the Web UI
+  proof used the admin identity, which owns all preview sessions); a
+  transient typed-run AttributeError occurred once during the live probes
+  and did not reproduce on identical subsequent turns; pre-existing
+  duplicate assistant rows (resume-time writes, 2026-11-04/06) remain in
+  old session history and are not part of this milestone's data.

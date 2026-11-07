@@ -17,7 +17,30 @@ Authentication is enabled and localhost auth bypass is disabled. The legacy Odys
 
 The Mnerys application is **not containerized**. The maintainer's running native preview uses **PostgreSQL 17 for its primary SQLAlchemy database**, after an offline SQLite-to-PostgreSQL cutover validated against the real source records. SQLite remains the default for other installations. Auxiliary SQLite databases, authentication/settings files, and uploads remain in persistent storage. The previous SQLite primary database, validated backups, and prior release/service configuration are preserved for recovery. Existing optional dependencies (e.g. search/index services) may still run under their previously configured deployment method; do not disable them simply because the old Odysseus web service was retired.
 
+## M4 rollout status (November 2026)
+
+The M4 milestone rollout deployed commit `7eb313d4dbe4` (release v0.15.2)
+and then its necessary validated successor `v0.15.3` (single-save turn
+persistence, terminal-first TUI fixes) through the versioned promotion
+runner below. Each promotion created a fresh PostgreSQL 17 archive with the
+private backup helper, verified it with `pg_restore --list`, and restored a
+copy into an isolated disposable `pg17` instance with exact row-count
+parity against the live database (sessions, chat messages, durable turn
+records and approvals). Rollback remains available: the previous release
+snapshot, virtualenv and verified archive are kept under the private
+release/backup store, and the promotion runner restores code and
+configuration before touching data; the primary database is never overwritten
+or restored automatically.
+
+Verified after the promotion: service active, `/api/version` reports the new
+`source_commit`, the effective `MNERYS_M21_WEB_CORE_CUTOVER` remains enabled
+in the running process, schema fingerprint unchanged (no live migration),
+authorized Web/CLI/TUI turns on the same persisted sessions, foreign-session
+reads refused (404), invalid credentials refused (401), and the installed
+global CLI/TUI operate against the preview from outside the repository.
+
 ## Data, versions and security
+
 
 - Source releases are kept as immutable Git snapshots outside the checkout and outside persistent state.
 - Runtime data is held outside the Git tree, with restrictive directory permissions. The original application's data was snapshotted for the Mnerys preview; it was **not deleted or moved**.
