@@ -311,6 +311,14 @@ async def _drain(
             # Do not log trusted-port exception bodies: uploads, provider
             # settings and writer failures may contain private values.
             logger.warning("[agent-run] typed run failed before completion (%s)", type(e).__name__)
+            # Targeted diagnostics: the traceback frames reference source
+            # lines only (no variable values or provider payloads), so the
+            # stack can be retained without leaking user content.
+            logger.error(
+                "[agent-run] typed run failed: %s traceback follows",
+                type(e).__name__,
+                exc_info=e,
+            )
         else:
             logger.error("[agent-run] %s failed: %s", session_id, e, exc_info=True)
         run.status = "error"
@@ -386,7 +394,12 @@ def start(
             prev.task.cancel()
             prev_task = prev.task   # new run awaits this before it starts writing
         if prev.evict_task and not prev.evict_task.done():
-            prev.evict_task.cancel()
+            try:
+                prev.evict_task.cancel()
+            except RuntimeError:
+                # A previous run from a closed event loop (test isolation or
+                # a reload) cannot accept a cancel callback anymore.
+                pass
     _RUNS[session_id] = run
     run.task = asyncio.create_task(_drain(session_id, run, agen, prev_task))
     return run
