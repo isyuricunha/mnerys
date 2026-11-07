@@ -137,15 +137,22 @@ v0.15.4 and was deployed to the private preview through the native runner
   occurrence.
 - Historical duplicates: read-only inventory with anonymized counts and
   confidence levels in DUPLICATE_TRANSCRIPT_INVENTORY.md; the non-destructive
-  repair proposal is approval-gated and NOT executed. The database currently
-  holds zero orphan assistant rows and zero completed turns without their
-  user row.
+  repair was then AUTHORIZED by Yuri and executed behind the full gate
+  sequence (verified backup, isolated restore drill, deterministic dry-run,
+  rehearsal with rollback on the restored copy): 6 confirmed-redundant rows
+  hidden reversibly, ambiguous and legitimate rows untouched, and the
+  database holds zero orphan assistant rows and zero completed turns
+  without their user row.
 - Live acceptance on the deployed preview: the startup reconciliation
   marked the two restart-orphaned records failed with a terminal timestamp;
-  a real provider-backed turn completed with exactly one user + one
+  real provider-backed turns completed with exactly one user + one
   assistant row; cancellation produced a durable `cancelled` terminal; the
-  installed CLI/TUI (published wheel) operate against the live Gateway; a
-  fresh verified PostgreSQL 17 archive was taken before the promotion.
+  installed CLI/TUI (published wheels) operate against the live Gateway;
+  fresh verified PostgreSQL 17 archives were taken before each promotion.
+- Fourth review round: APROVADO for the scoped hidden-row exclusion
+  (compaction summaries preserved) and the repair tool (dialect-safe,
+  fencing intact). Post-repair the Web history reader and the v1 session
+  detail expose the identical visible transcript.
 - Independent review: three rounds; the final verdict APROVADO after the
   boot-bound and traceback fixes.
 

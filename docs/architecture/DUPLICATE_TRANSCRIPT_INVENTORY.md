@@ -43,8 +43,28 @@ E) Identical-content user pairs: 2 sessions, both explained by intentional
 repeat test sends (two identical long prompts sent on purpose during
 disconnect/resume validation). Not duplicate writes.
 
-## Proposed non-destructive repair plan (NOT executed; requires Yuri's
-separate approval)
+## Executed repair status (2026-11-07, approved by Yuri)
+
+The proposed repair was AUTHORIZED and executed the same day, behind the
+full gate sequence (verified backup, isolated restore drill with exact
+count parity, deterministic dry-run, rehearsal apply/unhide/re-apply on the
+restored copy):
+
+- EXECUTED live: the 6 confirmed-redundant rows (all in S-cd2ba3, each
+  inside its own completed turn window, gaps 20-42ms) were hidden with
+  `{"hidden": true, "hidden_reason": "duplicate-write-repair"}`; row counts
+  unchanged; the operation is reversible via `--unhide`.
+- LEFT UNTOUCHED (ambiguous/legitimate): the 3 short-band resume-era pairs
+  (the consecutiveness criterion excludes them: a user message or a
+  separate-turn boundary sits between the rows) and both legitimate
+  repeated user pairs.
+- Verified after the repair: Web history reader and the v1 session detail
+  expose the identical visible transcript (38/17 and 40/17 rows at the two
+  checkpoints); a real provider-backed turn completed with exactly one
+  user + one assistant row; hidden rows never reach model context
+  (the context loader skips the repair reason specifically).
+
+## Original proposed repair plan (executed as approved; kept for record)
 
 Scope: only the 8 instant-band pairs in S-cd2ba3 plus, if confirmed, the 3
 short-band pairs. The goal is one transcript row per completed turn.
