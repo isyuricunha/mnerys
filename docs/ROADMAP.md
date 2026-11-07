@@ -208,6 +208,15 @@ independent permission decision.
 
 **Done when:** a user can switch between Web and TUI and continue the same authorized conversation without losing state or bypassing approvals, all gates have evidence, and docs/website reflect the verified implementation.
 
+**M4 stabilization pass (November 2026, post-release):** the private-preview
+acceptance of v0.15.2 exposed turn-execution and transcript-consistency
+defects; the stabilization fixes (single assistant persistence per turn,
+stale running-turn reconciliation at startup, retained typed failure
+tracebacks, shared AuthManager for owner checks, lifecycle transcript
+invariants proven on disposable SQLite and PostgreSQL 17) shipped in
+v0.15.3 and follow-ups; see M4_ACCEPTANCE.md and
+DUPLICATE_TRANSCRIPT_INVENTORY.md.
+
 ### M5 — Web, CLI and TUI parity
 
 **Planned.**
