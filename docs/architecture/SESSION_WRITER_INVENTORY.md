@@ -467,3 +467,18 @@ An uncertain effect or failed write must never be blindly retried.
 The approval-continuation/persistent HTTP path and transactional tool
 effect fencing are still unsupported. See
 [native write tests](../../tests/test_mnerys_gateway_native_tool_persistence.py).
+
+## M4 stabilization additions
+
+- Startup reconciliation: `process_reaper.reap_stale_turn_records` marks
+  durable turn records left `running` by a previous process lifetime as
+  failed at boot; already-terminal records are untouched, and a broken
+  database cannot break the reconciliation.
+- Owner security checks reuse the application-bound AuthManager
+  (`tool_security.bind_auth_manager`); unbound callers keep the previous
+  on-demand construction as a fallback.
+- Lifecycle transcript invariants (one user + one assistant row per
+  completed turn, fail-closed on a refused user append, disconnect-safe
+  detached completion, exactly-once terminal replay) are proven on
+  disposable SQLite and PostgreSQL 17 in
+  `tests/test_mnerys_turn_lifecycle.py`.
