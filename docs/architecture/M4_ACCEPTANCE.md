@@ -116,6 +116,39 @@ and automatic rollback on failure. The v1 session endpoints and the TUI
 require no schema change beyond the already-deployed M2 migrations; the
 new endpoints reuse the existing session, endpoint and durable-record
 tables.
+## Stabilization rollout (v0.15.3 -> v0.15.4)
+
+The stabilization pass (root causes from the v0.15.3 acceptance) shipped in
+v0.15.4 and was deployed to the private preview through the native runner
+(`b24550669ace` -> `a4a818acd3d5`):
+
+- Confirmed causes and fixes: the v1 route double-persisted assistant
+  replies (removed in v0.15.3); durable turn records left `running` forever
+  after a service restart (startup reconciliation in `process_reaper`,
+  boot-bounded so this-process turns are never touched); transient typed
+  run failures retained no traceback (frames-only retention with the
+  message line elided); owner security checks re-instantiated the auth
+  store mid-turn (the app now binds its long-lived AuthManager).
+- AttributeError investigation outcome: UNCONFIRMED. The original
+  exception was never retained (the previous log kept only the class name)
+  and deterministic reproduction with the real engine (invalid model,
+  concurrency, cancellation) did not reproduce it. Identical subsequent
+  turns completed; diagnostics now retain the traceback for the next
+  occurrence.
+- Historical duplicates: read-only inventory with anonymized counts and
+  confidence levels in DUPLICATE_TRANSCRIPT_INVENTORY.md; the non-destructive
+  repair proposal is approval-gated and NOT executed. The database currently
+  holds zero orphan assistant rows and zero completed turns without their
+  user row.
+- Live acceptance on the deployed preview: the startup reconciliation
+  marked the two restart-orphaned records failed with a terminal timestamp;
+  a real provider-backed turn completed with exactly one user + one
+  assistant row; cancellation produced a durable `cancelled` terminal; the
+  installed CLI/TUI (published wheel) operate against the live Gateway; a
+  fresh verified PostgreSQL 17 archive was taken before the promotion.
+- Independent review: three rounds; the final verdict APROVADO after the
+  boot-bound and traceback fixes.
+
 ## Private preview operational rollout (v0.15.2 -> v0.15.3)
 
 Deployed through the versioned native promotion runner on the private

@@ -19,10 +19,12 @@ The Mnerys application is **not containerized**. The maintainer's running native
 
 ## M4 rollout status (November 2026)
 
-The M4 milestone rollout deployed commit `7eb313d4dbe4` (release v0.15.2)
-and then its necessary validated successor `v0.15.3` (single-save turn
-persistence, terminal-first TUI fixes) through the versioned promotion
-runner below. Each promotion created a fresh PostgreSQL 17 archive with the
+The M4 milestone rollout deployed commit `7eb313d4dbe4` (release v0.15.2),
+its necessary validated successor `v0.15.3` (single-save turn persistence,
+terminal-first TUI fixes), and the stabilization successor `v0.15.4`
+(stale-turn startup reconciliation, retained typed-failure tracebacks,
+shared AuthManager for owner checks) through the versioned promotion runner
+below. Each promotion created a fresh PostgreSQL 17 archive with the
 private backup helper, verified it with `pg_restore --list`, and restored a
 copy into an isolated disposable `pg17` instance with exact row-count
 parity against the live database (sessions, chat messages, durable turn
