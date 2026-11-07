@@ -159,14 +159,14 @@ def test_repository_tree_builds_are_identifiable_development_builds(
     version = _sdist_pkginfo_version(sdist)
     exact_tag = _git_exact_tag()
     if exact_tag is not None:
-        # At a release tag the build carries the exact version, except when
-        # the working tree is dirty: then setuptools-scm emits a clearly
-        # marked next-dev build with the tag's commit, which never claims
-        # the released number.
+        # At a release tag the build carries the exact version (without the
+        # tag's 'v' prefix), except when the working tree is dirty: then
+        # setuptools-scm emits a clearly marked next-dev build with the
+        # tag's commit, which never claims the released number.
         dirty_dev = re.match(
             r"^\d+\.\d+\.\d+\.dev\d+\+g[0-9a-f]+\.d\d{8}$", version,
         )
-        assert version == exact_tag or dirty_dev, (
+        assert version == exact_tag[1:] or dirty_dev, (
             f"at the release tag {exact_tag} the build must carry exactly "
             f"that version or a marked dirty dev build, got {version!r}"
         )
