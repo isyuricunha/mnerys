@@ -66,6 +66,9 @@ class ApprovalBar(Static):
         super().__init__(markup=True, **kwargs)
         self.approval_id = approval_id
         self.add_class("approval")
+        # The pending card owns the decision keys: it must be able to
+        # receive focus while the text composer keeps typing otherwise.
+        self.can_focus = True
         self.update(
             f"[b]Approval required[/b]  {'  '.join(safe_markup(part) for part in line_parts)}\n"
             "[class='help-line']a approve · d deny (decision recorded server-side)[/]",

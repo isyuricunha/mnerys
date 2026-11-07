@@ -370,9 +370,10 @@ async def test_composer_holds_focus_when_the_conversation_opens():
         await _settle(pilot, "persisted")
         composer = app.screen.query_one(ChatInput)
         assert composer.has_focus
-        # Keystrokes land immediately: no extra focus key is needed.
-        await pilot.press("k")
-        assert composer.text == "k"
+        # Keystrokes land immediately: no extra focus key is needed, and
+        # "?" is a character while composing, not a help trigger.
+        await pilot.press("k", "?")
+        assert composer.text == "k?"
 
 
 class MnerysTuiHarness(App[None]):

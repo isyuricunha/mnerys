@@ -83,7 +83,9 @@ async def test_help_screen_opens_and_closes():
     app = MnerysTui(_healthy_client(), "http://gateway.test")
     async with app.run_test(size=(100, 30)) as pilot:
         await _settle(pilot, "connected as default profile")
-        await pilot.press("?")
+        # The default conversation's composer holds the focus, so "?" is a
+        # character; help stays reachable through F1.
+        await pilot.press("f1")
         await pilot.pause(0.1)
         assert any(type(screen).__name__ == "HelpScreen" for screen in app.screen_stack)
         await pilot.press("escape")

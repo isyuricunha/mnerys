@@ -64,6 +64,7 @@ class ChatScreen(Screen[None]):
         Binding("d", "deny", "Deny", priority=True, show=False),
     ]
 
+
     def __init__(self, client, session_id: str, *, session_name: str = ""):
         super().__init__()
         self.client = client
@@ -266,6 +267,10 @@ class ChatScreen(Screen[None]):
         self._approval_bar = bar
         await self.conversation.mount(bar)
         self.conversation.scroll_end(animate=False, force=True)
+        # Approve/deny bindings are screen-level; they only win while the
+        # text composer is not the focused widget, so the pending card
+        # takes the focus for the duration of the decision window.
+        bar.focus()
         try:
             payload = await self.client.approval_preview(approval_id, self.session_id)
             if isinstance(payload, dict) and payload.get("question"):
@@ -281,6 +286,8 @@ class ChatScreen(Screen[None]):
             self._approval_bar.set_outcome("decided by the Gateway")
         self.pending_approval_id = None
         self._approval_bar = None
+        # The decision window is over; typing returns to the composer.
+        await self._focus_composer()
 
     async def action_approve(self) -> None:
         await self._decide("approve")

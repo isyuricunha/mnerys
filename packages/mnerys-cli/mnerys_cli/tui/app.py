@@ -148,6 +148,7 @@ class MnerysTui(App[None]):
         Binding("q", "quit", "Quit"),
         Binding("ctrl+q", "quit", "Quit, always"),  # works while composing
         Binding("question_mark", "help", "Help"),
+        Binding("f1", "help", "Help"),  # works while composing
         Binding("r", "refresh", "Refresh"),
     ]
 
