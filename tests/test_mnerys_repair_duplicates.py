@@ -174,19 +174,40 @@ def test_ambiguous_pair_without_turn_window_stays_visible(db_engine):
     assert count == 2
 
 
-def test_hidden_rows_never_reach_model_context(db_engine):
-    """The model-context loader must skip hidden rows (they are exact
-    duplicates; feeding them back would poison the conversation)."""
+def test_repair_hidden_rows_never_reach_model_context(db_engine):
+    """Repaired duplicates (hidden with the repair reason) never reach the
+    model context, while compaction summaries (hidden for display only) do:
+    the flag's pre-existing meaning is preserved."""
     engine, manager = db_engine
     manager.create_session("s1", "Context", "http://p.test/v1", "m1", owner="alice")
     manager.add_message("s1", ChatMessage("user", "2+2"))
     manager.add_message("s1", ChatMessage("assistant", "4"))
-    duplicate = ChatMessage("assistant", "4", metadata={"hidden": True})
+    duplicate = ChatMessage(
+        "assistant", "4",
+        metadata={"hidden": True, "hidden_reason": "duplicate-write-repair"},
+    )
     manager.add_message("s1", duplicate)
+    # A compaction summary: hidden from display, INTENDED for model context.
+    summary = ChatMessage(
+        "assistant", "Conversation so far: user computes sums.",
+        metadata={"hidden": True, "hidden_reason": "compaction-summary"},
+    )
+    manager.add_message("s1", summary)
 
     context = manager.get_session("s1").get_context_messages()
-    contents = [entry.get("content") for entry in context if entry.get("role") == "assistant"]
-    assert contents == ["4"]  # exactly one assistant entry reaches the model
+    contents = [
+        entry.get("content")
+        for entry in context
+        if entry.get("role") == "assistant"
+    ]
+    assert "4" in contents  # the kept answer reaches the model
+    assert not any(
+        entry.get("metadata", {}).get("hidden_reason") == "duplicate-write-repair"
+        for entry in context
+    )  # the repaired duplicate never does
+    assert any("Conversation so far" in (entry.get("content") or "") for entry in context)
+    # The repair reason must ride with the specific reason only.
+    assert contents == ["4", "Conversation so far: user computes sums."]
 
 
 def test_hide_is_idempotent_and_row_count_never_changes(db_engine):
