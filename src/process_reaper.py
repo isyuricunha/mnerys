@@ -278,6 +278,40 @@ def reap_legacy_agent_tmux() -> Dict[str, Any]:
     return report
 
 
+def reap_stale_turn_records() -> int:
+    """Close turn records left 'running' by a previous process lifetime.
+
+    A service restart kills every in-process run; their durable records stay
+    'running' forever with no terminal event and no assistant reply, and
+    clients polling those turns never see an honest terminal state. On
+    startup such records are dead by definition, so they are marked failed.
+    """
+    try:
+        from core.database import SessionLocal, GatewayTurn, utcnow_naive
+
+        db = SessionLocal()
+        try:
+            stale = db.query(GatewayTurn).filter(
+                GatewayTurn.status == "running",
+            ).all()
+            if not stale:
+                return 0
+            now = utcnow_naive()
+            for turn in stale:
+                turn.status = "failed"
+                turn.terminal_at = now
+            db.commit()
+            return len(stale)
+        finally:
+            db.close()
+    except Exception:
+        logger.warning(
+            "process_reaper: stale turn record reconciliation failed",
+            exc_info=True,
+        )
+        return 0
+
+
 def reap_orphans() -> Dict[str, Any]:
     """Run both reconciliations. Returns a report; raises nothing.
 
@@ -299,6 +333,7 @@ def reap_orphans() -> Dict[str, Any]:
         "bg_jobs": reap_bg_jobs(),
         "agent_tmux": reap_legacy_agent_tmux(),
         "foreground_publications_retired": publications_retired,
+        "stale_turn_records": reap_stale_turn_records(),
     }
     if report["mechanism"] == process_ownership.MECHANISM_NONE:
         logger.error(
