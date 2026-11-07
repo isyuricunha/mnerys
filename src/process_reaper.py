@@ -278,6 +278,21 @@ def reap_legacy_agent_tmux() -> Dict[str, Any]:
     return report
 
 
+# The process boot instant, bound at import (imports complete before the
+# server accepts any request): turn records created after it belong to this
+# process and are never stale.
+_PROCESS_STARTED_AT = None
+
+
+def _process_started_at():
+    global _PROCESS_STARTED_AT
+    if _PROCESS_STARTED_AT is None:
+        from core.database import utcnow_naive
+
+        _PROCESS_STARTED_AT = utcnow_naive()
+    return _PROCESS_STARTED_AT
+
+
 def reap_stale_turn_records() -> int:
     """Close turn records left 'running' by a previous process lifetime.
 
@@ -291,8 +306,12 @@ def reap_stale_turn_records() -> int:
 
         db = SessionLocal()
         try:
+            # Only records from before this process started are orphans; a
+            # turn admitted in the boot window belongs to this process and
+            # must never be terminalized by the reconciliation.
             stale = db.query(GatewayTurn).filter(
                 GatewayTurn.status == "running",
+                GatewayTurn.created_at < _process_started_at(),
             ).all()
             if not stale:
                 return 0

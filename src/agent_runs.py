@@ -17,6 +17,7 @@ close / navigation / refresh). It does NOT survive a server restart.
 import asyncio
 import json
 import logging
+import traceback
 import re
 import uuid
 from typing import AsyncGenerator, Dict, Optional
@@ -311,13 +312,13 @@ async def _drain(
             # Do not log trusted-port exception bodies: uploads, provider
             # settings and writer failures may contain private values.
             logger.warning("[agent-run] typed run failed before completion (%s)", type(e).__name__)
-            # Targeted diagnostics: the traceback frames reference source
-            # lines only (no variable values or provider payloads), so the
-            # stack can be retained without leaking user content.
+            # Targeted diagnostics: keep the traceback frames for diagnosis
+            # but drop the final line, whose str(e) can embed provider or
+            # writer payloads; the exception type stays in the warning above.
+            frames = traceback.format_exception(type(e), e, e.__traceback__)[:-1]
             logger.error(
-                "[agent-run] typed run failed: %s traceback follows",
-                type(e).__name__,
-                exc_info=e,
+                "[agent-run] typed run failed: traceback (message elided)\n%s",
+                "".join(frames),
             )
         else:
             logger.error("[agent-run] %s failed: %s", session_id, e, exc_info=True)

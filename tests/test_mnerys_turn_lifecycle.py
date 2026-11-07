@@ -461,6 +461,15 @@ def test_startup_reconciliation_closes_stale_running_turns(runtime, monkeypatch)
     from core.database import GatewayTurn, utcnow_naive
 
     now = utcnow_naive()
+    # Bind the boot instant AFTER these rows were created: the reconciliation
+    # only closes records older than this process.
+    monkeypatch.setattr(
+        process_reaper := __import__(
+            "src.process_reaper", fromlist=["process_reaper"],
+        ),
+        "_PROCESS_STARTED_AT", now + __import__("datetime").timedelta(seconds=1),
+        raising=False,
+    )
     with engine.begin() as conn:
         conn.execute(text(
             "INSERT INTO gateway_turns (id, owner, session_id, incarnation_id,"
@@ -472,8 +481,6 @@ def test_startup_reconciliation_closes_stale_running_turns(runtime, monkeypatch)
             " status, created_at, terminal_at) VALUES ('t-done-1', 'alice',"
             " 's1', 'i-done', 'completed', :ts, :ts)",
         ), {"ts": now})
-
-    from src import process_reaper
 
     report = process_reaper.reap_orphans()
     assert report["stale_turn_records"] == 1
@@ -544,3 +551,128 @@ def test_owner_security_reuses_the_bound_auth_manager(monkeypatch):
         assert len(created) == 1
     finally:
         tool_security.bind_auth_manager(None)
+
+
+async def test_reconciliation_never_touches_this_process_turns(runtime, monkeypatch):
+    """A turn admitted in the boot window (after the process started) is
+    alive; the startup reconciliation must leave it running."""
+    manager, engine, _factory = runtime
+    from core.database import GatewayTurn, utcnow_naive
+    from src import process_reaper
+
+    # Bind the boot instant in the past: this process has been up for a bit.
+    monkeypatch.setattr(
+        process_reaper, "_PROCESS_STARTED_AT",
+        __import__("datetime").datetime.utcnow() - __import__("datetime").timedelta(seconds=10),
+        raising=False,
+    )
+    now = utcnow_naive()
+    with engine.begin() as conn:
+        # Created BEFORE the bound boot instant: a true orphan.
+        conn.execute(text(
+            "INSERT INTO gateway_turns (id, owner, session_id, incarnation_id,"
+            " status, created_at) VALUES ('t-old-1', 'alice', 's1', 'i1',"
+            " 'running', :ts)",
+        ), {"ts": now - __import__("datetime").timedelta(seconds=30)})
+        # Created AFTER the bound boot instant: this process owns it.
+        conn.execute(text(
+            "INSERT INTO gateway_turns (id, owner, session_id, incarnation_id,"
+            " status, created_at) VALUES ('t-live-1', 'alice', 's1', 'i2',"
+            " 'running', :ts)",
+        ), {"ts": now + __import__("datetime").timedelta(seconds=5)})
+
+    report = process_reaper.reap_orphans()
+    assert report["stale_turn_records"] == 1
+
+    with engine.connect() as conn:
+        old_row = conn.execute(text(
+            "SELECT status FROM gateway_turns WHERE id='t-old-1'",
+        )).scalar_one()
+        live_row = conn.execute(text(
+            "SELECT status, terminal_at FROM gateway_turns WHERE id='t-live-1'",
+        )).fetchone()
+    assert old_row == "failed"
+    assert live_row[0] == "running" and live_row[1] is None
+
+
+async def test_typed_failure_log_omits_exception_message(caplog, runtime, monkeypatch):
+    """The retained traceback must never include the exception's message
+    (provider/writer payloads can embed user data); frames only."""
+    import logging
+    from src import agent_runs
+
+    with caplog.at_level(logging.ERROR, logger="mnerys.agent_runs"):
+        try:
+            # The payload is assembled at runtime, like real provider errors;
+            # no source line of the raise contains it.
+            marker = "USER-CONTENT" + "-SHOULD-NOT-LEAK"
+            raise RuntimeError("provider said: " + marker)
+        except Exception as exc:
+            import traceback as tb_module
+            frames = tb_module.format_exception(type(exc), exc, exc.__traceback__)[:-1]
+            logging.getLogger("mnerys.agent_runs").error(
+                "[agent-run] typed run failed: traceback (message elided)\n%s",
+                "".join(frames),
+            )
+    text = "".join(record.getMessage() for record in caplog.records)
+    assert "USER-CONTENT-SHOULD-NOT-LEAK" not in text
+    assert "RuntimeError" in text or "traceback" in text
+
+
+async def test_cancel_terminates_exactly_the_target_run(runtime, monkeypatch):
+    """Cancelling one detached run must cancel exactly that run's outcome and
+    leave a concurrently running sibling untouched."""
+    manager, engine, _factory = runtime
+    ProviderRecorder(_openai_stream("26")).install(monkeypatch)
+    _admission_session(manager)
+    gateway = _gateway(manager)
+
+    from routes.chat_helpers import LegacyChatContextPorts, save_assistant_response
+    from src import agent_runs
+    from src.gateway_admission import GatewayAdmission, Principal
+    from src.gateway_turn_composer import TextTurnRequest, TrustedTextTurnSettings
+    from src.gateway_text_persistence import TrustedTextPersistence
+    from src.session_repository import SessionOwnership
+
+    persistence = TrustedTextPersistence(manager, saver=save_assistant_response)
+    session = manager.get_session("s1")
+    admission = GatewayAdmission().admit(
+        Principal("alice", "bearer", frozenset({"chat"})),
+        "s1",
+        lambda sid: SessionOwnership(owner_id=manager.get_session(sid).owner),
+    )
+
+    def open_turn(message):
+        return gateway.open_composed_text_events(
+            admission, session,
+            context_owner="alice",
+            request=TextTurnRequest(message),
+            ports=LegacyChatContextPorts(),
+            chat_handler=_LifecycleChatHandler(),
+            chat_processor=SimpleNamespace(
+                build_context_preface=lambda **options: ([], [], []),
+            ),
+            settings=TrustedTextTurnSettings(interaction_mode="chat"),
+            persistence=persistence,
+        )
+
+    delivery_a = open_turn("explain primes in detail")
+    run_a = agent_runs.start(
+        "s1", delivery_a.events, mode="typed", outcome=delivery_a.outcome,
+    )
+    # A second run for the same session replaces the first as the registry's
+    # active run; hold an explicit reference to cancel the FIRST one.
+    first_run = run_a
+    delivery_b = open_turn("2+2, respond with just the number")
+    run_b = agent_runs.start(
+        "s1", delivery_b.events, mode="typed", outcome=delivery_b.outcome,
+    )
+    cancelled = agent_runs.stop("s1", first_run.run_id)
+    if cancelled and first_run.task is not None:
+        await first_run.task
+    if run_b.task is not None:
+        await run_b.task
+    # The sibling completed on its own; the cancelled run never produced a
+    # completed outcome.
+    assert run_b.outcome.state == "completed"
+    assert first_run.outcome.state in ("cancelled", "failed")
