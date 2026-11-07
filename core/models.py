@@ -201,6 +201,7 @@ class Session:
             msg.to_dict()
             for msg in self.history
             if (msg.metadata or {}).get("source") != "slash"
+            and not (msg.metadata or {}).get("hidden")
         ]
         from src.background_tool_jobs import background_result_context
         messages = [part for message in messages for part in (
