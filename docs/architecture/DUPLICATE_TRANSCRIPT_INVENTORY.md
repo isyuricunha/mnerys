@@ -57,7 +57,11 @@ short-band pairs. The goal is one transcript row per completed turn.
    - Keep the earliest row (the one whose metadata matches the recorded
      metrics); hide the later ones with a metadata flag
      (`{"hidden": true, "hidden_reason": "duplicate-write-2026-11"}`) rather
-     than deleting: the existing history readers already skip hidden rows.
+     than deleting. Display/history readers already skip hidden rows; the
+     model-context loader (SessionManager.get_context_messages) does not, so
+     the repair must either extend that filter in the same change or accept
+     that hidden duplicates still reach model context (they are exact
+     copies, so the only cost is context size).
 2. Backup: a fresh verified PostgreSQL 17 archive immediately before the
    repair (the established helper + `pg_restore --list` verification), plus
    an isolated restore drill of that archive.
