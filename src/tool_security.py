@@ -239,6 +239,28 @@ def is_public_blocked_tool(tool_name: Optional[str]) -> bool:
     return tool_name in NON_ADMIN_BLOCKED_TOOLS or tool_name.startswith("mcp__")
 
 
+_bound_auth_manager = None
+
+
+def bind_auth_manager(manager) -> None:
+    """Share the application's AuthManager with security checks.
+
+    Runtime AuthManager() construction re-reads auth.json and reruns
+    migrations mid-turn; the app binds its long-lived manager at startup
+    and checks reuse it without any disk I/O.
+    """
+    global _bound_auth_manager
+    _bound_auth_manager = manager
+
+
+def _shared_auth_manager():
+    if _bound_auth_manager is not None:
+        return _bound_auth_manager
+    from core.auth import AuthManager
+
+    return AuthManager()
+
+
 def owner_is_admin_or_single_user(owner: Optional[str]) -> bool:
     """Return True for admins, or in intentional single-user mode.
 
@@ -258,9 +280,7 @@ def owner_is_admin_or_single_user(owner: Optional[str]) -> bool:
         if _auth_disabled():
             return True
 
-        from core.auth import AuthManager
-
-        auth = AuthManager()
+        auth = _shared_auth_manager()
         if not auth.is_configured:
             return False
         return bool(owner and auth.is_admin(owner))
