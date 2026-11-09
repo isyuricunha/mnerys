@@ -28,7 +28,10 @@ _SAVED_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 _RUN_ID_RE = re.compile(r"[0-9a-f]{32}")
 _REVIEW_CURSOR_RE = re.compile(r"[0-9a-f]{32}:(?:0|[1-9][0-9]*)")
 _TYPED_HEARTBEAT_RE = re.compile(r": heartbeat [1-9][0-9]*\n\n")
-_SAFE_METRICS = frozenset({"input_tokens", "output_tokens", "total_tokens"})
+_SAFE_METRICS = frozenset({
+    "input_tokens", "output_tokens", "total_tokens",
+    "cached_tokens", "reasoning_tokens",
+})
 _SAFE_FAILURE_CODES = frozenset({
     "provider_error", "agent_terminal", "incomplete_stream",
     "stream_exception", "persistence_error",

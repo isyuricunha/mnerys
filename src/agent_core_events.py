@@ -33,6 +33,8 @@ class CoreMetricsEvent:
     input_tokens: int | None = None
     output_tokens: int | None = None
     total_tokens: int | None = None
+    cached_tokens: int | None = None
+    reasoning_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +117,8 @@ def core_metrics_event(data: dict) -> CoreMetricsEvent:
         input_tokens=valid("input_tokens"),
         output_tokens=valid("output_tokens"),
         total_tokens=valid("total_tokens"),
+        cached_tokens=valid("cached_tokens"),
+        reasoning_tokens=valid("reasoning_tokens"),
     )
 
 

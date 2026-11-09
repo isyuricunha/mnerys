@@ -103,7 +103,10 @@ def _safe_metrics(payload: Any) -> dict[str, int]:
     if not isinstance(payload, dict):
         return {}
     return {
-        key: value for key in ("input_tokens", "output_tokens", "total_tokens")
+        key: value for key in (
+            "input_tokens", "output_tokens", "total_tokens",
+            "cached_tokens", "reasoning_tokens",
+        )
         if type(value := payload.get(key)) is int and value >= 0
     }
 
@@ -321,7 +324,8 @@ async def translate_legacy_turn_events(
                             raise ValueError("Invalid native Core metrics")
                         fields = {
                             key: value for key in (
-                                "input_tokens", "output_tokens", "total_tokens"
+                                "input_tokens", "output_tokens", "total_tokens",
+                                "cached_tokens", "reasoning_tokens",
                             )
                             if type(value := getattr(chunk, key)) is int and value >= 0
                         }

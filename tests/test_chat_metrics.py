@@ -212,3 +212,15 @@ def test_metrics_fall_back_to_wallclock_without_backend_timings():
     assert m["tokens_per_second"] == 4.2
     assert m["tps_source"] == "computed"
     assert "prefill_tps" not in m
+
+
+def test_metrics_surface_provider_reported_cache_and_reasoning():
+    m = _metrics(real_cached_tokens=714_000, real_reasoning_tokens=512)
+    assert m["cached_tokens"] == 714_000
+    assert m["reasoning_tokens"] == 512
+
+
+def test_metrics_omit_cache_and_reasoning_without_provider_report():
+    m = _metrics()
+    assert "cached_tokens" not in m
+    assert "reasoning_tokens" not in m

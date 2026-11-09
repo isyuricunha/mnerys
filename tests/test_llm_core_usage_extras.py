@@ -4,6 +4,7 @@ OpenAI/GLM/DeepSeek report prompt-cache hits and reasoning output in
 different fields; Anthropic reports cache read/write. The normalized usage
 event must preserve these numbers without ever estimating them.
 """
+from src import llm_core
 from src.llm_core import _normalize_usage_counts, _openai_usage_extras
 
 
@@ -68,3 +69,76 @@ def test_malformed_extra_values_are_dropped():
 def test_malformed_usage_returns_none():
     assert _normalize_usage_counts("many", 10) is None
     assert _normalize_usage_counts(10, float("inf")) is None
+
+
+def _glm_style_usage_event(monkeypatch, usage_chunk):
+    """Drive stream_llm with a canned final usage chunk; return usage data."""
+    import asyncio
+    import json as _json
+
+    class _Resp:
+        status_code = 200
+
+        async def aiter_lines(self):
+            yield 'data: ' + _json.dumps({"choices": [{"index": 0, "delta": {"content": "Hi"}}]})
+            yield 'data: ' + _json.dumps({
+                "choices": [],
+                "usage": usage_chunk,
+            })
+            yield "data: [DONE]"
+
+        async def aread(self):
+            return b""
+
+    class _Ctx:
+        def __init__(self):
+            self._resp = _Resp()
+
+        async def __aenter__(self):
+            return self._resp
+
+        async def __aexit__(self, *a):
+            return False
+
+    class _Client:
+        def stream(self, method, url, **kw):
+            return _Ctx()
+
+    monkeypatch.setattr(llm_core, "_get_http_client", lambda: _Client())
+    monkeypatch.setattr(llm_core, "_is_host_dead", lambda u: False)
+    monkeypatch.setattr(llm_core, "note_model_activity", lambda *a, **k: None)
+    monkeypatch.setattr(llm_core, "_clear_host_dead", lambda *a, **k: None)
+
+    async def run():
+        usage = None
+        async for chunk in llm_core.stream_llm(
+            "http://127.0.0.1:8081/v1/chat/completions",
+            "glm-test",
+            [{"role": "user", "content": "hi"}],
+        ):
+            for ln in chunk.split("\n"):
+                ln = ln.strip()
+                if ln.startswith("data: ") and ln[6:] != "[DONE]":
+                    try:
+                        ev = _json.loads(ln[6:])
+                    except ValueError:
+                        continue
+                    if ev.get("type") == "usage":
+                        usage = ev["data"]
+        return usage
+
+    return asyncio.run(run())
+
+
+def test_stream_usage_event_preserves_provider_cache_and_reasoning(monkeypatch):
+    usage = _glm_style_usage_event(monkeypatch, {
+        "prompt_tokens": 721_000,
+        "completion_tokens": 900,
+        "prompt_tokens_details": {"cached_tokens": 714_000},
+        "completion_tokens_details": {"reasoning_tokens": 512},
+    })
+    assert usage is not None
+    assert usage["input_tokens"] == 721_000
+    assert usage["output_tokens"] == 900
+    assert usage["cached_tokens"] == 714_000
+    assert usage["reasoning_tokens"] == 512

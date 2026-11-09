@@ -22242,7 +22242,10 @@ async def stream_agent_loop(
                             continue
                         real_input_tokens += normalized_usage["input_tokens"]
                         real_output_tokens += normalized_usage["output_tokens"]
-                        real_cached_tokens += normalized_usage.get("cached_tokens", 0)
+                        real_cached_tokens += (
+                            normalized_usage.get("cached_tokens", 0)
+                            + normalized_usage.get("cache_read_tokens", 0)
+                        )
                         real_reasoning_tokens += normalized_usage.get("reasoning_tokens", 0)
                         direct_has_real_usage = True
                         try:
@@ -27347,7 +27350,10 @@ async def stream_agent_loop(
                         round_output = normalized_usage["output_tokens"]
                         real_input_tokens += round_input
                         real_output_tokens += round_output
-                        real_cached_tokens += normalized_usage.get("cached_tokens", 0)
+                        real_cached_tokens += (
+                            normalized_usage.get("cached_tokens", 0)
+                            + normalized_usage.get("cache_read_tokens", 0)
+                        )
                         real_reasoning_tokens += normalized_usage.get("reasoning_tokens", 0)
                         _round_real_input_tokens += round_input
                         _round_real_output_tokens += round_output

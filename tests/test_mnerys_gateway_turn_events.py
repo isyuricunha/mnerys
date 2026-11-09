@@ -89,13 +89,13 @@ async def test_explicit_final_message_overrides_incremental_deltas():
 @pytest.mark.asyncio
 async def test_usage_exposes_only_nonnegative_integer_counts():
     stream, result = open_test_events([
-        'data: {"type":"usage","data":{"input_tokens":12,"output_tokens":3,"total_tokens":15,"model":"secret-provider","api_key":"secret-value","reasoning_tokens":7}}\n\n',
+        'data: {"type":"usage","data":{"input_tokens":12,"output_tokens":3,"total_tokens":15,"cached_tokens":9,"reasoning_tokens":7,"model":"secret-provider","api_key":"secret-value","unknown_field":1}}\n\n',
         'data: {"type":"usage","data":{"input_tokens":true,"output_tokens":-1,"total_tokens":"100"}}\n\n',
         'data: [DONE]\n\n',
     ])
     events = await collect_events(stream)
     assert [(x.type, x.payload) for x in events[:2]] == [
-        ("usage", {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15}),
+        ("usage", {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15, "cached_tokens": 9, "reasoning_tokens": 7}),
         ("usage", {}),
     ]
     assert "secret" not in repr(events)
@@ -539,6 +539,24 @@ async def test_native_core_metrics_filter_malformed_fields_and_unknown_codes():
     assert events[0].payload == {"total_tokens": 7}
     assert events[1].payload == {"code": "provider_error", "status": None}
     assert outcome.state == "failed"
+
+
+@pytest.mark.asyncio
+async def test_native_core_metrics_preserve_cache_and_reasoning_counts():
+    from src.agent_core_events import CoreMetricsEvent, completed_core_event
+
+    stream, _outcome = open_test_events([
+        CoreMetricsEvent(
+            input_tokens=721_000, output_tokens=900,
+            cached_tokens=714_000, reasoning_tokens=512,
+        ),
+        completed_core_event(),
+    ])
+    events = await collect_events(stream)
+    assert events[0].payload == {
+        "input_tokens": 721_000, "output_tokens": 900,
+        "cached_tokens": 714_000, "reasoning_tokens": 512,
+    }
 
 
 @pytest.mark.asyncio
