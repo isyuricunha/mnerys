@@ -22242,6 +22242,10 @@ async def stream_agent_loop(
                             continue
                         real_input_tokens += normalized_usage["input_tokens"]
                         real_output_tokens += normalized_usage["output_tokens"]
+                        # cache_creation_tokens is input being written to the
+                        # cache this turn (already inside Anthropic's input
+                        # count), not served from it, so it stays out of the
+                        # cached aggregate below.
                         real_cached_tokens += (
                             normalized_usage.get("cached_tokens", 0)
                             + normalized_usage.get("cache_read_tokens", 0)
@@ -27350,6 +27354,9 @@ async def stream_agent_loop(
                         round_output = normalized_usage["output_tokens"]
                         real_input_tokens += round_input
                         real_output_tokens += round_output
+                        # Same exclusion as the direct branch: cache_creation
+                        # tokens are written to the cache this turn, not served
+                        # from it, and Anthropic already counts them as input.
                         real_cached_tokens += (
                             normalized_usage.get("cached_tokens", 0)
                             + normalized_usage.get("cache_read_tokens", 0)

@@ -232,7 +232,10 @@ async def persist_completed_text_events(
                 elif event.type == "metrics":
                     last_metrics = {
                         key: value for key, value in event.payload.items()
-                        if key in {"input_tokens", "output_tokens", "total_tokens"}
+                        if key in {
+                            "input_tokens", "output_tokens", "total_tokens",
+                            "cached_tokens", "reasoning_tokens",
+                        }
                         and type(value) is int and value >= 0
                     }
                 elif event.type == "message.final":
