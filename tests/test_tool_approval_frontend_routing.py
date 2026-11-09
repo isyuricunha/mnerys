@@ -8,16 +8,19 @@ def test_tool_approval_bypasses_polymorphic_send_button_actions():
     chat = (root / "static/js/chat.js").read_text(encoding="utf-8")
     stream = (root / "static/js/chatStream.js").read_text(encoding="utf-8")
 
-    # chat.js still defers the sealed approval through a synthetic button click.
-    assert "if (sendButton) sendButton.click();" in chat
+    # chat.js submits the sealed approval directly through the shared send
+    # handler, so a disabled or polymorphic send button can never reinterpret
+    # an empty composer as New chat or Record voice.
+    assert "handleChatSubmit({ preventDefault() {} })" in chat
 
-    # The capture listener must intercept only that synthetic click and route it
-    # through the chat form submit path, before app.js can reinterpret an empty
-    # composer as New chat or Record voice.
-    assert "if (event.isTrusted) return;" in stream
-    assert "event.stopImmediatePropagation();" in stream
-    assert "chatForm.requestSubmit()" in stream
-    assert "sendButton.dataset.mode = ''" not in stream
+    # The old synthetic-click interceptor is gone: there is no programmatic
+    # approval click left to intercept on the stream module.
+    assert "interceptApprovalClick" not in stream
+    assert "odysseus:tool-approval" not in stream
+
+    # The approval decision still rides the shared FormData contract.
+    assert "fd.append('tool_approval_id', approvalForSend.approval_id);" in chat
+    assert "fd.append('tool_approval_decision', approvalForSend.decision);" in chat
 
 
 def test_ask_user_card_has_no_close_button_and_chat_scale_text():
@@ -129,13 +132,13 @@ def test_ask_user_renderer_accepts_scoped_root_and_submit_callback():
 
 
 def test_every_changed_approval_module_is_cache_busted_together():
-    """A stale module here silently reinterprets the approval click.
+    """A stale module here silently misroutes approval decisions.
 
-    chat.js leaves the composer empty and clicks the polymorphic send button,
-    so a browser that pairs the new chat.js with a cached chatStream.js has no
-    interceptor and lands on the New chat branch instead. The same holds for
-    the compare pane modules, which chatRenderer now shares a keydown listener
-    with.
+    chat.js submits approval decisions through the shared send handler; a
+    browser pairing a fresh chat.js with a cached chatStream.js (or renderer)
+    creates split module graphs and duplicate listeners around the decision
+    path. The same holds for the compare pane modules, which chatRenderer now
+    shares a keydown listener with.
     """
 
     root = Path(__file__).resolve().parents[1]
