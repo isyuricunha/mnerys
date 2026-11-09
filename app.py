@@ -829,8 +829,8 @@ def _gateway_model_snapshot() -> list[dict]:
                 except ValueError:
                     cached = None
             names = cached if isinstance(cached, list) else None
-            if not names and row.model:
-                names = [str(row.model)]
+            # Without cached model IDs the endpoint announces nothing: the
+            # row has no single-model column, and probing is not allowed here.
             for name in names or ():
                 if str(name).strip():
                     items.append({"id": str(name), "host": host})
