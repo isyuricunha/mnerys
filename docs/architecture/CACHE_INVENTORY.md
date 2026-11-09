@@ -85,6 +85,23 @@ against each module, not generated from memory.
 - Per-instance `_index_cache` plus the rate-limit cleanup tick
   (removes expired IP timestamps). No cross-user payload reuse.
 
+## 9b. Internal response cache (`src/llm_core.py`)
+
+- `_response_cache` (plus `_response_model_cache` for provider-reported
+  model provenance): key is the SHA-256 of the full request tuple
+  (url, model, complete messages, temperature, max_tokens,
+  thinking mode, reasoning effort, header-identity digest). Never
+  stores credentials.
+- Serves ONLY non-stream internal callers (auto-title, memory
+  extraction, route fallback responses, similar jobs); the chat/agent
+  streaming path does not consult it. Bounded by size (eviction past
+  128 entries, pop-safe against thread races), no TTL: an identical
+  internal request keeps returning the identical stored answer until
+  eviction.
+- Consequence, by design: retrying an internal job with the exact same
+  input gets the exact same stored output with no provider call. Not a
+  transcript cache; per-route identity is part of the key.
+
 ## 10. Session cache reconciliation (`src/session_cache_reconciliation.py`)
 
 - Not a data cache: it reconciles cached session state against durable
