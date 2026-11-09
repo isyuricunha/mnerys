@@ -16202,6 +16202,8 @@ def _compute_final_metrics(
     backend_prefill_tps: float = 0,
     real_cost_usd: float = 0.0,
     endpoint_url: Optional[str] = None,
+    real_cached_tokens: int = 0,
+    real_reasoning_tokens: int = 0,
 ) -> dict:
     """Compute token counts, TPS, and build the final metrics dict."""
     if has_real_usage:
@@ -16255,6 +16257,12 @@ def _compute_final_metrics(
     }
     if backend_prefill_tps and backend_prefill_tps > 0:
         metrics["prefill_tps"] = round(backend_prefill_tps, 2)
+    # Provider-reported cache/reasoning accounting: preserved only when the
+    # provider actually reported it; never estimated or guessed.
+    if real_cached_tokens > 0:
+        metrics["cached_tokens"] = real_cached_tokens
+    if real_reasoning_tokens > 0:
+        metrics["reasoning_tokens"] = real_reasoning_tokens
     if prep_timings:
         prep_total = round(sum(prep_timings.values()), 3)
         metrics["agent_prep_time"] = prep_total
@@ -22074,6 +22082,8 @@ async def stream_agent_loop(
         direct_reasoning = ""
         real_input_tokens = 0
         real_output_tokens = 0
+        real_cached_tokens = 0
+        real_reasoning_tokens = 0
         real_cost_usd = 0.0
         direct_has_real_usage = False
         # The merged tools model has a clean native stream; do not hold its
@@ -22225,12 +22235,15 @@ async def stream_agent_loop(
                         normalized_usage = _normalize_usage_counts(
                             usage.get("input_tokens", 0),
                             usage.get("output_tokens", 0),
+                            extra=usage,
                         )
                         if normalized_usage is None:
                             logger.warning("[agent] ignoring malformed direct usage event")
                             continue
                         real_input_tokens += normalized_usage["input_tokens"]
                         real_output_tokens += normalized_usage["output_tokens"]
+                        real_cached_tokens += normalized_usage.get("cached_tokens", 0)
+                        real_reasoning_tokens += normalized_usage.get("reasoning_tokens", 0)
                         direct_has_real_usage = True
                         try:
                             real_cost_usd += float(usage.get("cost_usd") or 0.0)
@@ -22386,6 +22399,11 @@ async def stream_agent_loop(
             "direct_low_signal": True,
             **_usage_bucket_summary([direct_usage]),
         }
+        # Provider-reported cache/reasoning accounting (never estimated).
+        if real_cached_tokens > 0:
+            metrics["cached_tokens"] = real_cached_tokens
+        if real_reasoning_tokens > 0:
+            metrics["reasoning_tokens"] = real_reasoning_tokens
         if isinstance(direct_actual_endpoint_cost_tracked, bool):
             metrics["endpoint_cost_tracked"] = direct_actual_endpoint_cost_tracked
         # USD cost: provider-reported, else table estimate (never guessed).
@@ -24722,6 +24740,8 @@ async def stream_agent_loop(
     _declared_verifier_force_command = ""
     real_input_tokens = 0   # Accumulated real usage from API
     real_output_tokens = 0
+    real_cached_tokens = 0  # Provider-reported prompt-cache hits (GLM/DeepSeek/Anthropic)
+    real_reasoning_tokens = 0  # Provider-reported reasoning output
     last_round_input_tokens = 0  # Last round's input tokens (for context % peak)
     has_real_usage = False
     backend_gen_tps = 0      # backend-reported true gen speed (llama.cpp timings)
@@ -27315,6 +27335,7 @@ async def stream_agent_loop(
                         normalized_usage = _normalize_usage_counts(
                             u.get("input_tokens", 0),
                             u.get("output_tokens", 0),
+                            extra=u,
                         )
                         if normalized_usage is None:
                             logger.warning(
@@ -27326,6 +27347,8 @@ async def stream_agent_loop(
                         round_output = normalized_usage["output_tokens"]
                         real_input_tokens += round_input
                         real_output_tokens += round_output
+                        real_cached_tokens += normalized_usage.get("cached_tokens", 0)
+                        real_reasoning_tokens += normalized_usage.get("reasoning_tokens", 0)
                         _round_real_input_tokens += round_input
                         _round_real_output_tokens += round_output
                         last_round_input_tokens = round_input
@@ -27826,6 +27849,8 @@ async def stream_agent_loop(
                 tool_events, round_texts, model=model,
                 round_models=round_models, round_endpoint_ids=round_endpoint_ids,
                 round_endpoint_labels=round_endpoint_labels,
+                real_cached_tokens=real_cached_tokens,
+                real_reasoning_tokens=real_reasoning_tokens,
             )
             _required_metrics.update({
                 "requested_model": requested_model,
@@ -37964,6 +37989,8 @@ async def stream_agent_loop(
         prep_timings=prep_timings,
         backend_gen_tps=backend_gen_tps,
         backend_prefill_tps=backend_prefill_tps,
+        real_cached_tokens=real_cached_tokens,
+        real_reasoning_tokens=real_reasoning_tokens,
         real_cost_usd=real_cost_usd,
         endpoint_url=endpoint_url,
     )

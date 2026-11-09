@@ -44,8 +44,14 @@ _LOCAL_MODEL_WAITING_FOREGROUND: Dict[str, int] = {}
 _LOCAL_MODEL_CURRENT: Dict[str, Dict[str, object]] = {}
 
 
-def _normalize_usage_counts(input_value=0, output_value=0):
-    """Return safe integer token counts, or ``None`` for malformed usage."""
+def _normalize_usage_counts(input_value=0, output_value=0, extra: dict | None = None):
+    """Return safe integer token counts, or ``None`` for malformed usage.
+
+    ``extra`` carries provider-reported cache and reasoning accounting
+    (already extracted by the caller in the provider's own field names).
+    Only known numeric fields are preserved; unknown or malformed values
+    are dropped so a provider shape change cannot leak arbitrary payloads.
+    """
 
     def _count(value):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -64,10 +70,39 @@ def _normalize_usage_counts(input_value=0, output_value=0):
     output_tokens = _count(output_value)
     if input_tokens is None or output_tokens is None:
         return None
-    return {
+    normalized = {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
     }
+    for field in ("cached_tokens", "cache_read_tokens",
+                  "cache_creation_tokens", "reasoning_tokens"):
+        count = _count((extra or {}).get(field))
+        if count is not None:
+            normalized[field] = count
+    return normalized
+
+
+def _openai_usage_extras(usage: Optional[dict]) -> dict:
+    """Extract provider-reported cache/reasoning fields from OpenAI-compatible usage.
+
+    Covers OpenAI and GLM (``prompt_tokens_details.cached_tokens``),
+    DeepSeek (``prompt_cache_hit_tokens``) and reasoning token details.
+    """
+    if not isinstance(usage, dict):
+        return {}
+    extras: dict = {}
+    prompt_details = usage.get("prompt_tokens_details")
+    if isinstance(prompt_details, dict) and prompt_details.get("cached_tokens") is not None:
+        extras["cached_tokens"] = prompt_details.get("cached_tokens")
+    elif usage.get("prompt_cache_hit_tokens") is not None:
+        # DeepSeek reports the prompt-cache hit count at the top level.
+        extras["cached_tokens"] = usage.get("prompt_cache_hit_tokens")
+    completion_details = usage.get("completion_tokens_details")
+    if isinstance(completion_details, dict) and completion_details.get("reasoning_tokens") is not None:
+        extras["reasoning_tokens"] = completion_details.get("reasoning_tokens")
+    elif usage.get("reasoning_tokens") is not None:
+        extras["reasoning_tokens"] = usage.get("reasoning_tokens")
+    return extras
 
 
 def _normalize_http_status(value) -> Optional[int]:
@@ -3138,9 +3173,17 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                                 if "output_tokens" in usage
                                 else usage.get("completion_tokens", output_tokens)
                             )
+                            _resp_extras = {}
+                            _in_details = usage.get("input_tokens_details")
+                            if isinstance(_in_details, dict) and _in_details.get("cached_tokens") is not None:
+                                _resp_extras["cached_tokens"] = _in_details.get("cached_tokens")
+                            _out_details = usage.get("output_tokens_details")
+                            if isinstance(_out_details, dict) and _out_details.get("reasoning_tokens") is not None:
+                                _resp_extras["reasoning_tokens"] = _out_details.get("reasoning_tokens")
                             normalized_usage = _normalize_usage_counts(
                                 raw_input,
                                 raw_output,
+                                extra=_resp_extras,
                             )
                             if normalized_usage and (
                                 "input_tokens" in usage
@@ -3289,6 +3332,8 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
     if provider == "anthropic":
         _anth_input_tokens = 0
         _anth_output_tokens = 0
+        _anth_cache_read = 0
+        _anth_cache_write = 0
         _anth_usage_seen = False
         _anth_actual_model = ""
         _anth_model_announced = False
@@ -3372,6 +3417,8 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                             # stable system+tools prefix was served from cache this round.
                             _c_read = _u.get("cache_read_input_tokens", 0)
                             _c_write = _u.get("cache_creation_input_tokens", 0)
+                            _anth_cache_read = _c_read
+                            _anth_cache_write = _c_write
                             if _c_read or _c_write:
                                 logger.info(
                                     "[anthropic-cache] read=%s write=%s fresh_input=%s",
@@ -3399,6 +3446,10 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                             normalized_usage = _normalize_usage_counts(
                                 _anth_input_tokens,
                                 _anth_output_tokens,
+                                extra={
+                                    "cache_read_tokens": _anth_cache_read,
+                                    "cache_creation_tokens": _anth_cache_write,
+                                },
                             )
                             if normalized_usage and _anth_usage_seen:
                                 _annotate_usage_model(
@@ -3648,6 +3699,7 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                                     _usage_data = _normalize_usage_counts(
                                         u.get("prompt_tokens", 0),
                                         u.get("completion_tokens", 0),
+                                        extra=_openai_usage_extras(u),
                                     )
                                     if _usage_data is None:
                                         continue
