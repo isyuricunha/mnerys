@@ -176,3 +176,60 @@ async def test_composition_requires_context_ports(web_build):
     composition, _a, _s, _p = build(ports=None)
     with pytest.raises(AdmissionDenied, match="ports"):
         await GatewayTurns(TurnService()).compose_web_turn(composition)
+
+
+def _pending_bash(store, session):
+    return store.create(
+        owner="alice", session_id=session.id, origin_run_id="web-approval-run",
+        tool_name="bash", content='{"command":"ls"}', workspace=None,
+        request_text="da um ls ai",
+        continuation_query="da um ls ai",
+        external_untrusted_context_seen=False,
+        capabilities=capabilities_for_action("bash", '{"command":"ls"}'),
+        selected_tools={"bash"},
+        request_authority=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_approval_continuation_composes_without_composer_text(web_build):
+    """The production Web sends an empty message with the approval decision."""
+    build, _admission, session, _ports = web_build
+    store = ToolApprovalStore()
+    pending = _pending_bash(store, session)
+    composition, _a, _s, _p = build(
+        message="",
+        tool_approval_id=pending.approval_id,
+        tool_approval_decision="approve",
+        approval_store=store,
+    )
+    prepared = await GatewayTurns(TurnService()).compose_web_turn(composition)
+    # The sealed record, not the empty form state, restores the query.
+    assert prepared.message == pending.continuation_query
+    assert store.peek(pending.approval_id) is None
+
+
+@pytest.mark.asyncio
+async def test_denied_approval_composes_without_composer_text(web_build):
+    build, _admission, session, _ports = web_build
+    store = ToolApprovalStore()
+    pending = _pending_bash(store, session)
+    composition, _a, _s, _p = build(
+        message="",
+        tool_approval_id=pending.approval_id,
+        tool_approval_decision="deny",
+        approval_store=store,
+    )
+    prepared = await GatewayTurns(TurnService()).compose_web_turn(composition)
+    assert prepared.approval_denied is True
+    assert prepared.context is None
+    assert prepared.request_authority is None
+    assert store.peek(pending.approval_id) is None
+
+
+@pytest.mark.asyncio
+async def test_plain_composition_still_requires_nonempty_message(web_build):
+    build, _admission, _session, _ports = web_build
+    composition, _a, _s, _p = build(message="   ")
+    with pytest.raises(AdmissionDenied, match="Invalid composed Web turn inputs"):
+        await GatewayTurns(TurnService()).compose_web_turn(composition)

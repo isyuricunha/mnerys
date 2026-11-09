@@ -237,8 +237,14 @@ import { invalidateSettings } from './appConfig.js';
       });
       return;
     }
-    const sendButton = document.querySelector('.send-btn');
-    if (sendButton) sendButton.click();
+    // The send button may be disabled with an empty draft or a mobile mic
+    // composer. An approval is a control-plane decision, not a composer
+    // message: invoke the same inherited handler directly without bypassing
+    // its single-flight guard (same pattern as the restricted notes review).
+    handleChatSubmit({ preventDefault() {} }).catch(error => {
+      console.error('Tool approval submission failed', error);
+      try { uiModule.showError?.('Could not submit the tool approval.'); } catch (_) {}
+    });
   }
 
   document.addEventListener('odysseus:tool-approval', (event) => {

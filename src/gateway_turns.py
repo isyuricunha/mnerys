@@ -405,7 +405,14 @@ class GatewayTurns:
         if not callable(getattr(composition.ports, "extract_preset", None)):
             raise AdmissionDenied(403, "Trusted chat context ports are required")
         if (
-            type(composition.message) is not str or not composition.message.strip()
+            type(composition.message) is not str
+            # A tool-approval continuation is a control-plane decision: the
+            # client intentionally submits an empty composer text and the
+            # sealed pending approval restores the originating query below.
+            or (
+                not composition.tool_approval_id
+                and not composition.message.strip()
+            )
             or type(composition.att_ids) is not tuple
             or any(type(item) is not str or not item.strip() for item in composition.att_ids)
             or type(composition.chat_mode) is not str

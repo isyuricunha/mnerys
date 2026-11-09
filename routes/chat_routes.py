@@ -2898,7 +2898,8 @@ def setup_chat_routes(
         )
         if _web_cutover:
             from src.settings import get_setting
-            _prepared = await gateway_turns.compose_web_turn(WebTurnComposition(
+            try:
+                _prepared = await gateway_turns.compose_web_turn(WebTurnComposition(
                 admission=_admitted_session, session=sess, session_id=session,
                 message=message,
                 chat_mode=chat_mode,
@@ -2969,6 +2970,8 @@ def setup_chat_routes(
                 structured_document_intent_lookup=lambda: _prefers_structured_document_tools(message),
                 on_user_message_persisted=None,
             ))
+            except AdmissionDenied as exc:
+                raise HTTPException(exc.status_code, exc.detail) from exc
             if _prepared.approval_denied:
                 return StreamingResponse(
                     _tool_approval_resolution_stream(_prepared.approval_decision),
