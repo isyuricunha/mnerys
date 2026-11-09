@@ -217,6 +217,19 @@ invariants proven on disposable SQLite and PostgreSQL 17) shipped in
 v0.15.3 and follow-ups; see M4_ACCEPTANCE.md and
 DUPLICATE_TRANSCRIPT_INVENTORY.md.
 
+**Runtime reliability pass (November 2026, maintenance after M4):** live
+preview evidence tied a Web-answered tool approval to an HTTP 500 while
+the agent stayed waiting (the approval continuation arrived with an
+empty composer text and the composed turn admitted it too early). The
+fixes shipped with the runtime reliability stabilization: approval
+continuations compose from the sealed record with real HTTP error
+mapping, the gateway model snapshot no longer reads a nonexistent
+column, and provider-reported cache/reasoning token counts are visible
+end to end (usage events, turn metrics, persisted metadata); see
+GATEWAY_AGENT_CONTRACT.md and CACHE_INVENTORY.md. The historical
+duplicate-transcript repair itself completed earlier as reversible
+logical hiding (see DUPLICATE_TRANSCRIPT_INVENTORY.md).
+
 ### M5 — Web, CLI and TUI parity
 
 **Planned.**
