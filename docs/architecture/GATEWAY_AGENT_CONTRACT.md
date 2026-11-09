@@ -640,3 +640,19 @@ The composed turn pipeline now carries these tested invariants (suite:
   never touched, and an unavailable database cannot break the reconciliation.
 - Owner security checks reuse the application-bound AuthManager; no runtime
   re-instantiation of the auth store mid-turn.
+
+## Runtime reliability invariants (implemented)
+
+Continuation from a Web tool approval is a control-plane decision: the
+client submits the approval id and decision with an empty composer text,
+`compose_web_turn` accepts that empty text only on this continuation path,
+and the sealed pending approval (never mutable form state) restores the
+originating query, workspace and document context before execution. A
+forged, expired, foreign or already-consumed approval id is rejected by
+the sealed store as a real HTTP 409/403 (never an unhandled 500), and an
+answered approval can never be consumed twice. The Web submits the
+decision through the shared send handler, so a disabled send button or a
+mobile mic composer cannot leave the decision unsubmitted while the agent
+keeps waiting. Provider-reported cache and reasoning token counts survive
+into usage events and final turn metrics when the provider reports them;
+they are never estimated.
