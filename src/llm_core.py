@@ -3447,8 +3447,14 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                                 _anth_input_tokens,
                                 _anth_output_tokens,
                                 extra={
-                                    "cache_read_tokens": _anth_cache_read,
-                                    "cache_creation_tokens": _anth_cache_write,
+                                    **(
+                                        {"cache_read_tokens": _anth_cache_read}
+                                        if _anth_cache_read else {}
+                                    ),
+                                    **(
+                                        {"cache_creation_tokens": _anth_cache_write}
+                                        if _anth_cache_write else {}
+                                    ),
                                 },
                             )
                             if normalized_usage and _anth_usage_seen:
