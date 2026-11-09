@@ -62,10 +62,18 @@ def legacy_engine(request, tmp_path):
     try:
         # The PG17 drill reuses one disposable database across suites; drop
         # any previous suite's sessions/jobs tables before creating the
-        # legacy schema.
+        # legacy schema. CASCADE is required because sibling suites create
+        # dependent objects (views) over these tables in the same shared
+        # disposable database.
         with engine.begin() as conn:
-            conn.execute(text("DROP TABLE IF EXISTS background_tool_jobs"))
-            conn.execute(text("DROP TABLE IF EXISTS sessions"))
+            # SQLite has no DROP ... CASCADE syntax; only the shared
+            # PostgreSQL 17 database carries sibling suites' dependent views.
+            if engine.dialect.name == "postgresql":
+                conn.execute(text("DROP TABLE IF EXISTS background_tool_jobs CASCADE"))
+                conn.execute(text("DROP TABLE IF EXISTS sessions CASCADE"))
+            else:
+                conn.execute(text("DROP TABLE IF EXISTS background_tool_jobs"))
+                conn.execute(text("DROP TABLE IF EXISTS sessions"))
             conn.execute(text(LEGACY_SESSIONS))
             conn.execute(text(LEGACY_JOBS))
             conn.execute(text(
