@@ -292,21 +292,24 @@ authority tests and isolated durable-storage tests pass.
 
 #### M5.2 — Anthropic-first native tools and safe file edits
 
-- Adopt **Claude Code's tool vocabulary as the default model-facing
-  convention**: `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`,
-  `WebFetch`, `WebSearch`, `ToolSearch` and `Skill`, as capabilities
-  become available. Preserve familiar semantics, descriptions and error
-  reporting. These are reference names, **not** a claim that all models
-  accept identical tool schemas. Avoid inventing Mnerys-only names for
-  common operations.
-- Distinguish **Claude Code's tool names** from the Anthropic Messages
-  API's versioned **built-in tool schemas** (notably `bash` with its
-  `bash_20250124` type and `str_replace_based_edit_tool` with the
-  `text_editor_20250728` type). Use Anthropic-defined native schemas
-  only for compatible models/APIs and verify the actual accepted versions;
-  other providers use translated function-calling definitions while
-  reaching the **same** audited Gateway operations and Python execution
-  code. Never send a Claude-only schema to a model that cannot accept it.
+- Use **one fixed, provider-independent model-visible tool registry**,
+  following Claude Code's names and semantics: `Read`, `Write`, `Edit`,
+  `Glob`, `Grep`, `Bash`, `WebFetch`, `WebSearch`, `ToolSearch`
+  and `Skill`, as capabilities become available. Every supported model
+  sees the same names, descriptions, argument contracts and result
+  semantics for each available capability. Do not invent Mnerys-only
+  names for these common operations or rename them by model/provider.
+- **Only serialize that same registry into each provider's required API
+  tool-calling protocol and normalize responses** (Anthropic Messages,
+  OpenAI-compatible and other supported transports). These are wire
+  format adapters, not tool-name aliases, alternate tool registries or
+  separate implementations. Shared Python Gateway execution,
+  admission, approvals, permissions and audit remain authoritative.
+  Anthropic's versioned API-native `bash`/`text_editor` schemas are
+  different from Claude Code's model-visible `Bash`/`Edit` names; do
+  not silently substitute them or change the canonical vocabulary.
+  Evaluate optional native API optimizations only if the exact public
+  tool contract and cross-provider compatibility are preserved.
 - Required semantic operations: file read (including line ranges),
   create/write, targeted edit, structured patch, directory listing,
   file-name glob and content search, shell execution, foreground/background
@@ -314,17 +317,16 @@ authority tests and isolated durable-storage tests pass.
   invocation of installed MCP tools and skills. Avoid replacing a safe
   native file operation with an arbitrary shell command.
 - Implement directory listing through `Read`/editor `view` and file
-  discovery through `Glob`/`Grep`; `Write` must distinguish creating a
-  new file from overwriting one, while `Edit` provides precise replacement.
-  Expose structured patch support through a compatible `apply_patch`
-  adapter when appropriate, without forcing OpenAI-specific syntax on
-  Claude. Background process control, browser and MCP invocation retain
-  dedicated capabilities with documented names rather than masquerading
-  as file operations. `ToolSearch` and `Skill` provide discovery and
-  activation; MCP tools preserve their own namespacing and schemas.
-  Provider-specific aliases remain compatibility adapters, never
-  separate agent engines. MCP standardizes tool discovery/schema
-  exchange, not a universal vocabulary.
+  discovery through `Glob`/`Grep`; `Write` must distinguish creating
+  a new file from overwriting one, while `Edit` provides precise
+  replacement. Structured patch operations must use one documented,
+  stable shared contract; do not add model-specific `apply_patch`
+  aliases. Background process control, browser and MCP invocation retain
+  consistent, documented capabilities rather than masquerading as file
+  operations. `ToolSearch` and `Skill` provide discovery and activation;
+  discovered MCP tools retain their server-defined namespaced names
+  across all providers. MCP standardizes discovery/schema exchange,
+  not a universal built-in tool vocabulary.
 - File overwrite/edit protection: track a server-trusted, owner/session-
   scoped read baseline or version; reject edits on an unread or changed
   existing file, enforce atomic compare-and-write where supported, and
@@ -340,9 +342,10 @@ authority tests and isolated durable-storage tests pass.
 **Exit gate:** real provider-backed read/search/edit/patch/shell tests;
 unread/stale file edits rejected; exact tool calls, permissions and
 results agree between the model trace, Gateway and client UI. Verify
-Claude-compatible names and versioned native schemas separately from
-OpenAI-compatible and other model adapters, without losing tool results,
-authorization or streaming fidelity.
+the **same canonical tool names and behavior** on at least two
+different provider API protocols, with only wire-format translation.
+No provider-specific renaming, duplicated tool catalog, silent tool
+emulation or loss of results, authorization or streaming fidelity.
 
 #### M5.3 — Natural CWD, permission UX and opt-in YOLO
 
