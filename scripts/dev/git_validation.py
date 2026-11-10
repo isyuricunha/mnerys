@@ -9,6 +9,8 @@ command, not a Git push hook. Hosted GitHub CI still runs independently.
 from __future__ import annotations
 
 import os
+import argparse
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -204,16 +206,85 @@ def validate_full() -> None:
     )
 
 
+def affected_plan(*, base: str | None = None, paths: list[str] | None = None) -> dict:
+    """Analyze tracked changes without importing the app or collecting pytest."""
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from scripts.dev.affected_tests import load_contracts, select_tests
+
+    changed = set(paths or ())
+    if paths is None:
+        revisions = ["--no-renames", "--name-only", "-z", "HEAD"]
+        changed.update(os.fsdecode(p) for p in git_capture("diff", *revisions).split(b"\0") if p)
+        if base:
+            changed.update(os.fsdecode(p) for p in git_capture(
+                "diff", "--no-renames", "--name-only", "-z", f"{base}...HEAD",
+            ).split(b"\0") if p)
+    for path in changed:
+        candidate = Path(path)
+        if candidate.is_absolute() or ".." in candidate.parts:
+            raise ValidationError("Changed paths must be repository-relative")
+    tracked = [os.fsdecode(p) for p in git_capture("ls-files", "-z").split(b"\0") if p]
+    return select_tests(ROOT, sorted(changed), tracked, load_contracts(ROOT / "scripts/dev/test_contracts.json"))
+
+
+def validate_affected(*, base=None, paths=None, dry_run=False, as_json=False) -> None:
+    plan = affected_plan(base=base, paths=paths)
+    if as_json:
+        print(json.dumps(plan, indent=2))
+    else:
+        print(f"[git-validation] Affected: {len(plan['python_tests'])} Python / {len(plan['node_tests'])} Node test files.")
+        if plan["persistence"]:
+            print("[git-validation] Isolated persistence contracts: " + ", ".join(plan["persistence"]))
+    if dry_run:
+        return
+    if plan["unmapped"] or plan["full_required"]:
+        raise ValidationError(
+            "Selection requires review; add contract coverage for unmapped changes "
+            "or explicitly use full validation for shared test infrastructure: "
+            + ", ".join(plan["unmapped"] + plan["full_required"])
+        )
+    run(["git", "diff", "HEAD", "--check"])
+    for path in plan["changed"]:
+        file = ROOT / path
+        if not file.is_file():
+            continue
+        if path.endswith(".py"):
+            try:
+                compile(file.read_bytes(), path, "exec", dont_inherit=True)
+            except (SyntaxError, ValueError, TypeError) as exc:
+                raise ValidationError(f"Changed Python syntax failed: {path}: {exc}") from exc
+        elif path.endswith((".js", ".mjs", ".cjs")):
+            run(staged_js_syntax_command(path), input_bytes=file.read_bytes())
+    if plan["python_tests"]:
+        run([python_for_tests(), "-m", "pytest", "-q", *plan["python_tests"]])
+    if plan["node_tests"]:
+        run(["node", "--test", *plan["node_tests"]])
+    if not plan["python_tests"] and not plan["node_tests"]:
+        print("[git-validation] Static/documentation-only changes; no test process started.")
+
+
 def main() -> int:
-    if len(sys.argv) < 2 or sys.argv[1] not in {"pre-commit", "full"}:
-        print("Usage: git_validation.py [pre-commit|full]", file=sys.stderr)
-        return 2
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", nargs="?", default="affected", choices=("affected", "pre-commit", "full"))
+    parser.add_argument("--base", help="Also include committed changes since this merge base")
+    parser.add_argument("--paths", nargs="+", help="Explicit repository-relative changed paths")
+    parser.add_argument("--dry-run", action="store_true", help="Plan only; never collect or execute tests")
+    parser.add_argument("--json", action="store_true", help="Explain each selected test and required CI/DB contracts")
+    options = parser.parse_args()
     try:
-        if sys.argv[1] == "pre-commit":
+        if options.command != "affected" and any((options.base, options.paths, options.dry_run, options.json)):
+            raise ValidationError("Selection options apply only to the affected command")
+        if options.command == "pre-commit":
             validate_staged()
-        else:
+        elif options.command == "full":
             validate_full()
+        else:
+            validate_affected(base=options.base, paths=options.paths, dry_run=options.dry_run, as_json=options.json)
     except ValidationError as exc:
+        print(f"[git-validation] BLOCKED: {exc}", file=sys.stderr, flush=True)
+        return 1
+    except ValueError as exc:
         print(f"[git-validation] BLOCKED: {exc}", file=sys.stderr, flush=True)
         return 1
     return 0

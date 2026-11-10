@@ -35,6 +35,43 @@ The `pre-commit` hook checks:
 These failures block the commit. There is no automatic repair, Docker
 startup, dependency installation or network access.
 
+## Targeted development validation (default)
+
+Run `python3 scripts/dev/git_validation.py` during development. Its default
+`affected` command analyzes tracked staged and unstaged changes against HEAD,
+then executes the selected Python/Node test files without collecting the
+entire pytest suite. Stage new files so they join the tracked change set;
+unrelated untracked work is left alone. After committing, use
+`affected --base <revision>` to validate the increment since a merge base.
+
+Inspect a plan without executing anything:
+
+```sh
+python3 scripts/dev/git_validation.py affected --dry-run --json
+python3 scripts/dev/git_validation.py affected --paths src/tool_approvals.py --dry-run --json
+```
+
+The selector uses static Python imports (including relative imports), source
+path/module literals used by AST/exec tests, browser source references and
+the reviewed contract map in `scripts/dev/test_contracts.json`. For a mapped
+seam, direct source tests and their test-fixture dependents always join its
+integration/negative acceptance set. The explicit contract summarizes the
+seam instead of expanding through every importer of the application. For
+unmapped modules, transitive dependency analysis remains conservative. An
+uncovered executable change blocks execution until a mapping is added; shared
+pytest/runtime infrastructure requires explicit full validation. Selection
+is not proof of complete coverage: changes to a public contract must update
+its mapping and acceptance tests together. No `slow` or security test is
+silently filtered from the selected set.
+
+The JSON plan explains changed-file reasons, relevant hosted workflows and
+SQLite/PostgreSQL 17 requirements. Disposable database DSNs must be supplied
+separately when those contracts are affected; this tool never starts a
+database or uses the preview's configuration. Native pre-commit remains the
+fast staged syntax/build gate. Full hosted CI and security scanners are still
+required after publication. Never run all four local shards as a routine
+development or commit gate.
+
 ## Full validation (explicit only)
 
 To run the available CI-like commands when needed:

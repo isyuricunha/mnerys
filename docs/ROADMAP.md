@@ -265,6 +265,13 @@ themselves complete M5 or release an unverified feature.
 
 #### M5.1 — Fast development loop and recoverable run state
 
+**In progress.** The default local validation command now selects changed
+module tests, source-reading fixtures and reviewed negative/integration
+contracts; unknown executable changes require a mapping, and the explicit
+full command remains available. Native staged hooks stay fast. Recovery
+implementation and its restart/disconnect exit evidence are still pending;
+this increment does not complete or publish M5.1.
+
 - Establish a permanent, version-controlled risk-based test policy:
   focused impacted-module and security/negative tests during development,
   relevant AST/exec/compile/required-read fixture checks, static/staged
