@@ -113,6 +113,16 @@ def test_expired_approval_cannot_be_consumed(monkeypatch):
     ) is None
 
 
+def test_consumed_approval_cannot_be_claimed_after_expiry(monkeypatch):
+    store = ToolApprovalStore(ttl_seconds=1)
+    pending = _pending(store)
+    grant = store.consume(pending.approval_id, decision="approve", owner="alice", session_id="session-1")
+    assert grant is not None
+    monkeypatch.setattr(time, "time", lambda: pending.expires_at + 1)
+    assert not grant.claim(owner="alice", session_id="session-1", tool_name="bash",
+                           content="printf exact", workspace=None)
+
+
 def test_new_session_approval_supersedes_prior_pending_action():
     store = ToolApprovalStore()
     first = _pending(store, content="printf first")

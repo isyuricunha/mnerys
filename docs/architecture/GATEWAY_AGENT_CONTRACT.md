@@ -16,6 +16,41 @@ Preserve the inherited Python agent loop, tool dispatcher, request authority and
 
 The Web application becomes one Gateway client/adapter, not an authority source. CLI and TUI clients never import server app.py and do not access the database directly.
 
+### Approval continuation authority (validation in progress)
+
+An exact approval is a one-use, expiring claim over the sealed operation and
+its resources; it does not extend the request's grants. The dispatcher first
+intersects a distinct caller authority with any active parent, then applies
+the current policy. Rebinding that same policy-restricted request for a tool
+producer must not classify it as a delegated child: only additional denials
+may differ. A genuinely distinct or inherited authority still takes the normal
+intersection and cannot use an exact approval to escape its ceiling. The
+claim is rechecked for expiry at use, and producer resource identity checks
+and launch reservations remain in force.
+
+The Web cutover restores the sealed continuation's message and workspace and
+uses the Gateway-selected agent mode, even when the decision form currently
+shows Chat. Current policy and privilege checks still apply. The regression
+suite exercises the real dispatcher, shell producer and Agent Core with a
+synthetic provider and a Web route fixture. Live provider acceptance and
+deployment remain unverified for this change.
+
+The separate Gateway v1 tool-availability observation is not resolved by
+this repair. In the preview, the Mistral endpoint has no explicit
+`supports_tools` value or per-model tool-mode mapping. Runtime logs show
+Mistral rounds with both zero and six declared schemas; a zero-schema round
+is not evidence that the provider called or executed a tool. The exact reason
+for the earlier zero-schema Agent turn has not been established. Registered,
+selected and policy-permitted tools must still be distinguished from schemas
+actually sent, model tool calls, and admitted execution results.
+
+The general Web chat stream retains its reconnect buffer in process memory;
+it does not by itself create the durable Gateway v1 turn/event records. The
+persisted transcript and its tool metadata are a separate artifact. After a
+server restart, a process-local pending approval cannot be reconstructed from
+its display card; it must fail closed rather than replay a tool. This remains
+a limitation for restart-safe Web approval and event recovery.
+
 ## Shared domain objects — proposed v1
 
 | Type | Required semantic fields | Authority |

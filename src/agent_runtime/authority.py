@@ -448,6 +448,37 @@ def bind_request_authority(authority):
         _ACTIVE.reset(token)
 
 
+@contextmanager
+def bind_dispatch_authority(authority):
+    """Bind the dispatcher's policy restriction without inventing a child run.
+
+    The dispatcher has already intersected a distinct caller authority with the
+    active parent.  Its final policy restriction can only add denials.  When
+    that is the *only* difference, rebinding it is the same request, not a
+    delegation; in every other case retain the normal child intersection.
+    """
+    if not isinstance(authority, RequestAuthority):
+        raise TypeError("Authority must be server-owned RequestAuthority")
+    parent = _ACTIVE.get()
+    same_request_restriction = (
+        parent is not None
+        and authority.denied >= parent.denied
+        and (not parent.block_all or authority.block_all)
+        and (not parent.disable_mcp or authority.disable_mcp)
+        and replace(authority, denied=parent.denied, block_all=parent.block_all,
+                    disable_mcp=parent.disable_mcp) == parent
+    )
+    if not same_request_restriction:
+        with bind_request_authority(authority) as effective:
+            yield effective
+        return
+    token = _ACTIVE.set(authority)
+    try:
+        yield authority
+    finally:
+        _ACTIVE.reset(token)
+
+
 def _request_text(messages):
     for message in reversed(messages or ()):
         metadata = message.get("metadata") or {}

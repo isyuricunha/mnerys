@@ -298,7 +298,7 @@ class ExactToolApproval:
         content: Any,
         workspace: Any,
     ) -> bool:
-        if self._claimed:
+        if self._claimed or self.pending.expires_at <= time.time():
             return False
         capabilities = capabilities_for_action(tool_name, content)
         effects = tuple(sorted(effect.value for effect in capabilities.effects))

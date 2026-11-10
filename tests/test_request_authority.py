@@ -429,6 +429,24 @@ async def test_dispatch_binds_explicit_authority_for_nested_handler(monkeypatch)
     assert active_request_authority() is None
 
 
+def test_dispatch_binding_preserves_only_same_request_policy_restrictions():
+    from src.agent_runtime.authority import bind_dispatch_authority
+    parent = authority("transcribe_media")
+    with bind_request_authority(parent):
+        restricted = parent.restrict(disabled_tools={"transcribe_media"})
+        with bind_dispatch_authority(restricted) as effective:
+            assert not effective.inherited
+            assert not effective.permits(ExactOperation.normalize("transcribe_media", "{}"))
+        assert active_request_authority() is parent
+        wider = authority("bash", "transcribe_media")
+        with bind_dispatch_authority(wider) as effective:
+            assert effective.inherited
+            assert not effective.permits(ExactOperation.normalize("bash", "pwd"))
+        with bind_dispatch_authority(replace(restricted, inherited=True)) as effective:
+            assert effective.inherited
+    assert active_request_authority() is None
+
+
 def test_tool_http_task_payload_is_not_new_user_authority():
     from core.middleware import INTERNAL_TOOL_HEADER, INTERNAL_TOOL_TOKEN
     from routes.task.task_routes import _seal_request_task_authority

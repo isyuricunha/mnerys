@@ -25,7 +25,7 @@ from src.gateway_prompt_preparation import (
     append_admitted_internal_context,
     select_admitted_prompt_messages,
 )
-from src.gateway_approval_decisions import ToolApprovalDecision, consume_admitted_tool_approval
+from src.gateway_approval_decisions import ToolApprovalDecision, consume_admitted_tool_approval, inspect_admitted_tool_approval
 from src.gateway_turn_authority import authority_for_admitted_turn
 from src.tool_policy import ToolPolicy
 from src.tool_approvals import (
@@ -464,13 +464,23 @@ class GatewayTurns:
         tool_approval_continuation = False
         external_untrusted_context_seen = False
         if composition.tool_approval_id:
+            store = composition.approval_store or tool_approval_store
+            _, requested_decision = inspect_admitted_tool_approval(
+                admission, composition.tool_approval_id,
+                composition.tool_approval_decision, plan_mode=plan_mode,
+                internal_tool_request=composition.internal_tool_request, store=store,
+            )
+            if requested_decision != "deny" and not execution_limits_for_admission(
+                admission, composition.privileges, browser_tools=composition.browser_tools,
+            ).allow_agent:
+                raise AdmissionDenied(403, "Agent turns are not allowed for this account")
             resolution = self.decide_tool_approval(
                 admission,
                 composition.tool_approval_id,
                 composition.tool_approval_decision,
                 plan_mode=plan_mode,
                 internal_tool_request=composition.internal_tool_request,
-                store=composition.approval_store or tool_approval_store,
+                store=store,
             )
             pending_tool_approval = resolution.pending
             exact_tool_approval = resolution.exact
@@ -502,6 +512,10 @@ class GatewayTurns:
             message = pending_tool_approval.continuation_query
             workspace = pending_tool_approval.workspace or ""
             active_doc_id = pending_tool_approval.document_id or ""
+            # The approved operation resumes the agent runtime regardless of
+            # the current composer toggle.  The sealed authority, current
+            # policy and exact claim still determine what may actually run.
+            chat_mode = "agent"
         else:
             message = composition.message
             workspace = composition.workspace

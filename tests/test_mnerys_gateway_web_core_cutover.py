@@ -52,7 +52,7 @@ class WebRoutePorts(FakePorts):
         return list(self.private_writes)
 
 
-def cutover_fixture(monkeypatch):
+def cutover_fixture(monkeypatch, store=None):
     admission, session, ports, opts = configured(monkeypatch)
     ports = WebRoutePorts()
 
@@ -72,9 +72,10 @@ def cutover_fixture(monkeypatch):
         trim_history_if_needed=lambda *_a, **_k: None,
     )
     writes = []
-    store = SimpleNamespace(
-        peek=lambda _id: None, retire_for_session=lambda **k: False,
-    )
+    if store is None:
+        store = SimpleNamespace(
+            peek=lambda _id: None, retire_for_session=lambda **k: False,
+        )
     gateway = GatewayTurns(TurnService())
     fake_manager = SimpleNamespace(
         get_session=lambda sid: session if sid == session.id else (_ for _ in ()).throw(KeyError(sid)),
@@ -180,6 +181,60 @@ async def test_cutover_agent_turn_executes_the_offered_tool(monkeypatch):
     assert "Notes listed." in text
     assert writes == ["Notes listed."]
     assert [item["role"] for item in session.messages] == ["user", "assistant"]
+
+
+@pytest.mark.asyncio
+async def test_cutover_approval_runs_exact_shell_and_continues(monkeypatch, tmp_path):
+    import json
+    from src import agent_loop, bg_jobs, containment, tool_execution
+    from src.agent_runtime import process_resources
+    from src.agent_runtime.authority import RequestAuthority
+    from src.tool_approvals import ToolApprovalStore
+    from src.tool_capabilities import capabilities_for_action
+
+    store = ToolApprovalStore()
+    _, session, _, writes, routes = cutover_fixture(monkeypatch, store)
+    monkeypatch.setattr("src.gateway_turns.tool_approval_store", store)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    session.cwd = str(workspace)
+    command = "printf 'web_%s' approval_marker"
+    original = RequestAuthority.empty(owner="alice", session_id=session.id, workspace=str(workspace))
+    pending = store.create(owner="alice", session_id=session.id, origin_run_id="test-run",
+        tool_name="bash", content=command, workspace=str(workspace),
+        continuation_query="Inspect the workspace", request_text="Inspect the workspace",
+        selected_tools={"bash"}, external_untrusted_context_seen=True,
+        capabilities=capabilities_for_action("bash", command), request_authority=original)
+    monkeypatch.setattr(process_resources, "_LAUNCH_DIR", tmp_path / "private" / "launches")
+    monkeypatch.setattr(bg_jobs, "_STORE", tmp_path / "private" / "jobs.json")
+    monkeypatch.setattr(bg_jobs, "_JOBS_DIR", tmp_path / "private" / "jobs")
+    monkeypatch.setattr(containment, "_store_path", lambda: tmp_path / "private" / "receipts.json")
+    monkeypatch.setattr(containment, "CONTAINMENT_MODE", containment.MODE_REPORT_ONLY)
+    monkeypatch.setattr(containment, "MECHANISMS", tuple(m for m in containment.MECHANISMS if m.name == "process_group"))
+    monkeypatch.setattr(tool_execution, "_owner_is_admin", lambda owner: True)
+    monkeypatch.setattr(agent_loop, "get_setting", lambda key, default=None: default)
+    monkeypatch.setattr(agent_loop, "get_mcp_manager", lambda: None)
+    monkeypatch.setattr(agent_loop, "blocked_tools_for_owner", lambda owner: set())
+    monkeypatch.setattr(agent_loop, "estimate_tokens", lambda *args, **kw: 10)
+    observed = []
+
+    async def model(_candidates, messages, **kwargs):
+        observed.append(json.dumps(messages))
+        yield 'data: {"delta":"Observed approved output."}\n\n'
+        yield 'data: [DONE]\n\n'
+
+    monkeypatch.setattr(agent_loop, "stream_llm_with_fallback", model)
+    response = await routes["/api/chat_stream"](chat_request({
+        "message": "", "mode": "chat", "tool_approval_id": pending.approval_id,
+        "tool_approval_decision": "approve_task",
+    }))
+    text = "".join([chunk async for chunk in response.body_iterator])
+    assert "web_approval_marker" in text
+    assert observed and "web_approval_marker" in observed[0]
+    assert "Observed approved output." in text
+    assert len(writes) == 1 and "web_approval_marker" in writes[0]
+    assert [item["role"] for item in session.messages] == ["assistant"]
+    assert store.peek(pending.approval_id) is None
 
 
 @pytest.mark.asyncio

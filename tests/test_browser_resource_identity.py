@@ -259,6 +259,19 @@ async def test_session_metadata_exact_approval_first_use_and_replay(producer):
     assert "https://same.example" not in first["output"]
     _, replay = await dispatch(restored, "private_browser", content, approval)
     assert replay["exit_code"] == 1
+
+
+async def test_browser_exact_approval_with_active_request(producer):
+    await observed(producer)
+    original = authority()
+    content = '{"action":"session_info"}'
+    approval = approval_for(original, "private_browser", content)
+    restored = replace(original, grants=(), backend_resources=(), browser_sessions=(), browser_pages=())
+    with bind_request_authority(restored):
+        _, first = await dispatch(restored, "private_browser", content, approval)
+        assert first["exit_code"] == 0 and first["executed"] is True
+        _, replay = await dispatch(restored, "private_browser", content, approval)
+        assert replay["exit_code"] == 1
     assert restored.browser_sessions == restored.browser_pages == ()
 
 

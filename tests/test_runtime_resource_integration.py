@@ -115,6 +115,61 @@ async def test_exact_launch_first_use_replay_and_empty_scope_restoration(workspa
     assert sibling["failure_kind"] == "request_authority_denied"
 
 
+async def test_exact_launch_with_active_request_executes_once(workspace):
+    original = authority(workspace)
+    command = "printf x >> count; printf exact"
+    approval = approval_for(original, "bash", command)
+    restored = replace(original, grants=(), resource_roots=(), backend_resources=(), launch_scopes=(), process_resources=(), job_resources=())
+    with bind_request_authority(restored):
+        _, wrong = await dispatch(restored, "bash", "printf changed", approval)
+        assert wrong["exit_code"] == 1 and not approval._claimed
+        _, first = await asyncio.create_task(dispatch(restored, "bash", command, approval))
+        assert first["exit_code"] == 0 and first["output"] == "exact"
+        _, replay = await dispatch(restored, "bash", command, approval)
+        assert replay["exit_code"] == 1
+        assert (workspace / "count").read_text() == "x"
+
+
+async def test_nested_child_cannot_use_parent_exact_approval(workspace):
+    original = authority(workspace)
+    approval = approval_for(original, "bash", "printf exact")
+    child = replace(original, grants=(), launch_scopes=())
+    with bind_request_authority(original):
+        with bind_request_authority(child) as inherited:
+            _, denied = await dispatch(inherited, "bash", "printf exact", approval)
+            assert denied["exit_code"] == 1 and not approval._claimed
+
+
+async def test_agent_loop_continues_with_real_approved_shell_result(workspace, monkeypatch):
+    from src import agent_loop
+    original = RequestAuthority("request", "alice", "thread", str(workspace), ())
+    command = "printf 'gateway_%s' approval_marker"
+    approval = approval_for(original, "bash", command)
+    monkeypatch.setattr(agent_loop, "get_setting", lambda key, default=None: default)
+    monkeypatch.setattr(agent_loop, "get_mcp_manager", lambda: None)
+    monkeypatch.setattr(agent_loop, "blocked_tools_for_owner", lambda owner: set())
+    monkeypatch.setattr(agent_loop, "estimate_tokens", lambda *args, **kw: 10)
+    model_messages = []
+
+    async def model(_candidates, messages, **kwargs):
+        model_messages.append(json.dumps(messages))
+        yield 'data: {"delta":"Observed the approved result."}\n\n'
+        yield 'data: [DONE]\n\n'
+
+    monkeypatch.setattr(agent_loop, "stream_llm_with_fallback", model)
+    chunks = [chunk async for chunk in agent_loop.stream_agent_loop(
+        "https://example.invalid/v1", "fixture-model",
+        [{"role": "user", "content": "Inspect the workspace"}],
+        owner="alice", session_id="thread", workspace=str(workspace),
+        request_authority=original, exact_approval=approval,
+        external_untrusted_context_seen=True, relevant_tools={"bash"}, max_rounds=2,
+    )]
+    assert approval._claimed
+    assert any("gateway_approval_marker" in str(chunk) for chunk in chunks)
+    assert model_messages and "gateway_approval_marker" in model_messages[0]
+    assert any("Observed the approved result." in str(chunk) for chunk in chunks)
+
+
 async def test_exact_job_first_use_replay_and_empty_scope_restoration(workspace, monkeypatch):
     bg_jobs._JOBS_DIR.mkdir(parents=True)
     record = {"id": "job", "session_id": "thread", "command": "printf history", "pid": 4321,
@@ -159,6 +214,32 @@ async def test_cancellation_at_native_spawn_restores_all_context(workspace, monk
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+    assert containment.active_grants() == []
+
+
+async def test_cancelled_claimed_approval_cannot_be_replayed(workspace, monkeypatch):
+    original = RequestAuthority("request", "alice", "thread", str(workspace), ())
+    approval = approval_for(original, "bash", "printf unsafe > cancelled-effect")
+    entered = asyncio.Event()
+
+    async def held_run(grant, command, **kwargs):
+        entered.set()
+        try:
+            await asyncio.Future()
+        finally:
+            containment.release(grant, grace_s=0)
+
+    monkeypatch.setattr(containment, "run", held_run)
+    with bind_request_authority(original):
+        task = asyncio.create_task(dispatch(original, "bash", "printf unsafe > cancelled-effect", approval))
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        assert approval._claimed
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        _, replay = await dispatch(original, "bash", "printf unsafe > cancelled-effect", approval)
+        assert replay["exit_code"] == 1
+    assert not (workspace / "cancelled-effect").exists()
     assert containment.active_grants() == []
 
 

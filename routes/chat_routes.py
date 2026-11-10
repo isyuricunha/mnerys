@@ -3039,6 +3039,13 @@ def setup_chat_routes(
             external_untrusted_context_seen = _prepared.external_untrusted_context_seen
             exact_tool_approval = _prepared.exact_tool_approval
             pending_tool_approval = _prepared.pending_tool_approval
+            if pending_tool_approval is not None:
+                # The approval continuation is reconstructed by the Gateway,
+                # not from the empty composer text or current UI mode.
+                message = _prepared.message
+                workspace = _prepared.workspace
+                chat_mode = _prepared.chat_mode
+                auto_escalated = _prepared.auto_escalated
             image_generation_session = False
             allow_tool_preprocessing = not build_effective_tool_policy(
                 last_user_message=message,

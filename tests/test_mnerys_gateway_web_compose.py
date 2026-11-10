@@ -210,6 +210,35 @@ async def test_approval_continuation_composes_without_composer_text(web_build):
 
 
 @pytest.mark.asyncio
+async def test_approval_cannot_enter_agent_when_account_permission_was_removed(web_build):
+    build, _admission, session, _ports = web_build
+    store = ToolApprovalStore()
+    pending = _pending_bash(store, session)
+    composition, _a, _s, _p = build(
+        message="", chat_mode="chat", privileges={"can_use_agent": False},
+        tool_approval_id=pending.approval_id,
+        tool_approval_decision="approve", approval_store=store,
+    )
+    with pytest.raises(AdmissionDenied, match="Agent"):
+        await GatewayTurns(TurnService()).compose_web_turn(composition)
+    assert store.peek(pending.approval_id) is pending
+
+
+@pytest.mark.asyncio
+async def test_denial_remains_available_after_agent_permission_removed(web_build):
+    build, _admission, session, _ports = web_build
+    store = ToolApprovalStore()
+    pending = _pending_bash(store, session)
+    composition, _a, _s, _p = build(
+        message="", chat_mode="chat", privileges={"can_use_agent": False},
+        tool_approval_id=pending.approval_id,
+        tool_approval_decision="deny", approval_store=store,
+    )
+    prepared = await GatewayTurns(TurnService()).compose_web_turn(composition)
+    assert prepared.approval_denied and store.peek(pending.approval_id) is None
+
+
+@pytest.mark.asyncio
 async def test_denied_approval_composes_without_composer_text(web_build):
     build, _admission, session, _ports = web_build
     store = ToolApprovalStore()
