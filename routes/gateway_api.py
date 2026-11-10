@@ -162,7 +162,10 @@ async def create_turn(body: TurnCreateBody, request: Request) -> dict:
         )
     gateway: GatewayTurns = request.app.state.gateway_turns
     records = _records_for(request)
-    turn_id = uuid.uuid4().hex
+    turn_id = (
+        uuid.uuid5(uuid.NAMESPACE_URL, f"mnerys:turn:{admission.principal.owner_id}:{body.idempotency_key}").hex
+        if records is not None and body.idempotency_key is not None else uuid.uuid4().hex
+    )
     if records is not None:
         try:
             records.open_turn(
@@ -173,6 +176,7 @@ async def create_turn(body: TurnCreateBody, request: Request) -> dict:
                 ),
                 turn_id=turn_id,
                 idempotency_key=body.idempotency_key,
+                reject_existing=True,
             )
         except TurnRecordError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -268,23 +272,25 @@ async def cancel_turn(turn_id: str, body: CancelBody, request: Request) -> dict:
     """Cancel exactly one owner-scoped turn by its exact id."""
     owner = _require_owner(request)
     records = _records_for(request)
-    cancelled = False
-    if records is not None:
-        turn = records.read_turn(turn_id=turn_id, owner=owner)
-        if turn is not None:
-            if turn["status"] == "running":
-                records.finalize_turn(
-                    turn_id=turn_id, owner=owner, status="cancelled",
-                )
-            cancelled = True
-    run, _session = _resolve_run(request, turn_id, owner)
-    if run is not None:
-        from src import agent_runs
-
-        agent_runs.request_finish(body.session_id, turn_id)
-        cancelled = True
-    if not cancelled:
+    turn = records.read_turn(turn_id=turn_id, owner=owner) if records is not None else None
+    run, session = _resolve_run(request, turn_id, owner)
+    if (turn and turn["session_id"] != body.session_id) or (session and session.id != body.session_id):
         raise HTTPException(status_code=404, detail="Turn not found")
+    from src import agent_runs
+    if turn and turn["policy_version"] == "web-recovery-v1":
+        _admission, session = _admit(request, body.session_id)
+        if turn["incarnation_id"] != getattr(session, "incarnation_id", None):
+            raise HTTPException(status_code=404, detail="Turn not found")
+        run = agent_runs.get_matching_run(body.session_id, turn_id, mode="sse")
+    if turn and turn["status"] == "cancelled":
+        return {"turn_id": turn_id, "status": "cancelled"}
+    if not run and not turn:
+        raise HTTPException(status_code=404, detail="Turn not found")
+    if (turn and turn["status"] != "running") or not run or not agent_runs.stop(body.session_id, turn_id):
+        raise HTTPException(status_code=409, detail="Turn is no longer cancellable")
+    if turn:
+        records.finalize_with_event(turn_id=turn_id, owner=owner, status="cancelled",
+                                    kind="turn.cancelled", payload={"effects": "unknown"})
     return {"turn_id": turn_id, "status": "cancelled"}
 
 

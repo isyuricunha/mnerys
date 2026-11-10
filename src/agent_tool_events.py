@@ -13,6 +13,7 @@ import re
 from src.agent_core_events import CoreApprovalEvent, CoreToolEvent
 
 _native_tools: ContextVar[bool] = ContextVar('native_core_tool_events', default=False)
+_observer = ContextVar('core_tool_observer', default=None)
 _NAME = re.compile(r'[A-Za-z][A-Za-z0-9_.:-]{0,127}\Z')
 
 
@@ -34,7 +35,9 @@ def bind_native_tool_events(enabled: bool):
 
 def tool_event_frame(payload: dict, *, result: dict | None = None) -> str | CoreToolEvent:
     """Emit a native observation before SSE encoding, or original Web bytes."""
-    if not native_tool_events_enabled():
+    native = native_tool_events_enabled()
+    observe = _observer.get()
+    if not native and observe is None:
         return 'data: ' + json.dumps(payload) + '\n\n'
     observation = result if isinstance(result, dict) else payload
     kind = payload.get('type')
@@ -57,10 +60,22 @@ def tool_event_frame(payload: dict, *, result: dict | None = None) -> str | Core
     else:
         event_type = 'tool.completed'
     exit_code = observation.get('exit_code')
-    return CoreToolEvent(
+    event = CoreToolEvent(
         type=event_type, tool=safe_tool, round=safe_round,
         exit_code=exit_code if type(exit_code) is int else None,
     )
+    if observe is not None:
+        observe(event)
+    return event if native else 'data: ' + json.dumps(payload) + '\n\n'
+
+
+@contextmanager
+def observe_tool_events(observer):
+    token = _observer.set(observer)
+    try:
+        yield
+    finally:
+        _observer.reset(token)
 
 
 def approval_requested_event(pending) -> CoreApprovalEvent:

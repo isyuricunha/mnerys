@@ -164,7 +164,7 @@ def _create_turn(client, **overrides):
     return client.post("/api/v1/turns", json=body, headers=_headers())
 
 
-def test_turns_create_streams_and_cancels(monkeypatch):
+def test_completed_turn_cannot_be_reported_as_cancelled(monkeypatch):
     client, _session, _admission = _make_app(monkeypatch)
     created = _create_turn(client, mode="agent")
     assert created.status_code == 201, created.text
@@ -180,8 +180,31 @@ def test_turns_create_streams_and_cancels(monkeypatch):
         f"/api/v1/turns/{turn_id}/cancel",
         json={"session_id": "session-1"}, headers=_headers(),
     )
-    assert cancel.status_code == 200
-    assert cancel.json()["status"] == "cancelled"
+    assert cancel.status_code == 409
+
+
+def test_active_turn_cancellation_is_exact_and_durable(monkeypatch, tmp_path):
+    import asyncio
+    from src.gateway_turn_events import TypedTurnDelivery
+    client, _session, _admission = _make_app(monkeypatch, with_records=True, tmp_path=tmp_path)
+
+    def blocked(*args, **kwargs):
+        async def events():
+            await asyncio.Event().wait()
+            yield  # pragma: no cover
+        return TypedTurnDelivery(events=events(), outcome=TurnOutcome(), turn_id=kwargs["turn_id"])
+
+    monkeypatch.setattr(client.app.state.gateway_turns, "open_composed_text_events", blocked)
+    with client:
+        turn_id = _create_turn(client).json()["turn_id"]
+        path = f"/api/v1/turns/{turn_id}/cancel"
+        assert client.post(path, json={"session_id": "wrong-session"}, headers=_headers()).status_code == 404
+        assert client.post(path, json={"session_id": "session-1"}, headers=_headers()).json()["status"] == "cancelled"
+        assert client.post(path, json={"session_id": "session-1"}, headers=_headers()).json()["status"] == "cancelled"
+        records = client.app.state.gateway_turn_records
+        assert list(records.iter_events(turn_id=turn_id, owner="alice")) == [
+            {"sequence": 1, "kind": "turn.cancelled", "payload": {"effects": "unknown"}},
+        ]
 
 
 def test_turns_require_an_authenticated_owner(monkeypatch):
@@ -415,9 +438,11 @@ def test_remote_client_runs_the_same_turn_contract(monkeypatch, tmp_path):
         except RemoteGatewayError as exc:
             duplicate = exc
         assert duplicate is not None and duplicate.status_code == 409
-        # The remote client can cancel the exact turn.
-        cancelled = remote.cancel(created.turn_id, "session-1")
-        assert cancelled["status"] == "cancelled"
+        # A completed turn is never relabelled as cancelled.
+        import pytest
+        with pytest.raises(RemoteGatewayError) as settled:
+            remote.cancel(created.turn_id, "session-1")
+        assert settled.value.status_code == 409
     finally:
         remote.close()
 

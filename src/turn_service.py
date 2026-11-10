@@ -75,10 +75,12 @@ class TurnService:
                         yield chunk
 
     def start_detached(
-        self, session_id: str, stream: AsyncGenerator[str, None]
+        self, session_id: str, stream: AsyncGenerator[str, None], *, run_id=None, on_drained=None,
     ) -> TurnStream:
         """Retain legacy per-session replacement, persistence and SSE replay."""
-        run = agent_runs.start(session_id, stream)
+        run = agent_runs.start(session_id, stream, run_id=run_id)
+        if on_drained is not None:
+            run.task.add_done_callback(lambda task: on_drained("stopped" if task.cancelled() else run.status))
         return TurnStream(
             run_id=run.run_id,
             events=agent_runs.subscribe(session_id, run),

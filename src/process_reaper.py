@@ -293,30 +293,20 @@ def reap_stale_turn_records() -> int:
     A service restart kills every in-process run; their durable records stay
     'running' forever with no terminal event and no assistant reply, and
     clients polling those turns never see an honest terminal state. On
-    startup such records are dead by definition, so they are marked failed.
+    startup such records are interrupted. Their effects are unknown and must
+    never be retried automatically. The terminal event and status are atomic.
     """
     try:
-        from core.database import SessionLocal, GatewayTurn, utcnow_naive
+        from core.database import SessionLocal, GatewayTurn, GatewayTurnEvent, GatewayApproval
+        from src.gateway_turn_records import SqlTurnRecords
 
-        db = SessionLocal()
-        try:
-            # Only records from before this process started are orphans; a
-            # turn admitted in the boot window belongs to this process and
-            # must never be terminalized by the reconciliation.
-            stale = db.query(GatewayTurn).filter(
-                GatewayTurn.status == "running",
-                GatewayTurn.created_at < _PROCESS_STARTED_AT,
-            ).all()
-            if not stale:
-                return 0
-            now = utcnow_naive()
-            for turn in stale:
-                turn.status = "failed"
-                turn.terminal_at = now
-            db.commit()
-            return len(stale)
-        finally:
-            db.close()
+        records = SqlTurnRecords(SessionLocal, GatewayTurn, GatewayTurnEvent, GatewayApproval)
+        count = 0
+        while True:
+            batch = records.interrupt_stale_turns(before=_PROCESS_STARTED_AT)
+            count += batch
+            if batch == 0:
+                return count
     except Exception:
         logger.warning(
             "process_reaper: stale turn record reconciliation failed",

@@ -15,7 +15,7 @@ from fastapi import APIRouter, Request, HTTPException, Form, Query, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
-from core.models import ChatMessage
+from core.models import ChatMessage, Session
 from src.request_models import ChatRequest
 from src.llm_core import (
     _normalize_http_status,
@@ -95,7 +95,7 @@ from src.tool_policy import (
     web_search_enabled_for_turn,
 )
 from src.tool_approvals import tool_approval_store
-from src.tool_approval_scopes import stamp_chat_session_grant
+from src.tool_approval_scopes import CHAT_SESSION_APPROVAL_SIGNATURE_FIELD
 from src.workspace_paths import backend_workspace_path
 from src.client_tool_contract import TUI_CLIENT_TOOL_NAMES
 from src.model_profiles import (
@@ -1202,11 +1202,9 @@ def _mark_tool_approval_resolved(sess, approval_id: Any, decision: Any) -> bool:
             if str(ask_user.get("approval_id") or "") != approval_key:
                 continue
             ask_user["resolved"] = normalized_decision
-            stamp_chat_session_grant(
-                ask_user,
-                getattr(sess, "id", ""),
-                normalized_decision,
-            )
+            ask_user.pop(CHAT_SESSION_APPROVAL_SIGNATURE_FIELD, None)
+            if normalized_decision == "approve" and isinstance(sess, Session):
+                sess.grant_chat_session_approval()
             message_id = metadata.get("_db_id")
             resolved_metadata = {
                 key: value for key, value in metadata.items() if key != "_db_id"
@@ -2896,11 +2894,17 @@ def setup_chat_routes(
             and str(use_research or "").lower() != "true"
             and not _is_image_generation_session(sess, owner=effective_user(request))
         )
+        _web_records = (
+            getattr(request.app.state, "gateway_turn_records", None)
+            if _web_cutover and not incognito and not getattr(sess, "incognito", False)
+            and not is_internal_tool_request(request) else None
+        )
         if _web_cutover:
             from src.settings import get_setting
             try:
                 _prepared = await gateway_turns.compose_web_turn(WebTurnComposition(
                 admission=_admitted_session, session=sess, session_id=session,
+                approval_records=_web_records,
                 message=message,
                 chat_mode=chat_mode,
                 att_ids=tuple(
@@ -4931,11 +4935,20 @@ def setup_chat_routes(
         # Resumable interactive chat/agent streams keep the DETACHED behavior
         # below: they survive the client closing the tab or navigating away.
         # The SSE response only subscribes; reconnect via /api/chat/resume.
-        _delivery = gateway_turns.open_stream(
-            _admitted_session, _safe_stream(),
-            compare_mode=compare_mode,
-            client_runtime_context=client_runtime_context,
-        )
+        if _web_records is not None:
+            if not isinstance(client_runtime_context, dict):
+                client_runtime_context = {}
+            client_runtime_context["_web_records"] = _web_records
+            client_runtime_context["_incarnation_id"] = getattr(sess, "incarnation_id", "") or ""
+        try:
+            _delivery = gateway_turns.open_stream(
+                _admitted_session, _safe_stream(),
+                compare_mode=compare_mode,
+                client_runtime_context=client_runtime_context,
+            )
+        except Exception:
+            _active_streams.pop(session, None)
+            raise
         # SSE serialization and legacy transport headers remain the Web adapter's concern.
         _stream_headers = {
             "Cache-Control": "no-cache, no-transform",
@@ -5011,7 +5024,28 @@ def setup_chat_routes(
                     raise HTTPException(404, "No matching active typed run")
                 return response
         _active_run = gateway_turns.resume_active(admission)
+        if _active_run is not None and expected and _active_run.run_id != expected:
+            _active_run = None
         if _active_run is None:
+            records = getattr(request.app.state, "gateway_turn_records", None)
+            if records is not None and admission.principal.owner_id:
+                sess = session_manager.get_session(session_id)
+                incarnation = getattr(sess, "incarnation_id", None)
+                recovered = records.read_web_turn(
+                    owner=admission.principal.owner_id, session_id=session_id,
+                    incarnation_id=incarnation, turn_id=expected,
+                ) if incarnation else None
+                if recovered and (
+                    recovered["status"] == "interrupted"
+                    or (expected and recovered["status"] in {"completed", "failed", "cancelled", "awaiting_approval", "approval_decided"})
+                ):
+                    async def recovery():
+                        yield "data: [DONE]\n\n"
+                    return StreamingResponse(recovery(), media_type="text/event-stream", headers={
+                        "X-Odysseus-Run-Id": recovered["id"],
+                        "X-Mnerys-Recovery-State": recovered["status"],
+                        "Cache-Control": "no-store",
+                    })
             raise HTTPException(404, "No active run for this session")
         return StreamingResponse(
             _active_run.events,

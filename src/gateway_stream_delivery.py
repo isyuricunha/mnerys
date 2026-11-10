@@ -2,7 +2,7 @@
 
 Only server-issued admission authorizes a turn. Client runtime hints select
 disconnect behavior but cannot grant session access, tool authority or change
-ownership. Events remain inherited SSE frames and stay process-local.
+ownership. The raw SSE buffer stays process-local; durable Web audit is metadata only.
 """
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, AsyncIterator, Optional
@@ -50,6 +50,8 @@ def open_admitted_stream(
     *,
     compare_mode: bool,
     client_runtime_context: Any,
+    records=None,
+    incarnation_id: str = "",
 ) -> TurnDelivery:
     """Check admission before dispatching to direct or detached lifecycle.
 
@@ -64,5 +66,16 @@ def open_admitted_stream(
     ):
         return TurnDelivery(events=stream, detached=False)
 
-    run = turns.start_detached(session_id, stream)
+    if records is None and isinstance(client_runtime_context, dict):
+        records = client_runtime_context.get("_web_records")
+        incarnation_id = incarnation_id or client_runtime_context.get("_incarnation_id", "")
+
+    if records is not None and admission.principal.owner_id and incarnation_id:
+        from src.gateway_web_recovery import WebRunJournal
+        journal = WebRunJournal(records, owner=admission.principal.owner_id,
+                                session_id=session_id, incarnation_id=incarnation_id)
+        run = turns.start_detached(session_id, journal.wrap(stream),
+                                   run_id=journal.turn_id, on_drained=journal.drained)
+    else:
+        run = turns.start_detached(session_id, stream)
     return TurnDelivery(events=run.events, detached=True, run_id=run.run_id)

@@ -436,8 +436,14 @@ def test_startup_reconciliation_closes_stale_running_turns(runtime, monkeypatch)
         done = conn.execute(text(
             "SELECT status, terminal_at FROM gateway_turns WHERE id='t-done-1'",
         )).fetchone()
-    assert stale[0] == "failed" and stale[1] is not None
+    assert stale[0] == "interrupted" and stale[1] is not None
     assert done[0] == "completed"
+    with engine.connect() as conn:
+        event = conn.execute(text(
+            "SELECT kind, payload FROM gateway_turn_events WHERE turn_id='t-stale-1'",
+        )).one()
+    assert event[0] == "turn.failed"
+    assert json.loads(event[1]) == {"code": "interrupted", "effects": "unknown", "retryable": False}
 
 
 async def test_reconciliation_never_touches_this_process_turns(runtime, monkeypatch):
@@ -479,7 +485,7 @@ async def test_reconciliation_never_touches_this_process_turns(runtime, monkeypa
         live_row = conn.execute(text(
             "SELECT status, terminal_at FROM gateway_turns WHERE id='t-live-1'",
         )).fetchone()
-    assert old_row == "failed"
+    assert old_row == "interrupted"
     assert live_row[0] == "running" and live_row[1] is None
 
 

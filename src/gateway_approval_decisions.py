@@ -74,6 +74,22 @@ def consume_admitted_tool_approval(
     if normalized_decision in {"approve", "approve_task"} and exact is None:
         raise AdmissionDenied(409, "This tool approval could not be consumed.")
 
+    settle = getattr(records, "settle_web_approval", None)
+    if callable(settle) and session is not None:
+        from sqlalchemy.exc import SQLAlchemyError
+        from src.gateway_turn_records import TurnRecordError
+
+        try:
+            settled = settle(owner=owner, session_id=session_id,
+                             incarnation_id=getattr(session, "incarnation_id", "") or "",
+                             pending=pending, decision=normalized_decision)
+        except TurnRecordError as exc:
+            raise AdmissionDenied(409, "This approval is no longer valid for the session.") from exc
+        except SQLAlchemyError as exc:
+            raise AdmissionDenied(503, "Approval audit unavailable; request a fresh turn.") from exc
+        if settled:
+            return ToolApprovalDecision(normalized_decision, pending, exact)
+
     if records is not None and exact is not None:
         from datetime import datetime, timezone
 

@@ -569,6 +569,9 @@ class ToolApprovalStore:
                     )
                 )
             ]
+            observe = _proposal_observer.get()
+            if observe is not None:
+                observe(pending, superseded)
             for approval_id in superseded:
                 self._pending.pop(approval_id, None)
             while len(self._pending) >= self._max_pending:
@@ -671,6 +674,16 @@ tool_approval_store = ToolApprovalStore()
 
 
 _active_store: ContextVar[ToolApprovalStore | None] = ContextVar("turn_approval_store", default=None)
+_proposal_observer = ContextVar("approval_proposal_observer", default=None)
+
+
+@contextmanager
+def observe_approval_proposals(observer):
+    token = _proposal_observer.set(observer)
+    try:
+        yield
+    finally:
+        _proposal_observer.reset(token)
 
 
 @contextmanager

@@ -134,6 +134,7 @@ class WebTurnComposition:
     # The trusted adapter may inject its own sealed approval store; the
     # process-wide singleton remains the default.
     approval_store: ToolApprovalStore | None = None
+    approval_records: Any = None
     # Pre-normalized request inputs (the adapter owns parsing/validation)
     message: str = ""
     chat_mode: str = ""
@@ -481,6 +482,7 @@ class GatewayTurns:
                 plan_mode=plan_mode,
                 internal_tool_request=composition.internal_tool_request,
                 store=store,
+                records=composition.approval_records, session=session,
             )
             pending_tool_approval = resolution.pending
             exact_tool_approval = resolution.exact
@@ -525,6 +527,8 @@ class GatewayTurns:
             retired_taint = (composition.approval_store or tool_approval_store).retire_for_session(
                 owner=owner, session_id=session_id,
             )
+            if composition.approval_records is not None and owner:
+                composition.approval_records.retire_session_approvals(owner=owner, session_id=session_id)
             external_untrusted_context_seen = external_untrusted_context_seen or retired_taint
 
         # Post-session routing reconciles the persisted compact-route hint
@@ -1611,12 +1615,15 @@ class GatewayTurns:
         *,
         compare_mode: bool,
         client_runtime_context: Any,
+        records=None,
+        incarnation_id: str = "",
     ) -> TurnDelivery:
         """Choose the server-owned stream lifecycle for an admitted turn."""
         return open_admitted_stream(
             admission, self._turns, stream,
             compare_mode=compare_mode,
             client_runtime_context=client_runtime_context,
+            records=records, incarnation_id=incarnation_id,
         )
 
     def resolve_routed_contract(
