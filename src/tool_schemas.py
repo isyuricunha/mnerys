@@ -20,7 +20,9 @@ from src.tool_security import BUILTIN_EMAIL_TOOLS
 from src.tool_registry import (
     CANONICAL_NAMES,
     REJECTED_CALL_TOOL_TYPE,
+    LegacyToolNameRejected,
     ToolRegistryError,
+    ToolUnavailable,
     rejected_block_content,
     resolve_model_call,
 )
@@ -2411,3 +2413,67 @@ def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock
         content = json.dumps(args)
 
     return ToolBlock(tool_type, content)
+
+
+def textual_function_call_to_tool_block(
+    name: str,
+    arguments: str,
+    legacy_compat: bool = True,
+) -> Optional[ToolBlock]:
+    """Convert a parsed TEXTUAL tool call (fence, XML, JSON envelope) through
+    the one canonical registry — the same names and argument contracts the
+    native channel uses.
+
+    ``legacy_compat`` selects the turn's vocabulary contract:
+
+    * Governed turns (``legacy_compat=False``) — every schema-declaring and
+      canonical-prompted route: a canonical spelling resolves through the
+      registry exactly like a native call; a legacy handler id or inherited
+      alias spelling is refused as an inert record with the canonical name in
+      the error, so stale vocabulary can never silently execute; an unavailable
+      Claude Code name (``ToolSearch``, ``Skill``) is refused, never simulated.
+    * Compatibility routes (``legacy_compat=True``, the default) — fine-tuned
+      models whose trained weights still emit their historical vocabulary:
+      exact legacy spellings keep working; case-variant spellings are still
+      refused (they were never a trained form).
+
+    Canonical spellings resolve identically in both modes, so adopting the
+    canonical textual contract is purely additive on compatibility routes.
+    """
+    from src.tool_registry import (
+        registry_spelling_for,
+        unavailable_message_for,
+    )
+
+    canonical = registry_spelling_for(name)
+    if canonical is None or canonical == name:
+        unavailable = None if canonical is not None else unavailable_message_for(name)
+        if unavailable is not None:
+            if not legacy_compat:
+                logger.warning(
+                    "Rejected unavailable tool call %r: %s", name, unavailable
+                )
+                return ToolBlock(
+                    REJECTED_CALL_TOOL_TYPE,
+                    rejected_block_content(name, arguments, ToolUnavailable(unavailable)),
+                )
+            return None  # historical: the call was never executable
+        return function_call_to_tool_block(name, arguments)
+    if not legacy_compat:
+        logger.warning(
+            "Rejected legacy textual tool spelling %r (use %s)", name, canonical
+        )
+        return ToolBlock(
+            REJECTED_CALL_TOOL_TYPE,
+            rejected_block_content(
+                name,
+                arguments,
+                LegacyToolNameRejected(
+                    f"'{name}' is not a tool name; use {canonical}. "
+                    f"Available built-in tools: {', '.join(CANONICAL_NAMES)}."
+                ),
+            ),
+        )
+    # Compatibility route: the historical conversion for the exact legacy
+    # spelling (case variants never reach here — the parser refuses them).
+    return function_call_to_tool_block(name, arguments)

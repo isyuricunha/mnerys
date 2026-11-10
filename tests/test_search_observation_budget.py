@@ -96,7 +96,7 @@ async def test_runtime_does_not_append_unverified_search_result_as_citation(monk
     answer = 'The retrieved page describes an older version; it does not establish the latest release.'
     packets_list = [
         {'choices': [{'delta': {'tool_calls': [{'index': 0, 'id': 'lookup', 'function': {
-            'name': 'web_search', 'arguments': '{"query":"latest Python official source"}',
+            'name': 'WebSearch', 'arguments': '{"query":"latest Python official source"}',
         }}]}}]},
         {'choices': [{'delta': {'content': answer}}]},
     ]

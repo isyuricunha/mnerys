@@ -677,9 +677,17 @@ class WriteFileTool:
                                 with open(path, "x", encoding="utf-8"):
                                     pass
                             attempted.append(True)
+                            # The server observed the created state it just wrote:
+                            # re-baseline so the next overwrite of this file is
+                            # validated against the content the caller authored,
+                            # exactly like every other successful mutation (M5.2).
+                            _refresh_baseline_after_mutation(
+                                ctx.get("owner"), ctx.get("session_id"), path, body)
                             return "", len(body)
                         attempted.append(True)
                         _write_new_file_without_overwrite(path, body)
+                        _refresh_baseline_after_mutation(
+                            ctx.get("owner"), ctx.get("session_id"), path, body)
                         return "", len(body)
                     except FileExistsError:
                         if os.path.isfile(path):
@@ -813,7 +821,11 @@ class ApplyPatchTool:
                     if not os.path.isfile(path):
                         return {"error": f"apply_patch: {op['path']}: not found", "exit_code": 1}
                     raw = open(path, "rb").read()
-                    old = raw.decode("utf-8")
+                    # Hunk context matching keeps the documented universal
+                    # newlines semantic (read CRLF, write LF); the digest that
+                    # guards the validate-then-move sequence stays on the raw
+                    # bytes so any byte-level change still aborts the patch.
+                    old = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
                     from src.agent_runtime.read_baselines import require_baseline_for_mutation
                     require_baseline_for_mutation(
                         owner, session_id, path,

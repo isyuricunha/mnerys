@@ -192,18 +192,21 @@ def test_mid_write_failure_unsettles_but_refusal_preserves(run, ws, monkeypatch)
     assert run.journal.effects.assessments()[-1].execution is fx.ExecutionOutcome.FAILED
     assert ledger(run.journal, ws).evaluate().can_complete
 
-    real_open = open
+    # A mid-write failure after the truncate stage leaves partial bytes. The
+    # writer mutates through a pinned descriptor now (M5.2 increment 2), so
+    # the failure is simulated at the same stage: truncate, then fail.
+    import src.agent_tools.filesystem_tools as fs_tools
 
-    def failing_open(path, mode="r", *args, **kwargs):
-        if "w" in mode and str(path).endswith("a.txt"):
-            handle = real_open(path, mode, *args, **kwargs)  # truncates
-            handle.close()
-            raise OSError("disk full")
-        return real_open(path, mode, *args, **kwargs)
+    real_rewrite = fs_tools._rewrite_fd_contents
 
-    monkeypatch.setattr("builtins.open", failing_open)
+    def failing_rewrite(fd, text):
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.ftruncate(fd, len(text.encode("utf-8")))
+        raise OSError("disk full")
+
+    monkeypatch.setattr(fs_tools, "_rewrite_fd_contents", failing_rewrite)
     _, result = run("write_file", {"path": "a.txt", "content": "hello again\n"})
-    monkeypatch.setattr("builtins.open", real_open)
+    monkeypatch.setattr(fs_tools, "_rewrite_fd_contents", real_rewrite)
     assert result.get("mutation_attempted") is True
     decision = ledger(run.journal, ws).evaluate()
     assert decision.status == CompletionStatus.BLOCKED and decision.missing_artifacts == ("a.txt",)
@@ -230,6 +233,10 @@ def test_forged_producer_fields_do_not_verify(run, monkeypatch):
 
 def test_patch_obligations_follow_exact_bindings(run, ws):
     (ws / "old.txt").write_text("x\n")
+    # M5.2 increment 2: mutating an existing file (including deleting it via a
+    # patch) requires a recorded read of that exact file first.
+    from src.agent_tools.filesystem_tools import _refresh_baseline_after_mutation
+    _refresh_baseline_after_mutation("alice", "thread", str(ws / "old.txt"), "x\n")
     patch = "*** Begin Patch\n*** Add File: new.txt\n+hello\n*** Delete File: old.txt\n*** End Patch"
     _, result = run("apply_patch", {"patch_text": patch})
     assert result["exit_code"] == 0, result
@@ -239,6 +246,8 @@ def test_patch_obligations_follow_exact_bindings(run, ws):
 
 def test_deleted_file_read_emits_known_absence(run, ws):
     (ws / "old.txt").write_text("old\n")
+    from src.agent_tools.filesystem_tools import _refresh_baseline_after_mutation
+    _refresh_baseline_after_mutation("alice", "thread", str(ws / "old.txt"), "old\n")
     _, result = run("apply_patch", {"patch_text": "*** Begin Patch\n*** Delete File: old.txt\n*** End Patch"})
     assert result["exit_code"] == 0
     _, result = run("read_file", {"path": "old.txt"})
@@ -258,6 +267,8 @@ def test_indeterminate_deleted_file_read_cannot_prove_absence(run, ws, monkeypat
 
     target = ws / "old.txt"
     target.write_text("old\n")
+    from src.agent_tools.filesystem_tools import _refresh_baseline_after_mutation
+    _refresh_baseline_after_mutation("alice", "thread", str(target), "old\n")
     run("apply_patch", {"patch_text": "*** Begin Patch\n*** Delete File: old.txt\n*** End Patch"})
     if failure == "identity_mismatch":
         target.write_text("replacement\n")
@@ -346,6 +357,9 @@ def unrelated_writer(tmp_text):
 
 def test_edit_file_postcondition_is_the_requested_content(run, ws):
     (ws / "a.txt").write_bytes(b"keep\r\nbefore\r\n")
+    # M5.2 increment 2: an existing-file edit requires a recorded read first.
+    from src.agent_tools.filesystem_tools import _refresh_baseline_after_mutation
+    _refresh_baseline_after_mutation("alice", "thread", str(ws / "a.txt"), "keep\r\nbefore\r\n")
     _, result = run("edit_file", {"path": "a.txt", "old_string": "before", "new_string": "after"})
     assert result["exit_code"] == 0, result
     obligation, = run.journal.effects.history().claims[0].obligations
@@ -370,6 +384,10 @@ def test_edit_file_unrelated_change_cannot_verify(run, ws, monkeypatch):
 
 def test_apply_patch_update_postcondition_is_the_requested_content(run, ws):
     (ws / "a.txt").write_bytes(b"line1\r\nline2\r\n")
+    # M5.2 increment 2: a patch updating an existing file requires a recorded
+    # read of that file first.
+    from src.agent_tools.filesystem_tools import _refresh_baseline_after_mutation
+    _refresh_baseline_after_mutation("alice", "thread", str(ws / "a.txt"), "line1\r\nline2\r\n")
     patch = "*** Begin Patch\n*** Update File: a.txt\n line1\n-line2\n+line_updated\n*** End Patch"
     _, result = run("apply_patch", {"patch_text": patch})
     assert result["exit_code"] == 0, result
@@ -393,6 +411,8 @@ def test_apply_patch_update_unrelated_change_cannot_verify(run, ws, monkeypatch)
 
 def test_partial_read_cannot_verify_a_requested_edit(run, ws):
     (ws / "a.txt").write_text("before\nmore\n")
+    from src.agent_tools.filesystem_tools import _refresh_baseline_after_mutation
+    _refresh_baseline_after_mutation("alice", "thread", str(ws / "a.txt"), "before\nmore\n")
     run("edit_file", {"path": "a.txt", "old_string": "before", "new_string": "after"})
     run("read_file", {"path": "a.txt", "offset": 1, "limit": 1})
     assert verdicts(run.journal) == [fx.EffectVerdict.UNVERIFIED]

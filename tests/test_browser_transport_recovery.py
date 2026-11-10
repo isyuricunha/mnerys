@@ -12,14 +12,14 @@ def test_failed_navigation_preserves_task_and_uses_permitted_fetch(error):
         {'action': 'open', 'url': URL}, 'net::ERR_' + error, {'web_fetch'}, set())
     assert URL in message
     assert 'original objective' in message
-    assert 'Use web_fetch once' in message
+    assert 'Use WebFetch once' in message
 
 
 def test_exhausted_fetch_uses_search_instead_of_bouncing():
     message = browser_transport_recovery(
         {'action': 'open', 'url': URL}, 'net::ERR_HTTP2_PROTOCOL_ERROR',
         {'web_fetch', 'web_search'}, {URL.rstrip('/')})
-    assert 'Use web_search' in message
+    assert 'Use WebSearch' in message
     assert 'Use web_fetch' not in message
 
 
@@ -60,8 +60,8 @@ async def test_stream_recovers_navigation_then_fetch_without_email_classifier(mo
                 'function': {'name': name, 'arguments': json.dumps(args)}}]}
     responses = iter([
         call('private_browser', {'action': 'open', 'url': URL}),
-        call('web_fetch', {'url': URL}),
-        call('web_search', {'query': 'wardrobe'}),
+        call('WebFetch', {'url': URL}),
+        call('WebSearch', {'query': 'wardrobe'}),
         {'content': 'The site could not be read and no usable product evidence was found.'},
     ])
     class Response:
@@ -108,9 +108,9 @@ async def test_stream_recovers_navigation_then_fetch_without_email_classifier(mo
         session_id='fixture-browser', owner='test', disabled_tools=set(), tool_policy=policy)]
     assert calls == ['private_browser', 'web_fetch', 'web_search'], '\n'.join(chunks)
     assert requests[1]['tool_choice'] == 'auto'
-    assert [s['function']['name'] for s in requests[1]['tools']] == ['web_fetch']
+    assert [s['function']['name'] for s in requests[1]['tools']] == ['WebFetch']
     assert requests[2]['tool_choice'] == 'auto'
-    assert [s['function']['name'] for s in requests[2]['tools']] == ['web_search']
+    assert [s['function']['name'] for s in requests[2]['tools']] == ['WebSearch']
     assert any('browser_transport_fallback' in chunk for chunk in chunks)
     assert any('[DONE]' in chunk for chunk in chunks)
     assert all(m['role'] != 'system' for m in requests[0]['messages'][1:])

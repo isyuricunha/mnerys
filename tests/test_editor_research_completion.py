@@ -28,7 +28,7 @@ async def test_research_does_not_replace_editor_deliverable_with_briefing(monkey
         requests.append(request)
         step = len(requests)
         if step <= 2:
-            name = 'web_search' if step == 1 else 'suggest_document'
+            name = 'WebSearch' if step == 1 else 'suggest_document'
             arguments = {'query': 'water freezing point'} if step == 1 else {
                 'suggestions': [{'find': source, 'replace': 'Water freezes at 0 degrees Celsius. https://example.com/water', 'reason': 'Correct the claim.'}],
             }

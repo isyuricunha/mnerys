@@ -206,9 +206,9 @@ def test_exact_failed_call_is_blocked_across_planning_and_intervening_failure(mo
     _patch_loop(
         monkeypatch,
         [
-            f'I will run the classifier now.\n<tool_call><invoke name="bash"><parameter name="command">{repeated}</parameter></invoke></tool_call>',
-            "I will repair the variable first.\n<tool_call><invoke name=\"bash\"><parameter name=\"command\">python3 -c 'print(classifications)'</parameter></invoke></tool_call>",
-            f'I will retry the classifier.\n<tool_call><invoke name="bash"><parameter name="command">{repeated}</parameter></invoke></tool_call>',
+            f'I will run the classifier now.\n<tool_call><invoke name="Bash"><parameter name="command">{repeated}</parameter></invoke></tool_call>',
+            "I will repair the variable first.\n<tool_call><invoke name=\"Bash\"><parameter name=\"command\">python3 -c 'print(classifications)'</parameter></invoke></tool_call>",
+            f'I will retry the classifier.\n<tool_call><invoke name="Bash"><parameter name="command">{repeated}</parameter></invoke></tool_call>',
             "The work is complete.",
         ],
     )
@@ -244,9 +244,9 @@ def test_exact_failed_call_can_retry_after_successful_workspace_mutation(monkeyp
     _patch_loop(
         monkeypatch,
         [
-            f'<tool_call><invoke name="bash"><parameter name="command">{repeated}</parameter></invoke></tool_call>',
-            '<tool_call><invoke name="write_file"><parameter name="path">/tmp_workspace/repair.py</parameter><parameter name="content">fixed = True</parameter></invoke></tool_call>',
-            f'<tool_call><invoke name="bash"><parameter name="command">{repeated}</parameter></invoke></tool_call>',
+            f'<tool_call><invoke name="Bash"><parameter name="command">{repeated}</parameter></invoke></tool_call>',
+            '<tool_call><invoke name="Write"><parameter name="file_path">/tmp_workspace/repair.py</parameter><parameter name="content">fixed = True</parameter></invoke></tool_call>',
+            f'<tool_call><invoke name="Bash"><parameter name="command">{repeated}</parameter></invoke></tool_call>',
             "Repair attempted.",
         ],
     )
@@ -285,7 +285,7 @@ def test_terminal_artifact_task_repairs_after_consecutive_failed_batches(monkeyp
             '<tool_call><invoke name="python"><parameter name="code">print(missing_three)</parameter></invoke></tool_call>',
             '<tool_call><invoke name="python"><parameter name="code">print(missing_four)</parameter></invoke></tool_call>',
             '<tool_call><invoke name="python"><parameter name="code">print(missing_five)</parameter></invoke></tool_call>',
-            '<tool_call><invoke name="write_file"><parameter name="path">answer.json</parameter><parameter name="content">{\"ok\": true}</parameter></invoke></tool_call>',
+            '<tool_call><invoke name="Write"><parameter name="file_path">answer.json</parameter><parameter name="content">{\"ok\": true}</parameter></invoke></tool_call>',
             "Created answer.json.",
         ],
     )
@@ -381,9 +381,9 @@ def test_exact_successful_read_is_blocked_until_workspace_changes(monkeypatch):
     _patch_loop(
         monkeypatch,
         [
-            f'I found partial output and will count it.\n<tool_call><invoke name="bash"><parameter name="command">{inspection}</parameter></invoke></tool_call>',
-            f'I should check the count once more.\n<tool_call><invoke name="bash"><parameter name="command">{inspection}</parameter></invoke></tool_call>',
-            '<tool_call><invoke name="write_file"><parameter name="path">answer.json</parameter><parameter name="content">{\"ok\": true}</parameter></invoke></tool_call>',
+            f'I found partial output and will count it.\n<tool_call><invoke name="Bash"><parameter name="command">{inspection}</parameter></invoke></tool_call>',
+            f'I should check the count once more.\n<tool_call><invoke name="Bash"><parameter name="command">{inspection}</parameter></invoke></tool_call>',
+            '<tool_call><invoke name="Write"><parameter name="file_path">answer.json</parameter><parameter name="content">{\"ok\": true}</parameter></invoke></tool_call>',
             "Created answer.json.",
         ],
     )
@@ -453,7 +453,7 @@ def test_successful_artifact_write_emits_satisfied_completion(monkeypatch):
     calls = _patch_loop(
         monkeypatch,
         [
-            '```write_file\nanswer.json\n{"ok": true}\n```',
+            '```Write\n{"file_path": "answer.json", "content": "{\\"ok\\": true}"}\n```',
             "Done. Created answer.json.",
         ],
     )
@@ -617,9 +617,9 @@ def test_verified_artifact_gets_only_one_finish_nudge(monkeypatch):
     _patch_loop(
         monkeypatch,
         [
-            '```write_file\noutput.html\n<body>done</body>\n```',
+            '```Write\n{"file_path": "output.html", "content": "<body>done</body>"}\n```',
             '<tool_call><invoke name="private_browser"><parameter name="action">open</parameter><parameter name="url">file:///workspace/output.html</parameter></invoke></tool_call>',
-            '<tool_call><invoke name="read_file"><parameter name="path">output.html</parameter></invoke></tool_call>',
+            '<tool_call><invoke name="Read"><parameter name="file_path">output.html</parameter></invoke></tool_call>',
             "Done. Created and checked output.html.",
         ],
     )
@@ -640,7 +640,7 @@ def test_verified_artifact_finish_round_preserves_correction_budget(monkeypatch)
     _patch_loop(
         monkeypatch,
         [
-            '```write_file\noutput.html\n<body>done</body>\n```',
+            '```Write\n{"file_path": "output.html", "content": "<body>done</body>"}\n```',
             '<tool_call><invoke name="private_browser"><parameter name="action">open</parameter><parameter name="url">file:///workspace/output.html</parameter></invoke></tool_call>',
             "Done. Created and checked output.html.",
         ],
@@ -667,9 +667,9 @@ def test_finish_nudge_does_not_accept_unfinished_correction_promise(monkeypatch)
     calls = _patch_loop(
         monkeypatch,
         [
-            '```write_file\n/workspace/output.html\n<body>draft</body>\n```',
+            '```Write\n{"file_path": "/workspace/output.html", "content": "<body>draft</body>"}\n```',
             "The draft has a defect. I should complete output.html by adding labels.",
-            '```write_file\n/workspace/output.html\n<body>corrected</body>\n```',
+            '```Write\n{"file_path": "/workspace/output.html", "content": "<body>corrected</body>"}\n```',
             "Done. Corrected and checked output.html.",
         ],
     )
@@ -706,7 +706,7 @@ def test_discovered_verifier_runs_in_same_batch_after_mutation(monkeypatch):
     calls = _patch_loop(
         monkeypatch,
         [
-            '```write_file\nanswer.json\n{"ok": true}\n```',
+            '```Write\n{"file_path": "answer.json", "content": "{\\"ok\\": true}"}\n```',
             "Done without running the task check.",
             "Done again without selecting a tool.",
         ],

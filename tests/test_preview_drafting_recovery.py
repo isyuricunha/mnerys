@@ -52,7 +52,7 @@ async def test_bad_fetch_gets_correction_not_permission_refusal(monkeypatch):
     requests = []
     responses = iter([
         {'tool_calls': [{'index': 0, 'id': 'bad-fetch', 'type': 'function',
-                         'function': {'name': 'web_fetch', 'arguments': '{"query":"compose a letter"}'}}]},
+                         'function': {'name': 'WebFetch', 'arguments': '{"query":"compose a letter"}'}}]},
         {'content': 'Dear Jordan,\nGreetings from under the sea!'},
     ])
 
@@ -89,7 +89,10 @@ async def test_bad_fetch_gets_correction_not_permission_refusal(monkeypatch):
     ) if '[DONE]' not in chunk]
     assert len(requests) == 2
     correction = requests[1]['messages']
-    assert any('requires url or urls' in str(m.get('content')) for m in correction)
+    # M5.2: the correction comes from the registry's argument contract (the
+    # canonical WebFetch name requires url), and it is a correction, not a
+    # permission denial.
+    assert any('WebFetch.url is required' in str(m.get('content')) for m in correction)
     assert any('not a permission denial' in str(m.get('content')) for m in correction)
     metrics = next(e['data'] for e in events if e.get('type') == 'metrics')
     assert metrics['clean_v3_turn'][-1]['content'].startswith('Dear Jordan')

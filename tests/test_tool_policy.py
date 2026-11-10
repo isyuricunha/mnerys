@@ -223,7 +223,8 @@ def test_compact_prompt_says_current_turn_tools_override_stale_history():
     prompt = al._assemble_prompt({"web_search", "ask_user"}, set(), compact=True)
 
     assert "Tool availability is turn-local" in prompt
-    assert "web_search" in prompt
+    # M5.2: model-facing tool vocabulary is the canonical registry's.
+    assert "WebSearch" in prompt
 
 
 def test_web_prompt_distinguishes_announcement_from_availability():
@@ -1522,7 +1523,7 @@ def test_agent_loop_retries_web_after_retry_preamble(monkeypatch):
     async def _fake_stream(_candidates, messages, **kwargs):
         yield _delta_chunk(
             "That search got garbled. Let me retry:\n"
-            '```web_search\n{"query":"How much vram or unified memory will be available"}\n```'
+            '```WebSearch\n{"query":"How much vram or unified memory will be available"}\n```'
         )
         yield "data: [DONE]\n\n"
 
@@ -1583,7 +1584,7 @@ def test_agent_loop_synthesizes_web_answer_after_tool_preamble(monkeypatch):
         if calls == 1:
             yield _delta_chunk(
                 "I'll look up current education stats.\n"
-                '```web_search\n{"query":"Where is better for school Sweden or Japan stats and compare"}\n```'
+                '```WebSearch\n{"query":"Where is better for school Sweden or Japan stats and compare"}\n```'
             )
         else:
             yield _delta_chunk("Let me get more specific data on test scores and education systems.")

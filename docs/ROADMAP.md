@@ -376,12 +376,34 @@ rewrite, and post-mutation re-baselining of the exact written content. New
 files keep exclusive-creation semantics (an appeared file is never
 overwritten). After `bash`/`python` execution every baseline of the
 owner/session is invalidated — the contained shell write surface is a
-documented boundary of the guarantee, not a silent bypass. Remaining for
-M5.2: `ToolSearch`/`Skill` implementations, textual-channel and
-prompt-vocabulary migration for local/finetuned routes, compact-preview
-canonicalization, derived-artifact writer contracts, and the real-provider
-exit-gate matrix (read/search/edit/patch/shell on at least two provider API
-protocols).
+documented boundary of the guarantee, not a silent bypass.
+
+**Increment 3 status (verified):** the canonical tool vocabulary is unified
+across every execution path. All textual tool-call formats (fenced blocks,
+`<invoke>` DSML, direct XML tags, Qwen/Hermes JSON envelopes, StepFun tokens,
+MiniMax `tool_code`, Gemma blocks, `function_model`, `[TOOL_CALL]` blocks,
+raw JSON leaks, prose web recovery, the Qwen3 MLX adapter) classify the
+model-written name through the one registry on governed turns: exact
+canonical spellings resolve with the same argument contracts as native calls,
+legacy/alias spellings and unavailable Claude Code names (`ToolSearch`,
+`Skill`) become sealed refusal records that never execute, and inherited
+plus MCP tools keep their identity and historical conversion. Prompt
+vocabulary (tool sections, domain rules, upload hints, recovery/retry
+instructions) teaches the canonical names and argument keys. The compact
+preview projects its wire request (schemas, history, tool_choice) to
+canonical names at its own send boundary and unprojects returned calls onto
+the handler-keyed execution contracts before any policy or dispatch step,
+sealing registry rejections with truthful non-executed results. One
+documented compatibility carve-out remains: the qwen3.8 fine-tuned router
+(trained on the legacy vocabulary, no schemas) keeps textual compatibility
+mode, with canonical spellings additionally admitted. Two increment-2 gaps
+were fixed: new-file creation re-baselines the written content (create→
+overwrite/edit flows no longer force a redundant reread) and `apply_patch`
+restored universal-newline reading so CRLF files patch again. Remaining for
+M5.2: `ToolSearch`/`Skill` implementations, derived-artifact writer
+contracts, the qwen3.8 fine-tune-cycle vocabulary refresh, and the
+real-provider exit-gate matrix (read/search/edit/patch/shell on at least two
+provider API protocols).
 
 **Exit gate:** real provider-backed read/search/edit/patch/shell tests;
 unread/stale file edits rejected; exact tool calls, permissions and

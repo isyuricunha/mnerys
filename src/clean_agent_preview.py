@@ -66,7 +66,7 @@ _PUBLIC_PREVIEW_TOOL_ERRORS = {message: message for message in (
     'An equivalent search already returned evidence. Change the angle, missing subtopic, source type, or corroboration target instead of only changing freshness wording.',
     'Browser navigation already failed for this exact URL; use another source page.',
     'Do not infer image content repeatedly from filenames; use inspect_media on representative files, then continue from visual evidence.',
-    'Equivalent search intent was repeated after a correction reminder; web_search is disabled for this turn.',
+    'Equivalent search intent was repeated after a correction reminder; WebSearch is disabled for this turn.',
     'Look up the target with list_sessions before changing a chat. Use its exact returned ID; never invent last-chat/latest aliases. If the target is ambiguous, ask using the candidate chat titles.',
     'Resolve the named recipient with resolve_contact before drafting. Never invent an email address.',
     'Selection-only edits cannot use replace_all. Use a unique contextual FIND inside the selected passage.',
@@ -874,7 +874,12 @@ def explicit_text_artifact_target(user_text):
 def malformed_write_handoff_target(arguments, required_artifacts=(), user_text=''):
     """Recover one textual write target even when no prompt path was parsed."""
     candidates = tuple(required_artifacts or ())
-    recovered = _partial_json_string_field(arguments, 'path')
+    # The canonical contract keys the target `file_path` (M5.2); handler-keyed
+    # `path` remains recognized for internal and historical bodies.
+    recovered = (
+        _partial_json_string_field(arguments, 'file_path')
+        or _partial_json_string_field(arguments, 'path')
+    )
     sole_required = str(candidates[0] or '').strip() if len(candidates) == 1 else ''
     # A runner may require a directory containing several outputs.  It is not
     # itself a writable file target, so prefer the concrete descendant path in
@@ -2152,6 +2157,10 @@ def protocol_safe_tool_calls(calls):
     """Keep malformed model calls out of the next provider request."""
     safe_calls = copy.deepcopy(calls)
     for call in safe_calls:
+        # A private registry-rejection marker never travels back to the
+        # provider: the canonical call itself is the faithful history, and the
+        # tool-result messages carry the truthful rejection outcome.
+        call.pop('_registry_rejection', None)
         arguments = (call.get('function') or {}).get('arguments', '')
         try:
             if not isinstance(json.loads(arguments), dict):
@@ -2159,6 +2168,118 @@ def protocol_safe_tool_calls(calls):
         except (TypeError, ValueError, json.JSONDecodeError):
             call.setdefault('function', {})['arguments'] = '{}'
     return safe_calls
+
+
+def _registry_rejection_result(call):
+    """Truthful sealed result envelope of a registry-rejected preview call."""
+    from src.tool_registry import rejected_block_result
+    return rejected_block_result(call.get('_registry_rejection') or '')
+
+
+def _unproject_preview_tool_calls(proposed, round_offered):
+    """Map canonical wire calls back onto handler-keyed execution contracts.
+
+    The compact preview offers handler-keyed schemas internally and projects
+    them to the canonical vocabulary only at the provider boundary. Registry-
+    governed responses are rewritten to the internal handler id and internal
+    argument names so every existing policy, schema, approval and dispatch
+    check continues to run unchanged. A call the registry rejects keeps its
+    canonical identity plus a private ``_registry_rejection`` payload; it is
+    never dispatched and its tool result is the truthful sealed rejection.
+    """
+    from src.tool_registry import (
+        ToolRegistryError,
+        rejected_block_content,
+        resolve_model_call,
+    )
+    offered_names = {
+        schema.get('function', {}).get('name') for schema in round_offered or ()
+    }
+    unprojected = []
+    for call in proposed or ():
+        function = call.get('function') or {}
+        name = str(function.get('name') or '').strip()
+        if not name:
+            unprojected.append(call)
+            continue
+        from src.tool_registry import canonical_name_for_handler
+        if name in offered_names and canonical_name_for_handler(name) is None:
+            # Offered MCP/inherited schemas keep their server-defined names.
+            # A registry-backed handler id is NOT a model-visible name — the
+            # wire advertises only the canonical vocabulary — so it falls
+            # through to the registry like every other spelling and is
+            # refused there instead of silently executing an alias.
+            unprojected.append(call)
+            continue
+        try:
+            resolved = resolve_model_call(name, function.get('arguments') or '{}')
+        except ToolRegistryError as error:
+            unprojected.append({
+                **call,
+                '_registry_rejection': rejected_block_content(
+                    name, function.get('arguments') or '{}', error,
+                ),
+            })
+            continue
+        if not resolved.governed:
+            # Inherited non-registry and MCP tools keep the model-written
+            # identity; the existing availability/policy checks own them.
+            unprojected.append(call)
+            continue
+        unprojected.append({
+            **call,
+            'function': {
+                **function,
+                'name': resolved.handler,
+                'arguments': json.dumps(resolved.arguments or {}, ensure_ascii=False),
+            },
+        })
+    return unprojected
+
+
+def _canonical_wire_request(request):
+    """Project one round request onto the canonical model-facing vocabulary.
+
+    Wire-only: internal schemas, turn contracts and policy checks stay
+    handler-keyed, so the projection never touches persisted history or
+    authorization state.
+    """
+    if not request.get('tools'):
+        return request
+    from src.tool_registry import (
+        project_messages_for_wire,
+        project_tool_choice_for_wire,
+        project_tools_for_wire,
+    )
+    projected = {
+        **request,
+        'tools': project_tools_for_wire(request['tools']),
+        'messages': project_messages_for_wire(request['messages']),
+    }
+    if 'tool_choice' in request:
+        projected['tool_choice'] = project_tool_choice_for_wire(request['tool_choice'])
+    return projected
+
+
+def _write_batch_piece_shape(item):
+    """Accepted argument-key shapes for one expanded write piece.
+
+    The canonical model contract (M5.2) carries ``file_path``; the
+    handler-keyed ``path`` shape is kept so an already-internal call splits
+    the same way. Each piece keeps the shape it arrived with — registry
+    governance translates the canonical form exactly once per piece, after
+    the split. Returns the path key name, or None when the piece is not a
+    complete write.
+    """
+    if not isinstance(item, dict) or len(item) != 2 or 'content' not in item:
+        return None
+    if not isinstance(item['content'], str):
+        return None
+    for key in ('file_path', 'path'):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return key
+    return None
 
 
 def expand_concatenated_write_calls(calls, *, max_calls=16):
@@ -2175,7 +2296,10 @@ def expand_concatenated_write_calls(calls, *, max_calls=16):
     for call in calls or ():
         function = call.get('function') or {}
         raw = function.get('arguments') or ''
-        if canonical(function.get('name', '')) != 'write_file':
+        if (
+            canonical(function.get('name', '')) != 'write_file'
+            and function.get('name') != 'Write'
+        ):
             expanded.append(call)
             continue
         try:
@@ -2230,10 +2354,7 @@ def expand_concatenated_write_calls(calls, *, max_calls=16):
             if (
                 bounded_markup
                 and isinstance(leading, dict)
-                and set(leading) == {'path', 'content'}
-                and isinstance(leading['path'], str)
-                and bool(leading['path'].strip())
-                and isinstance(leading['content'], str)
+                and _write_batch_piece_shape(leading) is not None
             ):
                 base_id = str(call.get('id') or 'call_write')
                 expanded.append({
@@ -2249,11 +2370,7 @@ def expand_concatenated_write_calls(calls, *, max_calls=16):
             expanded.append(call)
             continue
         if not (2 <= len(items) <= max_calls) or not all(
-            isinstance(item, dict)
-            and set(item) == {'path', 'content'}
-            and isinstance(item['path'], str)
-            and bool(item['path'].strip())
-            and isinstance(item['content'], str)
+            _write_batch_piece_shape(item) is not None
             for item in items
         ):
             expanded.append(call)
@@ -4379,7 +4496,7 @@ def successful_duplicate_recovery_message(
         message += (
             ' The following artifacts are still missing: '
             + ', '.join(missing)
-            + '. Do not repeat the evidence lookup; use python or write_file now '
+            + '. Do not repeat the evidence lookup; use python or Write now '
             'to transform the evidence already returned into those exact paths.'
         )
     source = str((args or {}).get('url') or (args or {}).get('path') or '')
@@ -4930,10 +5047,10 @@ def browser_transport_recovery(args, output, available_tools, failed_fetch_urls)
         'retrieval. Do not repeat this browser navigation or use shell/network workarounds. '
     )
     if 'web_fetch' in available_tools and url.rstrip('/') not in failed_fetch_urls:
-        return prefix + 'Use web_fetch once for this exact URL: ' + url
+        return prefix + 'Use WebFetch once for this exact URL: ' + url
     if 'web_search' in available_tools:
         return prefix + (
-            'Use web_search scoped to the requested site and original objective to find '
+            'Use WebSearch scoped to the requested site and original objective to find '
             'relevant exact pages. Do not invent URL paths or treat homepage boilerplate '
             'as sufficient evidence. If no usable evidence is available, explain the limitation.'
         )
@@ -6094,7 +6211,10 @@ async def stream_preview(*, endpoint_url, model, messages, headers, turn_contrac
                     # established budget/error semantics.
                     round_offered = list(request.get('tools') or [])
                 finish_during_stream = False
-                async with preview_model_response(client, endpoint_url, headers, request, context_recovery) as response:
+                # M5.2: the provider sees the canonical vocabulary; the round
+                # loop below keeps validating the handler-keyed copy.
+                wire_request = _canonical_wire_request(request)
+                async with preview_model_response(client, endpoint_url, headers, wire_request, context_recovery) as response:
                     response.raise_for_status()
                     finish_event = (
                         agent_runs.get_finish_event(session_id)
@@ -6214,6 +6334,11 @@ async def stream_preview(*, endpoint_url, model, messages, headers, turn_contrac
                         skip_fenced=True,
                         additional_tool_names=offered_by_canonical.values(),
                         additional_tool_schemas=round_offered,
+                        # M5.2: the compact preview is a governed execution
+                        # surface. Canonical DSML calls recover; legacy
+                        # spellings become sealed rejections instead of
+                        # executing through the old lowercase mapping.
+                        legacy_compat=False,
                     )
                     recovered = []
                     for index, block in enumerate(parsed_dsml_blocks):
@@ -6263,7 +6388,16 @@ async def stream_preview(*, endpoint_url, model, messages, headers, turn_contrac
                     history.append({'role': 'assistant', 'content': answer})
                     yield event({'type': 'final_response', 'content': answer})
                     break
+                # M5.2: the wire copy carried canonical names; map each
+                # proposed call back onto the handler-keyed execution contract
+                # (or seal a truthful rejection) before any policy/expand step.
+                # M5.2: recover the provider's adjacent-JSON batch quirk on the
+                # model-facing form first (both the canonical Write name and a
+                # handler-keyed spelling), THEN govern each call through the
+                # registry — so expanded pieces are validated exactly like
+                # single calls and rejections are sealed, never dispatched.
                 proposed, recovered_write_calls = expand_concatenated_write_calls(proposed)
+                proposed = _unproject_preview_tool_calls(proposed, round_offered)
                 if recovered_write_calls:
                     yield event({
                         'type': 'tool_argument_recovery',
@@ -6727,6 +6861,10 @@ async def stream_preview(*, endpoint_url, model, messages, headers, turn_contrac
                 # not partially execute or emit one denial per attempted row.
                 batch_policy_denied = False
                 for call in proposed:
+                    if call.get('_registry_rejection') is not None:
+                        # Registry rejections are sealed records, not policy
+                        # questions; nothing here can widen or deny them.
+                        continue
                     try:
                         preflight_name = offered_tool_alias(
                             call['function']['name'], round_offered,
@@ -6813,6 +6951,68 @@ async def stream_preview(*, endpoint_url, model, messages, headers, turn_contrac
                 for call in proposed:
                     name = offered_tool_alias(call['function']['name'], round_offered)
                     arguments = call['function']['arguments']
+                    if call.get('_registry_rejection') is not None:
+                        # M5.2: a registry-rejected call is a record, not an
+                        # operation. Emit its truthful sealed result without
+                        # dispatch; the model repairs the call from the feedback.
+                        _rejection = _registry_rejection_result(call)
+                        _rejection_text = str(
+                            _rejection.get('error')
+                            or 'The tool call was rejected before execution.'
+                        )
+                        result = {**_rejection, 'exit_code': 1}
+                        desc = f'{name}: rejected'
+                        args = {}
+                        block = None
+                        output = preview_tool_result_text(result, name, args)
+                        tool_event = {
+                            'type': 'tool_output', 'tool': name, 'command': arguments,
+                            'output': output, 'exit_code': 1, 'error': True,
+                            'execution_attempted': False, 'blocked': True,
+                            'desc': desc, 'round': round_number,
+                        }
+                        record_tool_execution(executions, tool_event)
+                        yield event(tool_event)
+                        history.append({
+                            'role': 'tool', 'tool_call_id': call['id'],
+                            'content': output,
+                        })
+                        # A sealed invalid-arguments rejection keeps the same
+                        # correction framing a dispatch-time validator failure
+                        # gets: it is feedback about the call, never a
+                        # permission denial for the user task.
+                        if _rejection.get('rejection_code') in (
+                            'invalid_tool_arguments', 'invalid_tool_call',
+                        ):
+                            round_recovery_messages.append(
+                                'The tool call was invalid and was not executed. This is not a '
+                                'permission denial for the user task. Reconsider whether a tool '
+                                'is needed: answer directly for writing or clarification, or '
+                                'correct the arguments of an appropriate offered tool. Do not '
+                                'claim the task is unavailable solely because this call failed.'
+                            )
+                        # A sealed write whose arguments are malformed for a
+                        # required artifact keeps the documented recovery: the
+                        # artifact-body handoff demands the raw body instead of
+                        # leaving the model stuck repairing JSON it cannot emit.
+                        from src.tool_registry import (
+                            handler_for_canonical,
+                            registry_spelling_for,
+                        )
+                        _canonical_call = registry_spelling_for(str(name or '').strip())
+                        if (
+                            _canonical_call is not None
+                            and handler_for_canonical(_canonical_call) == 'write_file'
+                            and artifact_body_handoff_attempts < 2
+                            and not artifact_body_handoff_target
+                        ):
+                            handoff_target = malformed_write_handoff_target(
+                                arguments, required_artifacts, direct_user_text,
+                            )
+                            if handoff_target:
+                                artifact_body_handoff_attempts += 1
+                                artifact_body_handoff_target = handoff_target
+                        continue
                     schema = next((s for s in round_offered if s['function']['name'] == name), None)
                     result, desc, policy_denied, block = None, name, False, None
                     args = {}
@@ -7483,9 +7683,9 @@ async def stream_preview(*, endpoint_url, model, messages, headers, turn_contrac
                         if recovery:
                             browser_transport_failed_urls.add(private_browser_open_url(args).rstrip('/'))
                             suppressed_tool_until_round['private_browser'] = round_number + 1
-                            if 'Use web_fetch once' in recovery:
+                            if 'Use WebFetch once' in recovery:
                                 force_web_fetch_next_round = True
-                            elif 'Use web_search' in recovery:
+                            elif 'Use WebSearch' in recovery:
                                 force_web_search_next_round = True
                             round_recovery_messages.append(recovery)
                             yield event({
@@ -7574,7 +7774,7 @@ async def stream_preview(*, endpoint_url, model, messages, headers, turn_contrac
                             force_web_search_next_round = True
                             round_recovery_messages.append(
                                 'The public search-engine browser page returned a CAPTCHA, not '
-                                'evidence. Use the native web_search tool now with the underlying '
+                                'evidence. Use the native WebSearch tool now with the underlying '
                                 'research query; do not retry or fetch the search-engine page.'
                             )
                             yield event({
@@ -7599,7 +7799,7 @@ async def stream_preview(*, endpoint_url, model, messages, headers, turn_contrac
                                 # evidence. Try the independent static reader once.
                                 round_recovery_messages.append(
                                     'The browser returned only an access block or CAPTCHA, not page '
-                                    'content. Retry the same known URL once with web_fetch; if that '
+                                    'content. Retry the same known URL once with WebFetch; if that '
                                     'also fails, report the limitation without inventing content.'
                                 )
                     if (canonical(actual_tool) == 'web_fetch' and failed

@@ -55,7 +55,10 @@ def test_uploaded_file_context_requires_native_document_reader():
 
     assert message is not None
     content = message["content"]
-    assert "call `read_file`" in content
+    # M5.2: the hint teaches the canonical registry name — it works on every
+    # route now (schema routes see it on the wire; textual routes admit it
+    # through the registry in either mode).
+    assert "call `Read`" in content
     assert "Do not use bash" in content
     assert "DOCX" in content
     assert "DOC/DOCX" in content

@@ -9,8 +9,8 @@ async def test_empty_followups_do_not_disable_reading_discovered_sources(monkeyp
     from src.tool_schemas import FUNCTION_TOOL_SCHEMAS
     from src.tool_policy import ToolPolicy
     from src.turn_contract import resolve_full_inventory_contract
-    calls = [('web_search', {'query': q}) for q in ['storage research', 'sodium life cycles', 'cold climate chemistry']]
-    calls.append(('web_fetch', {'url': 'https://example.org/report'}))
+    calls = [('WebSearch', {'query': q}) for q in ['storage research', 'sodium life cycles', 'cold climate chemistry']]
+    calls.append(('WebFetch', {'url': 'https://example.org/report'}))
     packets = iter([
         {'choices': [{'delta': {'tool_calls': [{'index': 0, 'id': str(i), 'function': {'name': name, 'arguments': json.dumps(args)}}]}}]}
         for i, (name, args) in enumerate(calls)
@@ -47,6 +47,6 @@ async def test_empty_followups_do_not_disable_reading_discovered_sources(monkeyp
         messages=[{'role': 'user', 'content': 'Research storage technology.'}], turn_contract=contract,
         session_id='test', owner='test', disabled_tools=set(), tool_policy=ToolPolicy(), max_rounds=5)]
     assert executed == ['web_search', 'web_search', 'web_search', 'web_fetch']
-    assert [s['function']['name'] for s in requests[3]['tools']] == ['web_fetch']
+    assert [s['function']['name'] for s in requests[3]['tools']] == ['WebFetch']
     assert any('Previously discovered source URLs remain available' in str(m.get('content')) for m in requests[3]['messages'])
     assert any('Read the report' in x for x in raw)

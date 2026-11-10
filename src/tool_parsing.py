@@ -12,10 +12,24 @@ import logging
 import re
 import shlex
 import warnings
-from typing import Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from src.tool_types import ToolBlock, TOOL_TAGS
 from src.tool_security import BUILTIN_EMAIL_TOOLS
+from src.tool_registry import (
+    CANONICAL_NAMES,
+    REJECTED_CALL_TOOL_TYPE,
+    UNAVAILABLE_NAMES,
+    LegacyToolNameRejected,
+    ToolRegistryError,
+    ToolUnavailable,
+    handler_for_canonical,
+    rejected_block_content,
+    registry_spelling_for,
+    resolve_model_call,
+    unavailable_message_for,
+    unavailable_message_for_spelling,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +53,39 @@ _TOOL_BLOCK_RE = re.compile(
 )
 
 
+def _fence_alternation() -> str:
+    """Fence-tag alternation: legacy tags, canonical names, unavailable names.
+
+    Longer tokens sort first so "edit_file" can never prefix-match as "Edit",
+    and the unavailable Claude Code names match so a call at them can be
+    refused with feedback instead of silently ignored.
+    """
+    tags = sorted(
+        set(TOOL_TAGS) | set(CANONICAL_NAMES) | set(UNAVAILABLE_NAMES),
+        key=lambda value: (-len(value), value),
+    )
+    return "|".join(re.escape(tag) for tag in tags)
+
+
+def _fence_block_pattern() -> re.Pattern:
+    return re.compile(
+        r"```(" + _fence_alternation() + r")(?![\w-])"
+        r"[ \t]*([{\[][^\n]*?)?[ \t]*(?=\r?\n|```)\r?\n?([\s\S]*?)```",
+        re.IGNORECASE,
+    )
+
+
+_FENCE_BLOCK_RE = _fence_block_pattern()
+
+
 def _tool_block_re(additional_tool_names: Optional[Iterable[str]] = None):
+    # The alternation always includes the canonical Claude Code names (M5.2):
+    # ```Read/```Bash/... are executable tool fences on every route, while the
+    # legacy TOOL_TAGS stay matched for the compatibility routes and for
+    # display-markup stripping. Longer tokens sort first so "edit_file" can
+    # never prefix-match as "Edit".
     if not additional_tool_names:
-        return _TOOL_BLOCK_RE
+        return _FENCE_BLOCK_RE
     extra = {
         name
         for raw_name in additional_tool_names
@@ -50,11 +94,11 @@ def _tool_block_re(additional_tool_names: Optional[Iterable[str]] = None):
         and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,63}", name)
     }
     if not extra:
-        return _TOOL_BLOCK_RE
+        return _FENCE_BLOCK_RE
     # ``json`` is only executable here as an envelope naming one of the
     # request-declared tools. It remains inert for ordinary agent turns.
     tags = sorted(
-        set(TOOL_TAGS) | extra | {"json", "function_name"},
+        set(TOOL_TAGS) | set(CANONICAL_NAMES) | set(UNAVAILABLE_NAMES) | extra | {"json", "function_name"},
         key=lambda value: (-len(value), value),
     )
     return re.compile(
@@ -70,7 +114,7 @@ def _tool_block_re(additional_tool_names: Optional[Iterable[str]] = None):
 _CODE_FENCE_TAGS = frozenset({"bash", "python"})
 
 
-def _fenced_tool_call(m) -> Optional[Tuple[str, str]]:
+def _fenced_tool_call(m, legacy_compat: bool = True) -> Optional[Tuple[str, str]]:
     """Classify a Pattern-1 fence match: (tag, content) when it is an
     executable tool call, None when the fence must stay display text.
 
@@ -78,27 +122,275 @@ def _fenced_tool_call(m) -> Optional[Tuple[str, str]]:
     display decisions can never disagree: a fence that doesn't execute is
     never stripped, and vice versa.
 
+    M5.2 canonical admission (see _canonical_fenced_call): an exact canonical
+    Claude Code tag resolves through the registry in both modes; a legacy
+    registry spelling is refused as an inert record on governed turns
+    (``legacy_compat=False``) and keeps the historical conversion on
+    compatibility routes; a case-variant spelling is refused in both modes
+    (it was never a valid form); the exact-lowercase ``bash``/``python``
+    language fences keep their historical raw-content behavior, because
+    markdown code fences are language tags by convention — ```bash is how
+    every model writes a shell block, not an echo of a retired tool name.
+
     Same-line text after the tag only counts as inline tool args when the
-    tag's tool takes JSON args (not a code tag) AND the text is valid
-    standalone JSON. ```bash {title="setup"} and ```python {"x": 1} are
-    fence attributes on real languages, and {title="x"} on any tag is
-    metadata, not arguments — all of those stay visible and inert.
+    text is valid standalone JSON. ```bash {title="setup"} and ```python
+    {"x": 1} are fence attributes on real languages, and {title="x"} on any
+    tag is metadata, not arguments — all of those stay visible and inert.
     """
-    tag = m.group(1).lower()
+    raw_tag = m.group(1)
+    tag = raw_tag.lower()
     inline = (m.group(2) or "").strip()
     body = (m.group(3) or "").strip()
+    if raw_tag in CANONICAL_NAMES:
+        return _canonical_fenced_call(raw_tag, inline, body, legacy_compat)
+    if tag in _CODE_FENCE_TAGS:
+        if raw_tag != tag:
+            # A case-variant language fence ("BASH") is not the lowercase
+            # markdown convention; it names a registry tool, so refuse it
+            # rather than silently normalizing the spelling.
+            return _legacy_fenced_rejection(raw_tag, body or inline)
+        if inline:
+            return None  # fence attributes on a real language, never tool args
+        return tag, body
+    spelling = registry_spelling_for(raw_tag)
+    if spelling is not None:
+        # A legacy handler id or alias spelling of a registry tool. Only the
+        # spellings that were historically executable fence tags keep working
+        # on compatibility routes; alias spellings that never matched the
+        # fence grammar ("read", "save", "shell") stay display text there, and
+        # governed turns refuse every non-canonical spelling with feedback.
+        if legacy_compat and raw_tag == tag and tag in TOOL_TAGS:
+            return _legacy_inline_combo(tag, inline, body)
+        return _legacy_fenced_rejection(raw_tag, body or inline)
+    unavailable = unavailable_message_for_spelling(raw_tag)
+    if unavailable is not None:
+        # A call at a Claude Code tool with no implementation here. The fence
+        # channel never had one either, so compatibility keeps it inert while
+        # governed turns answer with the truthful refusal record.
+        if legacy_compat:
+            return None
+        return _legacy_fenced_rejection(raw_tag, body or inline)
+    return _legacy_inline_combo(tag, inline, body)
+
+
+def _legacy_inline_combo(
+    tag: str, inline: str, body: str
+) -> Optional[Tuple[str, str]]:
+    """Historical inline-args fence shape for non-canonical tags.
+
+    Inline args may continue onto following lines (a JSON object opened on
+    the tag line); the combined text must parse as JSON or nothing runs —
+    ```tag {title="x"} metadata stays visible and inert.
+    """
     if not inline:
         return tag, body
-    if tag in _CODE_FENCE_TAGS:
-        return None
-    # Inline args may continue onto following lines (a JSON object opened on
-    # the tag line); the combined text must parse as JSON or nothing runs.
     content = f"{inline}\n{body}" if body else inline
     try:
         json.loads(content)
     except (ValueError, TypeError):
         return None
     return tag, content
+
+
+# Raw-body mappings for canonical fenced tags whose content has one
+# unambiguous canonical argument; None marks tags that require JSON.
+_CANONICAL_FENCE_RAW: Dict[str, Optional[str]] = {
+    "Read": "passthrough",      # line-form: path, optional offset/limit lines
+    "Bash": "passthrough",      # the shell command itself
+    "WebSearch": "passthrough", # the query text
+    "WebFetch": "url",          # a single URL
+    "Glob": "pattern",          # a glob pattern
+    "Grep": "pattern",          # a regex pattern
+    "Write": None,              # structured content; JSON required
+    "Edit": None,               # structured old/new strings; JSON required
+}
+
+
+def _canonical_fenced_call(
+    tag: str,
+    inline: str,
+    body: str,
+    legacy_compat: bool,
+) -> Optional[Tuple[str, str]]:
+    """Resolve one exact-canonical fenced tool call through the registry.
+
+    Inline JSON on the tag line and a JSON body follow the canonical argument
+    contract (validated, translated to the handler encoding, rejected with
+    actionable feedback). A raw body follows the tag's historical fence
+    encoding where that mapping is unambiguous — the markdown fence channel's
+    content formats predate the registry and the handlers still own them —
+    and is refused for the structured tags (Write/Edit) whose content cannot
+    be safely inferred from a bare fence body.
+    """
+    handler = handler_for_canonical(tag)
+    assert handler is not None, tag  # tag is an exact canonical name
+    if inline:
+        combined = f"{inline}\n{body}" if body else inline
+        try:
+            args = json.loads(combined)
+        except (ValueError, TypeError):
+            return None  # fence attributes / invalid inline text stays inert
+        if not isinstance(args, dict):
+            return None
+        return _registry_resolved_fence(tag, args)
+    if not body:
+        # An empty canonical fence names a tool but carries no arguments.
+        if legacy_compat:
+            return tag, ""  # historical caller rule keeps this inert
+        return _legacy_fenced_rejection(
+            tag,
+            "",
+            message=(
+                f"{tag} requires JSON arguments ({_canonical_args_hint(tag)}). "
+                "An empty fenced body is not a valid call."
+            ),
+        )
+    stripped = body.strip()
+    if stripped.startswith("{") or stripped.startswith("["):
+        try:
+            args = json.loads(stripped)
+        except (ValueError, TypeError):
+            if legacy_compat:
+                return handler, body  # historical: the raw body passes through
+            return _legacy_fenced_rejection(tag, body)
+        if not isinstance(args, dict):
+            if legacy_compat:
+                return handler, body
+            return _legacy_fenced_rejection(tag, body)
+        return _registry_resolved_fence(tag, args)
+    mode = _CANONICAL_FENCE_RAW.get(tag, "passthrough")
+    if mode == "passthrough":
+        if legacy_compat and not body.strip():
+            return None
+        return handler, body
+    if mode is None:
+        # Structured tags cannot be safely inferred from a bare fence body.
+        return _legacy_fenced_rejection(
+            tag,
+            body,
+            message=(
+                f"{tag} requires JSON arguments "
+                f"({_canonical_args_hint(tag)}). A bare fenced body is not a valid "
+                f"{tag} call."
+            ),
+        )
+    return _registry_resolved_fence(tag, {mode: stripped})
+
+
+def _canonical_args_hint(tag: str) -> str:
+    from src.tool_registry import REGISTRY
+
+    tool = REGISTRY.get(tag)
+    if tool is None:
+        return "the tool's JSON schema"
+    required = [p.name for p in tool.params if p.required]
+    return "{" + ", ".join(f'"{name}": …' for name in required) + "}"
+
+
+def _registry_resolved_fence(tag: str, args: dict) -> Tuple[str, str]:
+    """Validate canonical fence arguments through the registry and shape the
+    handler block; malformed or unsupported arguments become inert records."""
+    try:
+        resolved = resolve_model_call(tag, json.dumps(args, ensure_ascii=False))
+    except ToolRegistryError as error:
+        return _legacy_fenced_rejection(tag, json.dumps(args, ensure_ascii=False), message=str(error))
+    handler = resolved.handler
+    internal = json.dumps(resolved.arguments or {}, ensure_ascii=False)
+    # Reuse the shared converter so the block content lands in the exact
+    # encoding the handler expects (raw command for bash, line-form for a
+    # single-argument read, JSON elsewhere) — identical to a native call.
+    from src.tool_schemas import textual_function_call_to_tool_block
+
+    block = textual_function_call_to_tool_block(handler, internal, legacy_compat=True)
+    if block is None:
+        return _legacy_fenced_rejection(
+            tag, internal, message=f"{tag} arguments could not be converted for execution.")
+    return block.tool_type, block.content
+
+
+def _legacy_fenced_rejection(
+    spelled_name: str,
+    arguments: str,
+    message: Optional[str] = None,
+) -> Tuple[str, str]:
+    """The inert record for a refused fenced call (legacy spelling, case
+    variant, unavailable tool, or invalid canonical arguments)."""
+    from src.tool_registry import LegacyToolNameRejected, rejected_block_content
+
+    if message is None:
+        unavailable = unavailable_message_for_spelling(spelled_name)
+        if unavailable is not None:
+            content = rejected_block_content(
+                spelled_name,
+                arguments,
+                ToolUnavailable(unavailable),
+            )
+            return REJECTED_CALL_TOOL_TYPE, content
+    canonical = registry_spelling_for(spelled_name) or spelled_name
+    content = rejected_block_content(
+        spelled_name,
+        arguments,
+        LegacyToolNameRejected(
+            message
+            or (
+                f"'{spelled_name}' is not a tool name; use {canonical}. "
+                f"Available built-in tools: {', '.join(CANONICAL_NAMES)}."
+            )
+        ),
+    )
+    return REJECTED_CALL_TOOL_TYPE, content
+
+
+def _textual_block(
+    name: str, arguments: Any, legacy_compat: bool
+) -> Optional[ToolBlock]:
+    """Route one parsed textual call through the registry admission boundary.
+
+    Rejected names/arguments become inert ``tool_call_rejected`` records, never
+    executable blocks. The import stays local because tool_schemas imports the
+    name tables in this module.
+    """
+    from src.tool_schemas import textual_function_call_to_tool_block
+
+    return textual_function_call_to_tool_block(
+        name,
+        arguments if isinstance(arguments, str) else json.dumps(arguments, ensure_ascii=False),
+        legacy_compat=legacy_compat,
+    )
+
+
+def _registry_typed_arguments(canonical_name: str, params: dict) -> dict:
+    """Coerce textual parameter strings to the registry's declared types.
+
+    XML-style channels carry every value as text (`<parameter name="offset">
+    3</parameter>`), while the canonical contract — identical to a native
+    call — declares integers and booleans. Coercing an unambiguous digit or
+    true/false string keeps the textual channel on the same argument contract
+    instead of rejecting transport-shaped values the model meant literally.
+    Unknown names and non-coercible values pass through so the registry's own
+    validation produces the actionable error.
+    """
+    from src.tool_registry import REGISTRY
+
+    tool = REGISTRY.get(canonical_name)
+    if tool is None or not isinstance(params, dict):
+        return params
+    typed = dict(params)
+    for param in tool.params:
+        if param.name not in typed:
+            continue
+        value = typed[param.name]
+        if not isinstance(value, str):
+            continue
+        kind = param.schema.get("type")
+        stripped = value.strip()
+        if kind == "integer":
+            digits = stripped[1:] if stripped[:1] in ("+", "-") else stripped
+            if digits.isdigit():
+                typed[param.name] = int(stripped)
+        elif kind == "boolean" and stripped.lower() in ("true", "false"):
+            typed[param.name] = stripped.lower() == "true"
+    return typed
 
 
 def _strip_executed_fence(m) -> str:
@@ -785,7 +1077,9 @@ def _coerce_raw_web_query(value) -> Optional[str]:
     return None
 
 
-def _raw_web_json_to_tool_block(payload) -> Optional[ToolBlock]:
+def _raw_web_json_to_tool_block(
+    payload, *, legacy_compat: bool = True
+) -> Optional[ToolBlock]:
     if not isinstance(payload, dict):
         return None
     if set(payload) - _RAW_WEB_JSON_ALLOWED_KEYS:
@@ -807,12 +1101,31 @@ def _raw_web_json_to_tool_block(payload) -> Optional[ToolBlock]:
     if isinstance(max_pages, int) and 1 <= max_pages <= 10:
         content["max_pages"] = max_pages
 
+    if not legacy_compat:
+        # Prose extraction is not the model naming a tool; admit the recovered
+        # call under the canonical WebSearch contract so it follows the same
+        # registry, policy and dispatcher path as an explicit textual call.
+        # ``freshness`` is the unambiguous legacy alias of ``time_filter``;
+        # anything else outside the canonical contract (``max_pages``) is
+        # rejected with feedback instead of silently dropped.
+        canonical_payload: dict = {"query": query}
+        time_filter = content.get("time_filter") or content.get("freshness")
+        if isinstance(time_filter, str):
+            canonical_payload["time_filter"] = time_filter
+        if "max_pages" in content:
+            canonical_payload["max_pages"] = content["max_pages"]
+        pair = _canonical_fenced_call(
+            "WebSearch", "", json.dumps(canonical_payload, ensure_ascii=False), legacy_compat,
+        )
+        return ToolBlock(*pair) if pair else None
     if len(content) == 1:
         return ToolBlock("web_search", query)
     return ToolBlock("web_search", json.dumps(content))
 
 
-def _parse_raw_web_json_lookup(text: str) -> Optional[tuple[ToolBlock, tuple[int, int]]]:
+def _parse_raw_web_json_lookup(
+    text: str, *, legacy_compat: bool = True
+) -> Optional[tuple[ToolBlock, tuple[int, int]]]:
     """Recover local text-model web_search calls emitted as prose + bare JSON.
 
     Some non-native tool models leak the intended call as:
@@ -836,7 +1149,7 @@ def _parse_raw_web_json_lookup(text: str) -> Optional[tuple[ToolBlock, tuple[int
                 parsed, end = decoder.raw_decode(text[start:])
             except json.JSONDecodeError:
                 continue
-            block = _raw_web_json_to_tool_block(parsed)
+            block = _raw_web_json_to_tool_block(parsed, legacy_compat=legacy_compat)
             if block:
                 return block, (start, start + end)
     return None
@@ -854,10 +1167,12 @@ def _looks_like_openai_tool_call_blob(value) -> bool:
     return False
 
 
-def _raw_openai_tool_call_to_block(value) -> Optional[ToolBlock]:
+def _raw_openai_tool_call_to_block(
+    value, *, legacy_compat: bool = True
+) -> Optional[ToolBlock]:
     if isinstance(value, list):
         for item in value:
-            block = _raw_openai_tool_call_to_block(item)
+            block = _raw_openai_tool_call_to_block(item, legacy_compat=legacy_compat)
             if block:
                 return block
         return None
@@ -869,7 +1184,6 @@ def _raw_openai_tool_call_to_block(value) -> Optional[ToolBlock]:
     name = str(fn.get("name") or "").strip()
     if not name:
         return None
-    tool_type = _TOOL_NAME_MAP.get(name, name)
     raw_args = fn.get("arguments") or {}
     try:
         args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
@@ -880,6 +1194,19 @@ def _raw_openai_tool_call_to_block(value) -> Optional[ToolBlock]:
     # Common local-model typo seen in raw OpenAI JSON leaks.
     if "text" not in args and "tex" in args:
         args["text"] = args.get("tex")
+    if name in CANONICAL_NAMES or (
+        not legacy_compat
+        and (
+            registry_spelling_for(name) is not None
+            or unavailable_message_for(name) is not None
+        )
+    ):
+        # M5.2: this is a model-generated call, not a native structured call
+        # that already passed admission — route it through the registry so the
+        # canonical contract, legacy-name refusal and unavailable-name refusal
+        # match every other textual channel.
+        return _textual_block(name, json.dumps(args, ensure_ascii=False), legacy_compat)
+    tool_type = _TOOL_NAME_MAP.get(name, name)
 
     if tool_type.startswith("mcp__"):
         return ToolBlock(tool_type, json.dumps(args) if args else "{}")
@@ -991,7 +1318,9 @@ def _raw_openai_tool_call_to_block(value) -> Optional[ToolBlock]:
     return ToolBlock(tool_type, str(content or ""))
 
 
-def _parse_raw_openai_tool_call_json(text: str) -> Optional[ToolBlock]:
+def _parse_raw_openai_tool_call_json(
+    text: str, *, legacy_compat: bool = True
+) -> Optional[ToolBlock]:
     if not isinstance(text, str) or '"function"' not in text:
         return None
     decoder = json.JSONDecoder()
@@ -1000,7 +1329,7 @@ def _parse_raw_openai_tool_call_json(text: str) -> Optional[ToolBlock]:
             parsed, _end = decoder.raw_decode(text[match.start():])
         except json.JSONDecodeError:
             continue
-        block = _raw_openai_tool_call_to_block(parsed)
+        block = _raw_openai_tool_call_to_block(parsed, legacy_compat=legacy_compat)
         if block:
             return block
     return None
@@ -1083,6 +1412,8 @@ def _iter_qwen_python_args(raw_args: str):
 def _parse_qwen3_native_text_call(
     text: str,
     additional_tool_names: Optional[Iterable[str]] = None,
+    *,
+    legacy_compat: bool = True,
 ) -> Optional[ToolBlock]:
     """Parse textual call shapes emitted by Qwen3.x MLX adapters.
 
@@ -1091,6 +1422,10 @@ def _parse_qwen3_native_text_call(
     ``{"tool": ..., "parameters": ...}``, ``{"function": ..., ...}``,
     ``manage_notes(action=...)``, or a bare MCP tool name.  Return only the
     first valid call so duplicate renderings cannot execute repeatedly.
+
+    M5.2: canonical names resolve through the registry in both modes;
+    governed turns refuse registry-backed legacy spellings and unavailable
+    names while inherited tools keep their historical conversion.
     """
     if not isinstance(text, str) or not text.strip():
         return None
@@ -1102,7 +1437,16 @@ def _parse_qwen3_native_text_call(
         normalized_name = name.strip().lower()
         if declared_name := declared_names.get(normalized_name):
             return ToolBlock(declared_name, json.dumps(args, ensure_ascii=False))
-        return function_call_to_tool_block(name.strip(), json.dumps(args))
+        raw = name.strip()
+        if raw in CANONICAL_NAMES or (
+            not legacy_compat
+            and (
+                registry_spelling_for(raw) is not None
+                or unavailable_message_for(raw) is not None
+            )
+        ):
+            return _textual_block(raw, json.dumps(args, ensure_ascii=False), legacy_compat)
+        return function_call_to_tool_block(raw, json.dumps(args))
 
     # Qwen native text rendering:
     # <tool_call><function=manage_notes><parameter=action>list</parameter>...
@@ -1165,10 +1509,12 @@ def _parse_qwen3_native_text_call(
     match = re.search(r"\b([A-Za-z_][\w:.-]*)\s*\(([^()]*)\)", text)
     if match:
         name, raw_args = match.groups()
-        normalized_name = name.strip().lower()
+        raw_name = name.strip()
+        normalized_name = raw_name.lower()
         mapped_name = _TOOL_NAME_MAP.get(normalized_name, normalized_name)
         if (
-            mapped_name in TOOL_TAGS
+            raw_name in CANONICAL_NAMES
+            or mapped_name in TOOL_TAGS
             or mapped_name.startswith("mcp__")
             or normalized_name in BUILTIN_EMAIL_TOOLS
             or normalized_name in declared_names
@@ -1179,7 +1525,10 @@ def _parse_qwen3_native_text_call(
                     args[key] = ast.literal_eval(raw_value.strip())
                 except (ValueError, SyntaxError):
                     args[key] = raw_value.strip().strip("'\"")
-            block = declared_or_builtin(normalized_name, args)
+            block = declared_or_builtin(
+                raw_name if raw_name in CANONICAL_NAMES else normalized_name,
+                args,
+            )
             if block:
                 return block
 
@@ -1191,23 +1540,31 @@ def _parse_qwen3_native_text_call(
             return block
     return None
 
-def _parse_tool_call_block(raw: str) -> Optional[ToolBlock]:
+def _parse_tool_call_block(
+    raw: str, *, legacy_compat: bool = True
+) -> Optional[ToolBlock]:
     """Parse a [TOOL_CALL] block into a ToolBlock.
 
     Handles formats like:
       {tool => "shell", args => {--command "ls -la"}}
       {tool: "shell", command: "ls -la"}
+
+    M5.2: an exact canonical tool name follows the registry contract (JSON or
+    the canonical raw mapping) in both modes; governed turns refuse
+    registry-backed legacy spellings and unavailable names while inherited
+    tools keep their historical raw block.
     """
     # Try to extract tool name
     tool_match = re.search(r'tool\s*(?:=>|:|=)\s*["\']?(\w+)["\']?', raw, re.IGNORECASE)
     if not tool_match:
         return None
 
-    tool_name = tool_match.group(1).lower()
+    raw_name = tool_match.group(1)
+    tool_name = raw_name if raw_name in CANONICAL_NAMES else raw_name.lower()
     # Fall back to the raw name when it's a real tool but not in the alias
     # map, so known tools (e.g. manage_calendar) aren't silently dropped.
     mapped = _TOOL_NAME_MAP.get(tool_name) or (tool_name if tool_name in TOOL_TAGS else None)
-    if not mapped:
+    if not mapped and raw_name not in CANONICAL_NAMES:
         return None
 
     # Extract the command/content — try several patterns
@@ -1255,15 +1612,32 @@ def _parse_tool_call_block(raw: str) -> Optional[ToolBlock]:
         if rest:
             content = rest
 
-    if content:
-        return ToolBlock(mapped, content.strip())
-    return None
+    if not content:
+        return None
+    content = content.strip()
+    if raw_name in CANONICAL_NAMES:
+        # Canonical [TOOL_CALL] blocks follow the registry contract too.
+        pair = _canonical_fenced_call(raw_name, "", content, legacy_compat)
+        return ToolBlock(*pair) if pair else None
+    if not legacy_compat and (
+        registry_spelling_for(raw_name) is not None
+        or unavailable_message_for(raw_name) is not None
+    ):
+        # Registry-backed spellings (legacy names, case variants, unavailable
+        # tools) are admitted explicitly and become sealed rejection records;
+        # inherited/unknown tools fall back to their historical raw block.
+        block = _textual_block(raw_name, content, legacy_compat=False)
+        if block is not None:
+            return block
+    return ToolBlock(mapped, content)
 
 
-def _parse_xml_invoke(name, body) -> Optional[ToolBlock]:
+def _parse_xml_invoke(
+    name, body, *, legacy_compat: bool = True
+) -> Optional[ToolBlock]:
     """Parse an <invoke name="tool"><parameter ...>...</parameter></invoke> call.
 
-    Delegates content-shaping to function_call_to_tool_block — the SAME
+    Delegates content-shaping to the canonical textual converter — the SAME
     converter used for native function calls — so the full tool set (every
     name in TOOL_TAGS, plus email + MCP tools) and the correct per-tool
     content format are handled in ONE place. The previous version duplicated
@@ -1271,28 +1645,49 @@ def _parse_xml_invoke(name, body) -> Optional[ToolBlock]:
     any tool missing from that map (e.g. `manage_calendar`) was silently
     dropped, and JSON-arg tools got an unparseable `k: v` blob. Both bugs
     made deepseek's DSML `create_event` calls vanish with no execution.
+
+    M5.2: a canonical Claude Code invoke name keeps its exact case and
+    resolves through the registry in both modes — the vocabulary the schema
+    routes see on the wire is executable here too. On governed turns every
+    other registry-backed spelling (legacy handler ids, alias or case-variant
+    spellings) and unavailable Claude Code names become sealed refusal
+    records; compatibility turns keep the historical lowercase mapping for
+    fine-tuned models trained on it.
     """
-    # Lowercase the tool name: models often emit capitalized invoke names
-    # (e.g. <invoke name="Bash">) and function_call_to_tool_block matches
-    # case-sensitively against the lowercase _TOOL_NAME_MAP / TOOL_TAGS, so a
-    # raw capitalized name would be silently dropped.
-    tool_name = name.lower()
+    raw_name = str(name or "").strip()
     params = {}
     for pname, pval in _iter_named_blocks(body, _XML_PARAM_OPEN_RE, _XML_PARAM_CLOSE_RE):
         params[pname] = pval.strip()
+    arguments = json.dumps(params, ensure_ascii=False)
+    if raw_name in CANONICAL_NAMES:
+        # XML parameters are always strings; coerce them to the registry's
+        # declared types so the canonical contract is usable in this channel.
+        typed = _registry_typed_arguments(raw_name, params)
+        return _textual_block(
+            raw_name, json.dumps(typed, ensure_ascii=False), legacy_compat
+        )
+    if not legacy_compat:
+        unavailable = unavailable_message_for(raw_name)
+        if unavailable is not None:
+            return ToolBlock(
+                REJECTED_CALL_TOOL_TYPE,
+                rejected_block_content(raw_name, arguments, ToolUnavailable(unavailable)),
+            )
+        if registry_spelling_for(raw_name) is not None:
+            # A legacy or case-variant spelling of a registry tool: refused on
+            # governed turns instead of being lowercased into execution.
+            return _textual_block(raw_name, arguments, legacy_compat=False)
     # Local import to avoid a circular import at module load.
     from src.tool_schemas import function_call_to_tool_block
-    # M5.2: a canonical Claude Code invoke name keeps its exact case — the
-    # registry owns that vocabulary and translates its arguments. Only names
-    # outside the registry fall back to the lowercase legacy mapping.
-    if name != tool_name:
-        from src.tool_registry import CANONICAL_NAMES
-        if name in CANONICAL_NAMES:
-            return function_call_to_tool_block(name, json.dumps(params))
-    return function_call_to_tool_block(tool_name, json.dumps(params))
+    # Lowercase fallback: models often emit capitalized invoke names for
+    # non-registry tools and the converter matches case-sensitively against
+    # the lowercase _TOOL_NAME_MAP / TOOL_TAGS.
+    return function_call_to_tool_block(raw_name.lower(), arguments)
 
 
-def _parse_xml_direct_tool(name, body) -> Optional[ToolBlock]:
+def _parse_xml_direct_tool(
+    name, body, *, legacy_compat: bool = True
+) -> Optional[ToolBlock]:
     """Parse direct XML tool tags inside <tool_call>.
 
     Some local models emit:
@@ -1301,15 +1696,34 @@ def _parse_xml_direct_tool(name, body) -> Optional[ToolBlock]:
       <tool_call><invoke name="web_search"><parameter name="query">query</parameter></invoke></tool_call>
     Keep this as an adapter to the canonical function-call converter so aliases
     and per-tool argument formatting stay in one place.
+
+    M5.2: an exact canonical tag follows the registry's canonical argument
+    contract — JSON arguments when given, otherwise the same unambiguous raw
+    mapping the canonical fences use — in both modes. Governed turns refuse
+    registry-backed legacy spellings and unavailable names; compatibility
+    turns keep the historical lowercase mapping.
     """
-    tool_name = name.lower().replace("-", "_")
+    raw_name = str(name or "").strip()
+    tool_name = raw_name.lower().replace("-", "_")
     if tool_name in {"invoke", "parameter", "tool_call", "function_call"}:
-        return None
-    mapped = _TOOL_NAME_MAP.get(tool_name) or (tool_name if tool_name in TOOL_TAGS else None)
-    if not mapped:
         return None
     body = body.strip()
     if not body:
+        return None
+    if raw_name in CANONICAL_NAMES:
+        pair = _canonical_fenced_call(raw_name, "", body, legacy_compat)
+        return ToolBlock(*pair) if pair else None
+    if not legacy_compat:
+        unavailable = unavailable_message_for(raw_name)
+        if unavailable is not None:
+            return ToolBlock(
+                REJECTED_CALL_TOOL_TYPE,
+                rejected_block_content(raw_name, body, ToolUnavailable(unavailable)),
+            )
+        if registry_spelling_for(raw_name) is not None:
+            return _textual_block(raw_name, body, legacy_compat=False)
+    mapped = _TOOL_NAME_MAP.get(tool_name) or (tool_name if tool_name in TOOL_TAGS else None)
+    if not mapped:
         return None
     try:
         params = json.loads(body)
@@ -1337,7 +1751,9 @@ def _looks_like_json_body(body: str) -> bool:
     return body.lstrip()[:1] in ("{", "[")
 
 
-def _parse_json_tool_call_body(body: str) -> Optional[ToolBlock]:
+def _parse_json_tool_call_body(
+    body: str, *, legacy_compat: bool = True
+) -> Optional[ToolBlock]:
     """Parse a Qwen/Hermes text-mode wrapper body: bare JSON inside <tool_call>.
 
       <tool_call>
@@ -1349,9 +1765,10 @@ def _parse_json_tool_call_body(body: str) -> Optional[ToolBlock]:
     be an object. Anything else returns None rather than being coerced, so a
     malformed call is dropped instead of dispatching with mangled arguments.
     raw_decode tolerates trailing chatter after the JSON object; the trailing
-    text is never scanned for tool markup. Conversion goes through
-    function_call_to_tool_block so aliases and per-tool argument formatting
-    stay identical to the XML invoke path.
+    text is never scanned for tool markup. Conversion goes through the
+    registry-backed textual converter so canonical, legacy and inherited tools
+    are classified consistently with every other textual format (M5.2);
+    compatibility turns keep the historical lowercase mapping.
     """
     stripped = body.strip()
     if not stripped.startswith("{"):
@@ -1368,8 +1785,21 @@ def _parse_json_tool_call_body(body: str) -> Optional[ToolBlock]:
     if "arguments" in parsed and not isinstance(parsed["arguments"], dict):
         return None
     args = parsed.get("arguments", {})
+    raw_name = name.strip()
+    args_json = json.dumps(args, ensure_ascii=False)
     from src.tool_schemas import function_call_to_tool_block
-    return function_call_to_tool_block(name.strip().lower(), json.dumps(args))
+    if raw_name in CANONICAL_NAMES:
+        # Exact canonical names resolve through the registry in both modes.
+        return function_call_to_tool_block(raw_name, args_json)
+    if not legacy_compat and (
+        registry_spelling_for(raw_name) is not None
+        or unavailable_message_for(raw_name) is not None
+    ):
+        # Governed turns classify registry-backed legacy spellings and
+        # unavailable Claude Code names through the registry; inherited and
+        # MCP tools keep the historical conversion below.
+        return _textual_block(raw_name, args_json, legacy_compat=False)
+    return function_call_to_tool_block(raw_name.lower(), args_json)
 
 
 def _iter_stepfun_tool_calls(text: str):
@@ -1434,14 +1864,32 @@ def _strip_bare_invoke_markup(text: str) -> str:
     return "".join(out)
 
 
-def _parse_stepfun_tool_call(tool_name: str, body: str) -> Optional[ToolBlock]:
-    """Parse StepFun native tool-call tokens into an Odysseus ToolBlock."""
-    tool_name = tool_name.lower().replace("-", "_").replace(".", "_")
-    mapped = _TOOL_NAME_MAP.get(tool_name) or (tool_name if tool_name in TOOL_TAGS else None)
-    if not mapped:
-        return None
+def _parse_stepfun_tool_call(
+    tool_name: str, body: str, *, legacy_compat: bool = True
+) -> Optional[ToolBlock]:
+    """Parse StepFun native tool-call tokens into an Odysseus ToolBlock.
+
+    M5.2: an exact canonical token name resolves through the registry in both
+    modes — JSON arguments when the body parses as an object, otherwise the
+    same unambiguous raw mapping the canonical fences use. Governed turns
+    refuse registry-backed legacy spellings and unavailable names;
+    compatibility turns keep the historical lowercase mapping.
+    """
+    raw_name = str(tool_name or "").strip()
     body = (body or "").strip()
     if not body:
+        return None
+    if raw_name in CANONICAL_NAMES:
+        pair = _canonical_fenced_call(raw_name, "", body, legacy_compat)
+        return ToolBlock(*pair) if pair else None
+    if not legacy_compat and (
+        registry_spelling_for(raw_name) is not None
+        or unavailable_message_for(raw_name) is not None
+    ):
+        return _textual_block(raw_name, body, legacy_compat=False)
+    tool_name = raw_name.lower().replace("-", "_").replace(".", "_")
+    mapped = _TOOL_NAME_MAP.get(tool_name) or (tool_name if tool_name in TOOL_TAGS else None)
+    if not mapped:
         return None
     try:
         params = json.loads(body)
@@ -1464,20 +1912,22 @@ def _parse_stepfun_tool_call(tool_name: str, body: str) -> Optional[ToolBlock]:
     return function_call_to_tool_block(mapped, json.dumps(params))
 
 
-def _parse_tool_code_block(raw: str) -> Optional[ToolBlock]:
-    """Parse a <tool_code>{tool => 'name', args => '...'}</tool_code> block (MiniMax style)."""
+def _parse_tool_code_block(
+    raw: str, *, legacy_compat: bool = True
+) -> Optional[ToolBlock]:
+    """Parse a <tool_code>{tool => 'name', args => '...'}</tool_code> block (MiniMax style).
+
+    M5.2: an exact canonical tool name resolves through the registry in both
+    modes — structured ``<command>``-style params as JSON arguments, otherwise
+    the same unambiguous raw mapping the canonical fences use. Governed turns
+    refuse registry-backed legacy spellings and unavailable names;
+    compatibility turns keep the historical lowercase mapping.
+    """
     # Extract tool name
     tool_match = re.search(r"tool\s*=>\s*['\"](\S+?)['\"]", raw)
     if not tool_match:
         return None
-    tool_name = tool_match.group(1).lower().replace('-', '_')
-    # Strip MCP prefixes like "mcp__server__" or "cli-mcp-server-"
-    for prefix in ("mcp__", "cli_mcp_server_", "desktop_commander_", "mcp_code_executor_"):
-        if tool_name.startswith(prefix):
-            tool_name = tool_name[len(prefix):]
-            break
-
-    mapped = _TOOL_NAME_MAP.get(tool_name)
+    raw_name = tool_match.group(1)
 
     # Extract args content
     args_match = re.search(r"args\s*=>\s*['\"]?\s*([\s\S]*?)\s*['\"]?\s*$", raw, re.DOTALL)
@@ -1489,6 +1939,31 @@ def _parse_tool_code_block(raw: str) -> Optional[ToolBlock]:
     xml_params = {}
     for pname, pval in _iter_backref_blocks(args_body, _TOOL_CODE_PARAM_OPEN_RE, _TOOL_CODE_PARAM_CLOSE_ANY_RE):
         xml_params[pname] = pval.strip()
+
+    if raw_name in CANONICAL_NAMES:
+        # Structured params follow the canonical contract; a raw single value
+        # follows the fence channel's unambiguous raw mapping.
+        if xml_params:
+            typed = _registry_typed_arguments(raw_name, xml_params)
+            return _textual_block(raw_name, json.dumps(typed, ensure_ascii=False), legacy_compat)
+        pair = _canonical_fenced_call(raw_name, "", args_body, legacy_compat)
+        return ToolBlock(*pair) if pair else None
+    if not legacy_compat and (
+        registry_spelling_for(raw_name) is not None
+        or unavailable_message_for(raw_name) is not None
+    ):
+        if xml_params:
+            return _textual_block(raw_name, json.dumps(xml_params, ensure_ascii=False), legacy_compat=False)
+        return _textual_block(raw_name, args_body, legacy_compat=False)
+
+    tool_name = raw_name.lower().replace('-', '_')
+    # Strip MCP prefixes like "mcp__server__" or "cli-mcp-server-"
+    for prefix in ("mcp__", "cli_mcp_server_", "desktop_commander_", "mcp_code_executor_"):
+        if tool_name.startswith(prefix):
+            tool_name = tool_name[len(prefix):]
+            break
+
+    mapped = _TOOL_NAME_MAP.get(tool_name)
 
     # When the model gave structured params, hand them to the canonical
     # converter (same as native calls + <invoke>) so the full tool set and
@@ -1561,9 +2036,16 @@ def _iter_gemma_fallback_items(body):
         pos = end
 
 
-def _parse_gemma_tool_call(tool_name: str, body: str) -> Optional[ToolBlock]:
-    """Parse a Gemma-style call:tool_name{...} block into a ToolBlock."""
-    tool_name = tool_name.strip().lower().replace("-", "_")
+def _parse_gemma_tool_call(
+    tool_name: str, body: str, *, legacy_compat: bool = True
+) -> Optional[ToolBlock]:
+    """Parse a Gemma-style call:tool_name{...} block into a ToolBlock.
+
+    M5.2: an exact canonical name resolves through the registry in both
+    modes; governed turns refuse registry-backed legacy spellings and
+    unavailable names; compatibility turns keep the historical mapping.
+    """
+    raw_name = str(tool_name or "").strip()
     body = body.strip()
     if not body:
         return None
@@ -1588,15 +2070,29 @@ def _parse_gemma_tool_call(tool_name: str, body: str) -> Optional[ToolBlock]:
             params = dict(_iter_gemma_fallback_items(body))
 
     from src.tool_schemas import function_call_to_tool_block
-    return function_call_to_tool_block(tool_name, json.dumps(params))
+    if raw_name in CANONICAL_NAMES:
+        return function_call_to_tool_block(raw_name, json.dumps(params, ensure_ascii=False))
+    if not legacy_compat and (
+        registry_spelling_for(raw_name) is not None
+        or unavailable_message_for(raw_name) is not None
+    ):
+        return _textual_block(raw_name, json.dumps(params, ensure_ascii=False), legacy_compat=False)
+    return function_call_to_tool_block(raw_name.lower().replace("-", "_"), json.dumps(params, ensure_ascii=False))
 
 
-def _parse_function_model_call(body: str) -> Optional[ToolBlock]:
-    """Parse <function_model><function_call>tool</...><parameters>...</...>."""
+def _parse_function_model_call(
+    body: str, *, legacy_compat: bool = True
+) -> Optional[ToolBlock]:
+    """Parse <function_model><function_call>tool</...><parameters>...</...>.
+
+    M5.2: an exact canonical name resolves through the registry in both
+    modes; governed turns refuse registry-backed legacy spellings and
+    unavailable names; compatibility turns keep the historical mapping.
+    """
     name_match = _FUNCTION_MODEL_NAME_RE.search(body or "")
     if not name_match:
         return None
-    tool_name = name_match.group(1).strip().lower().replace("-", "_")
+    raw_name = name_match.group(1).strip()
     params = "{}"
     for _ms, inner_start, inner_end, _me in _iter_delimited(
         body,
@@ -1606,7 +2102,14 @@ def _parse_function_model_call(body: str) -> Optional[ToolBlock]:
         params = body[inner_start:inner_end].strip() or "{}"
         break
     from src.tool_schemas import function_call_to_tool_block
-    return function_call_to_tool_block(tool_name, params)
+    if raw_name in CANONICAL_NAMES:
+        return function_call_to_tool_block(raw_name, params)
+    if not legacy_compat and (
+        registry_spelling_for(raw_name) is not None
+        or unavailable_message_for(raw_name) is not None
+    ):
+        return _textual_block(raw_name, params, legacy_compat=False)
+    return function_call_to_tool_block(raw_name.lower().replace("-", "_"), params)
 
 
 def _iter_delimited(text, open_re, close_re):
@@ -1646,6 +2149,7 @@ def _strip_delimited(text: str, open_re, close_re, replacement: str = "") -> str
     return _strip_spans(
         text,
         _iter_delimited(text, open_re, close_re),
+        replacement,
     )
 
 
@@ -1884,6 +2388,7 @@ def parse_tool_blocks(
     skip_fenced: bool = False,
     additional_tool_names: Optional[Iterable[str]] = None,
     additional_tool_schemas: Optional[Iterable[dict]] = None,
+    legacy_compat: bool = True,
 ) -> List[ToolBlock]:
     """Extract executable tool blocks from LLM response text.
 
@@ -1907,6 +2412,15 @@ def parse_tool_blocks(
     since that markup is never an illustrative example and dropping it would
     silently lose real calls (e.g. DeepSeek-V falling back to DSML when it
     can't emit structured tool_calls).
+
+    `legacy_compat`: selects the tool-vocabulary contract for the textual
+    channel (M5.2). Governed turns (``legacy_compat=False``) admit every
+    built-in call through the canonical registry — canonical spellings in any
+    of the formats above, legacy handler ids and alias spellings refused as
+    inert records. Compatibility routes (fine-tuned models whose trained
+    weights still emit the historical vocabulary) keep ``legacy_compat=True``,
+    the default: exact legacy spellings keep working and canonical spellings
+    are additive. Case-variant spellings are refused in both modes.
     """
     blocks = []
 
@@ -1927,7 +2441,7 @@ def parse_tool_blocks(
         if adjacent_declared_call is not None:
             return [adjacent_declared_call]
         for m in _tool_block_re(additional_tool_names).finditer(text):
-            call = _fenced_tool_call(m)
+            call = _fenced_tool_call(m, legacy_compat)
             if call is None:
                 continue
             tag, content = call
@@ -2013,7 +2527,7 @@ def parse_tool_blocks(
             # tool calls in ```python or ```xml fences), parse the invoke instead.
             if '<invoke' in content:
                 for inv_name, inv_body in _iter_xml_invoke(content):
-                    block = _parse_xml_invoke(inv_name, inv_body)
+                    block = _parse_xml_invoke(inv_name, inv_body, legacy_compat=legacy_compat)
                     if block:
                         blocks.append(block)
                 # This fenced block is <invoke> markup, not literal code. Whether or
@@ -2026,7 +2540,25 @@ def parse_tool_blocks(
                          or _parse_misfenced_web_lookup(content)
                          or _parse_misfenced_read_file_lookup(content, allow_shell_style=(tag == "bash")))
                 if block:
-                    blocks.append(block)
+                    # M5.2: a fenced code body is shell/python code, not a
+                    # tool call; rescuing a registry-tool invocation out of it
+                    # on a governed turn would let stale vocabulary execute.
+                    if not legacy_compat and registry_spelling_for(block.tool_type) is not None:
+                        blocks.append(ToolBlock(
+                            REJECTED_CALL_TOOL_TYPE,
+                            rejected_block_content(
+                                block.tool_type,
+                                block.content,
+                                LegacyToolNameRejected(
+                                    f"'{block.tool_type}' is not a tool name; use "
+                                    f"{registry_spelling_for(block.tool_type)}. Emit a "
+                                    "canonical tool call instead of embedding it in a "
+                                    "code fence."
+                                ),
+                            ),
+                        ))
+                    else:
+                        blocks.append(block)
                     continue
             blocks.append(ToolBlock(tag, content))
 
@@ -2038,14 +2570,14 @@ def parse_tool_blocks(
         for _ms, inner_start, inner_end, _me in _iter_delimited(
             text, _TOOL_CALL_OPEN_RE, _TOOL_CALL_CLOSE_RE
         ):
-            block = _parse_tool_call_block(text[inner_start:inner_end])
+            block = _parse_tool_call_block(text[inner_start:inner_end], legacy_compat=legacy_compat)
             if block:
                 blocks.append(block)
 
     # Pattern 3: XML-style <tool_call>/<invoke> blocks
     if not blocks:
         for tool_name, body in _iter_stepfun_tool_calls(text):
-            block = _parse_stepfun_tool_call(tool_name, body)
+            block = _parse_stepfun_tool_call(tool_name, body, legacy_compat=legacy_compat)
             if block:
                 blocks.append(block)
         if blocks:
@@ -2062,17 +2594,17 @@ def parse_tool_blocks(
             body = text[inner_start:inner_end]
             if _looks_like_json_body(body):
                 json_body_seen = True
-                block = _parse_json_tool_call_body(body)
+                block = _parse_json_tool_call_body(body, legacy_compat=legacy_compat)
                 if block:
                     blocks.append(block)
                 continue
             for inv_name, inv_body in _iter_xml_invoke(body):
-                block = _parse_xml_invoke(inv_name, inv_body)
+                block = _parse_xml_invoke(inv_name, inv_body, legacy_compat=legacy_compat)
                 if block:
                     blocks.append(block)
             if not blocks:
                 for d_name, d_body in _iter_xml_direct(body):
-                    block = _parse_xml_direct_tool(d_name, d_body)
+                    block = _parse_xml_direct_tool(d_name, d_body, legacy_compat=legacy_compat)
                     if block:
                         blocks.append(block)
         # Some local models stream an opening <tool_call> wrapper and a
@@ -2083,18 +2615,18 @@ def parse_tool_blocks(
                 if _looks_like_json_body(body):
                     # Same fail-closed rule as above for an unclosed wrapper.
                     json_body_seen = True
-                    block = _parse_json_tool_call_body(body)
+                    block = _parse_json_tool_call_body(body, legacy_compat=legacy_compat)
                     if block:
                         blocks.append(block)
                     break
                 for inv_name, inv_body in _iter_xml_invoke(body):
-                    block = _parse_xml_invoke(inv_name, inv_body)
+                    block = _parse_xml_invoke(inv_name, inv_body, legacy_compat=legacy_compat)
                     if block:
                         blocks.append(block)
                 if blocks:
                     break
                 for d_name, d_body in _iter_xml_direct(body):
-                    block = _parse_xml_direct_tool(d_name, d_body)
+                    block = _parse_xml_direct_tool(d_name, d_body, legacy_compat=legacy_compat)
                     if block:
                         blocks.append(block)
         # Try bare <invoke> without wrapper. Skipped when a JSON wrapper body
@@ -2103,7 +2635,7 @@ def parse_tool_blocks(
         # malformed) JSON payload must stay data rather than dispatch.
         if not blocks and not json_body_seen:
             for inv_name, inv_body in _iter_xml_invoke(text):
-                block = _parse_xml_invoke(inv_name, inv_body)
+                block = _parse_xml_invoke(inv_name, inv_body, legacy_compat=legacy_compat)
                 if block:
                     blocks.append(block)
         if not blocks:
@@ -2119,7 +2651,7 @@ def parse_tool_blocks(
         for _ms, inner_start, inner_end, _me in _iter_delimited(
             text, _TOOL_CODE_OPEN_RE, _TOOL_CODE_CLOSE_RE
         ):
-            block = _parse_tool_code_block(text[inner_start:inner_end])
+            block = _parse_tool_code_block(text[inner_start:inner_end], legacy_compat=legacy_compat)
             if block:
                 blocks.append(block)
 
@@ -2128,7 +2660,7 @@ def parse_tool_blocks(
         for tool_name, body in _iter_named_blocks(
             text, _GEMMA_TOOL_CALL_OPEN_RE, _GEMMA_TOOL_CALL_CLOSE_RE
         ):
-            block = _parse_gemma_tool_call(tool_name, "{" + body + "}")
+            block = _parse_gemma_tool_call(tool_name, "{" + body + "}", legacy_compat=legacy_compat)
             if block:
                 blocks.append(block)
 
@@ -2137,27 +2669,27 @@ def parse_tool_blocks(
         for _ms, inner_start, inner_end, _me in _iter_delimited(
             text, _FUNCTION_MODEL_OPEN_RE, _FUNCTION_MODEL_CLOSE_RE
         ):
-            block = _parse_function_model_call(text[inner_start:inner_end])
+            block = _parse_function_model_call(text[inner_start:inner_end], legacy_compat=legacy_compat)
             if block:
                 blocks.append(block)
 
     # Pattern 4d: raw OpenAI-style tool-call JSON leaked as assistant text.
     # Example: {"function":{"arguments":"{\"action\":\"add\"}","name":"manage_memory"},"type":"function"}
     if not blocks:
-        block = _parse_raw_openai_tool_call_json(text)
+        block = _parse_raw_openai_tool_call_json(text, legacy_compat=legacy_compat)
         if block:
             blocks.append(block)
 
     # Pattern 4e: Qwen3.x MLX textual call fallback.  This must run after the
     # explicit markup parsers but before the response is treated as prose.
     if not blocks:
-        block = _parse_qwen3_native_text_call(text, additional_tool_names)
+        block = _parse_qwen3_native_text_call(text, additional_tool_names, legacy_compat=legacy_compat)
         if block:
             blocks.append(block)
 
     # Pattern 6: local text-model web_search call leaked as prose + bare JSON.
     if not blocks and not skip_fenced:
-        raw_web_json = _parse_raw_web_json_lookup(text)
+        raw_web_json = _parse_raw_web_json_lookup(text, legacy_compat=legacy_compat)
         if raw_web_json:
             blocks.append(raw_web_json[0])
 

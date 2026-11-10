@@ -1,7 +1,8 @@
 # M5.2 — Canonical Tool Registry (Increment 1)
 
-Status: increment 1 (canonical registry) and increment 2 (read-before-edit)
-implemented and regression-covered. Remaining M5.2 work is listed at the end.
+Status: increments 1 (canonical registry), 2 (read-before-edit) and 3 (unified
+textual/native tool vocabulary) implemented and regression-covered. Remaining
+M5.2 work is listed at the end.
 
 ## What this is
 
@@ -80,11 +81,11 @@ call **before every other guard**:
 
 **Governance follows the advertised surface.** The gate applies only when the
 turn actually offered registry tools (`offered_tool_names ∩ HANDLER_IDS ≠ ∅`).
-Turns with no declared registry tool — no-schema finetune routes, textual-only
-transports, MCP-only offers — keep their inherited vocabulary; rejecting their
-only channel would silently remove functionality. The textual/fenced channel
-of local models likewise keeps its legacy vocabulary and content encodings in
-this increment (documented boundary below).
+Turns with no declared registry tool — MCP-only offers — keep their inherited
+vocabulary; rejecting their only channel would silently remove functionality.
+Since increment 3 the textual/fenced channel is governed by the same registry
+(see below), with one documented compatibility carve-out for the fine-tuned
+router trained on the legacy vocabulary.
 
 **Sealed approval replay is exempt.** A resumed turn re-emitting the exact
 sealed identity `(pending.tool_name, pending.content)` is not a fresh model
@@ -147,26 +148,105 @@ Every advertised argument must be honored by the existing handler:
 - Empty `Write.content` is legitimate (creates an empty file); empty required
   paths are not.
 
-## Increment-1 boundaries (intentional)
+## Increment-1 boundaries (historical)
 
-1. **Textual/fenced channel of local models** keeps the legacy vocabulary
-   (```bash fences, fenced tool tags, misfenced lookups). It is their only
-   channel, no schemas are advertised to them, and the fence tag is a
-   language/content classifier whose case is folded — a name-level
-   canonical/legacy distinction does not exist there. Canonical names in
-   explicit textual markup (`<invoke name="Read">`, JSON envelopes) DO resolve
-   through the registry.
-2. **Prompt vocabulary** follows each route's advertised surface. Finetuned
-   textual routes (e.g. the qwen38 tool-router) keep their trained vocabulary;
-   schema-declaring routes rely on the canonical wire schemas. A full
-   prompt-vocabulary migration is increment-2 work.
-3. **Compact preview loop** (`clean_agent_preview.py`) builds its own provider
-   requests and remains on a self-consistent legacy surface this increment;
-   migrating its transport and policy layer to canonical names is increment-2
-   work.
-4. **Read-before-edit enforcement** was increment 2 (implemented above);
+1. **Textual/fenced channel of local models** kept the legacy vocabulary in
+   increment 1 (```bash fences, fenced tool tags, misfenced lookups). Increment
+   3 lifted this boundary: canonical names are executable in every textual
+   format and legacy spellings are refused on governed turns (see below).
+   Canonical names in explicit textual markup (`<invoke name="Read">`, JSON
+   envelopes) already resolved through the registry in increment 1.
+2. **Read-before-edit enforcement** is increment 2 (implemented above);
    the filesystem security redesign beyond it (streaming/large-file
    contracts, derived-artifact writers) remains follow-up work.
+
+## Increment 3 — unified tool vocabulary across textual and native execution (implemented)
+
+Every supported model execution path now shares the canonical Claude Code
+tool contract. `src/tool_registry.py` remains the single source of truth; no
+second registry, duplicated execution implementation or provider-specific
+alias set was added.
+
+**One governed textual admission path.** All textual tool-call formats —
+fenced ```Tool blocks (canonical and legacy tags), `<invoke>` DSML, direct XML
+tags, Qwen/Hermes JSON envelopes, StepFun tokens, MiniMax `tool_code`, Gemma
+call blocks, `function_model` envelopes, `[TOOL_CALL]` blocks, raw OpenAI JSON
+leaks, prose web-JSON recovery, and the Qwen3 MLX adapter — classify the
+model-written name through the registry on every governed turn:
+
+- Exact canonical spelling (`Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`,
+  `WebFetch`, `WebSearch`) resolves through `resolve_model_call` exactly like
+  a native call — same names, same argument contracts, same repair and
+  rejection behavior. `textual_function_call_to_tool_block`
+  (`src/tool_schemas.py`) is the shared converter; `parse_tool_blocks(...,
+  legacy_compat=False)` is the governed entry point.
+- Legacy handler ids and inherited alias spellings of registry tools
+  (`read_file`, `bash`, `websearch`, …) become inert `tool_call_rejected`
+  records with the canonical name in the error — never silently executed.
+- Case-variant spellings are refused in both modes; they were never a valid
+  form in any channel.
+- Unavailable Claude Code names (`ToolSearch`, `Skill`) get a truthful
+  `tool_unavailable` refusal record in every textual channel — never
+  simulated, never silently dropped on governed turns.
+- Non-registry tools (inherited capabilities, MCP, request-scoped declared
+  schemas) keep their historical conversion, including the lowercase mapping
+  models already rely on. Genuine inherited capabilities outside the registry
+  are preserved.
+
+**Compatibility carve-out (one route, documented).** The qwen3.8 fine-tuned
+tool router has no schemas and was trained on the legacy vocabulary; its
+textual turns keep `legacy_compat=True`, under which exact legacy spellings
+keep working while canonical spellings also resolve (adoption is purely
+additive). Every other textual route is governed. The carve-out lives at the
+single stream-agent-loop parse site; it cannot widen permissions or bypass
+any dispatcher guard because rejected records never reach dispatch.
+
+**Textual channels carry the canonical argument contract.** XML-style
+channels transport every value as text, so string-typed integer/boolean
+values are coerced to the registry's declared types before validation
+(`_registry_typed_arguments`); unambiguous single raw bodies follow the same
+canonical raw mapping the canonical fences use (passthrough for `Bash`/
+`Read`/`WebSearch`, named argument for `WebFetch`/`Glob`/`Grep`, explicit
+refusal for `Write`/`Edit` raw bodies). Unknown names, unknown arguments and
+malformed arguments are rejected with feedback instead of being dropped or
+guessed.
+
+**Prompt vocabulary is canonical.** `TOOL_SECTIONS`, the domain rules, the
+uploaded-file read hint, web follow-up directives and recovery/retry
+instructions all teach the canonical names and argument keys
+(`Read`/`Write`/`Edit`/`Bash`/`WebSearch`/`WebFetch`, `file_path`/
+`content`). Illustrative fences in prose are the same executable channel as
+before — a textual model writing ```Read executes it as a tool call, which is
+the contract.
+
+**Compact preview canonicalization.** The compact preview builds its own
+provider requests; its wire copy now carries the canonical vocabulary and its
+inbound calls are registry-governed:
+
+- `_canonical_wire_request` projects the round request's schemas, prior
+  tool-call history and forced `tool_choice` to canonical names at the
+  preview's own send boundary (`project_tool_choice_for_wire` keeps forced
+  constraints matching the projected schema names). The internal policy,
+  dedup and dispatch state stays handler-keyed; the wire projection is
+  idempotent with llm_core's boundary and does not churn cacheable prefixes.
+- `_unproject_preview_tool_calls` maps returned canonical calls back onto the
+  handler-keyed execution contracts exactly once, before any policy or
+  dispatch step, using `resolve_model_call`; offered handler-keyed names pass
+  through unchanged; MCP and inherited tools keep their identity.
+- A call the registry rejects is sealed on the call (`_registry_rejection`),
+  stripped from the persisted history by `protocol_safe_tool_calls`, and
+  answered with a truthful rejection result (`blocked: true`,
+  `execution_attempted: false`) — no false execution status, no dispatch.
+- Historical transcripts stay compatible: persisted messages keep their
+  internal identities, and rendering of legacy histories is unchanged.
+
+**Increment-2 contract hardening included here.** Two increment-2 gaps found
+by the regression matrix were fixed: new-file `write_file` creation now
+re-baselines the content it just wrote (so create→overwrite and
+create→edit flows keep working without a redundant reread, matching every
+other successful mutation), and `apply_patch` restored the documented
+universal-newline reading (CRLF files patch again; the validate-then-move
+digest still guards the raw bytes).
 
 ## Increment 2 — server-verified read-before-edit (implemented)
 
@@ -256,3 +336,37 @@ these boundaries.
   exclusive creation and appeared-file races, mid-write corruption handling,
   the bash invalidation boundary with the demonstrated sandbox write surface,
   and structured-patch behavior.
+- `tests/test_textual_canonical_tool_calls.py` — the increment-3 textual
+  contract: canonical fenced/XML/JSON/token/leak/prose parsing through the
+  registry, exact-case discipline, legacy-name and unavailable-name refusal
+  records in both modes, malformed-argument feedback, misfenced rescues,
+  native/textual block parity, rejected records refusing execution, and
+  read-before-edit protection through textual canonical calls.
+- `tests/test_preview_canonical_tool_representation.py` — the compact-preview
+  canonicalization: canonical wire request projection (schemas, history,
+  tool_choice), handler-keyed unprojection, sealed registry rejections with
+  truthful results, and unchanged identity for inherited/MCP calls.
+- `tests/test_agent_evidence_loop.py` — governed textual calls executing
+  end-to-end (canonical fences and `<invoke>` calls produce real artifacts),
+  read-before-edit intact through the loop.
+- `tests/test_workspace_confine.py`, `tests/test_effect_resource_bindings.py`
+  — confinement and effect bindings under the baseline contract (updated to
+  the increment-2 read-before-edit flow; apply_patch universal-newline
+  reading covered).
+
+## Remaining M5.2 work (after increment 3)
+
+1. **`ToolSearch`/`Skill` implementations** — discovery and activation of
+   installed skills/MCP tools; reserved names stay refused until then.
+2. **Derived-artifact writer contracts** (`inspect_media`/`generate_image`
+   outputs) for the read-before-edit baseline.
+3. **The qwen3.8 fine-tuned router compatibility carve-out** — the route keeps
+   `legacy_compat=True` until its trained weights are refreshed to the
+   canonical vocabulary; migration is a fine-tune-cycle task, not a code
+   alias (the carve-out is one parameter at one parse site and cannot widen
+   permissions).
+4. **Real-provider exit-gate matrix** — read/search/edit/patch/shell on at
+   least two provider API protocols (the exit gate below), which has not run
+   against live providers yet.
+5. **Filesystem security redesign follow-ups** — streaming/large-file
+   contracts for the baseline, concurrent-shell residual race narrowing.

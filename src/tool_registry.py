@@ -389,6 +389,67 @@ def legacy_names() -> frozenset[str]:
     return frozenset(names - set(CANONICAL_NAMES))
 
 
+@lru_cache(maxsize=1)
+def _canonical_lower_index() -> dict[str, str]:
+    return {name.lower(): name for name in CANONICAL_NAMES}
+
+
+@lru_cache(maxsize=1)
+def _unavailable_lower_index() -> dict[str, str]:
+    return {name.lower(): message for name, message in _UNAVAILABLE.items()}
+
+
+def unavailable_message_for(name: str) -> Optional[str]:
+    """Refusal message for an unavailable Claude Code tool, exact spelling.
+
+    Exact-case only on purpose: an inherited alias that happens to collide
+    case-insensitively (``skill`` -> ``manage_skills``) keeps working outside
+    the canonical vocabulary; only the model writing the Claude Code spelling
+    itself is told the tool is unavailable.
+    """
+    return _UNAVAILABLE.get(str(name or "").strip())
+
+
+def unavailable_message_for_spelling(name: str) -> Optional[str]:
+    """Case-insensitive :func:`unavailable_message_for`.
+
+    Used by channels where a case-variant spelling was never an executable
+    capability (fenced tags), so any casing of an unavailable name gets the
+    same truthful refusal.
+    """
+    return _unavailable_lower_index().get(str(name or "").strip().lower())
+
+
+def registry_spelling_for(name: str) -> Optional[str]:
+    """The canonical name a model-spelled tool name resolves to, if any.
+
+    Accepts the exact canonical spelling, a case variant of it, a legacy
+    handler id, or an inherited alias spelling — anything that identifies one
+    of the registry's tools. Returns None for names outside the registry
+    (inherited tools, MCP servers, request-scoped external schemas). This is
+    the single resolution primitive for the textual channels: parsers use it
+    to admit canonical spellings, to reject legacy aliases on governed turns,
+    and to leave everything else untouched.
+    """
+    value = str(name or "").strip()
+    if not value:
+        return None
+    if value in CANONICAL_NAMES:
+        return value
+    folded = value.lower()
+    canonical = _canonical_lower_index().get(folded)
+    if canonical is not None:
+        return canonical
+    try:  # alias table; lazily imported to keep the registry import-light
+        from src.tool_parsing import _TOOL_NAME_MAP
+    except Exception:  # pragma: no cover
+        return None
+    handler = _TOOL_NAME_MAP.get(folded) or (value if value in HANDLER_IDS else None)
+    if handler in HANDLER_IDS:
+        return canonical_name_for_handler(handler)
+    return None
+
+
 @dataclass(frozen=True)
 class ResolvedCall:
     """Outcome of validating one model-generated call.
@@ -441,6 +502,26 @@ def project_tools_for_wire(tools: Optional[Sequence[Mapping[str, Any]]]):
 def _to_wire_arguments(tool: CanonicalTool, arguments: Mapping[str, Any]) -> dict:
     reverse = {p.handler_arg: p.name for p in tool.params if p.handler_arg}
     return {reverse.get(key, key): value for key, value in arguments.items()}
+
+
+def project_tool_choice_for_wire(choice: Any):
+    """Project a handler-keyed tool_choice onto its canonical wire name.
+
+    A forced tool_choice must name a tool exactly as the provider sees it: the
+    schemas leave this boundary under canonical names, so a handler-keyed
+    ``{"function": {"name": "web_search"}}`` constraint would no longer match
+    the offered ``WebSearch`` schema. Non-mapping choices ('auto', 'required',
+    'none') and non-registry tools are returned unchanged.
+    """
+    if not isinstance(choice, Mapping):
+        return choice
+    function = choice.get("function")
+    if not isinstance(function, Mapping):
+        return choice
+    canonical = canonical_name_for_handler(str(function.get("name") or ""))
+    if canonical is None:
+        return choice
+    return {**dict(choice), "function": {**dict(function), "name": canonical}}
 
 
 def project_messages_for_wire(messages: Optional[Sequence[Mapping[str, Any]]]):

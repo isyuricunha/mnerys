@@ -115,6 +115,10 @@ async def test_read_write_edit_confined_e2e(ws, admin):
 
     with open(os.path.join(ws, "f.txt"), "w") as f:
         f.write("foo bar")
+    # M5.2 increment 2: an existing-file edit requires a recorded read of the
+    # exact file first.
+    _, r = await execute_tool_block(_block("read_file", "f.txt"), owner="a", workspace=ws)
+    assert r["exit_code"] == 0
     _, r = await execute_tool_block(
         _block("edit_file", json.dumps({"path": "f.txt", "old_string": "foo", "new_string": "baz"})),
         owner="a", workspace=ws,
@@ -140,6 +144,10 @@ async def test_read_write_edit_confined_e2e(ws, admin):
 async def test_apply_patch_confined_e2e(ws, admin):
     with open(os.path.join(ws, "patchme.txt"), "w") as f:
         f.write("alpha\nbeta\ngamma\n")
+    # M5.2 increment 2: a patch updating an existing file requires a recorded
+    # read of that file first.
+    _, r = await execute_tool_block(_block("read_file", "patchme.txt"), owner="a", workspace=ws)
+    assert r["exit_code"] == 0
     patch = """*** Begin Patch
 *** Update File: patchme.txt
 @@

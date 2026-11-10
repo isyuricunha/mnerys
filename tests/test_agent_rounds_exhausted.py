@@ -2348,7 +2348,20 @@ def test_terminal_action_promise_is_not_treated_as_completion(monkeypatch):
         if len(requests) == 1:
             yield 'data: {"delta":"I need to inspect the files first."}\n\n'
         elif not writes:
-            yield 'data: {"delta":"```write_file\\n/tmp_workspace/report.md\\ncomplete report\\n```"}\n\n'
+            yield (
+                "data: "
+                + json.dumps({
+                    "delta": (
+                        "```Write\n"
+                        + json.dumps({
+                            "file_path": "/tmp_workspace/report.md",
+                            "content": "complete report",
+                        })
+                        + "\n```"
+                    )
+                })
+                + "\n\n"
+            )
         else:
             yield 'data: {"delta":"Completed the requested report."}\n\n'
         yield "data: [DONE]\n\n"
@@ -3333,11 +3346,10 @@ def test_binary_artifact_recovery_keeps_generation_tools_for_png(monkeypatch):
             for message in messages
         )
         if not recovering:
-            tool_name = "write_file"
+            tool_name = "Write"
             arguments = json.dumps({
-                # Textual fenced transport keeps the legacy handler-encoded
-                # argument form (M5.2 increment-1 boundary).
-                "path": "/workspace/data.csv",
+                # The canonical textual contract: registry name + canonical args.
+                "file_path": "/workspace/data.csv",
                 "content": "metric,value\naccuracy,1\n",
             })
         else:
@@ -3438,11 +3450,12 @@ def test_final_prose_with_missing_artifact_enters_recovery(monkeypatch):
                 "data: "
                 + json.dumps({
                     "delta": (
-                        "```write_file\n"
-                        f"/workspace/partial_{len(requests)}.txt\n"
-                        "Model,RefCOCO-avg,ERQA\n"
-                        "Seed-1.5-VL-Thinking,91.3,N/A\n"
-                        "```"
+                        "```Write\n"
+                        + json.dumps({
+                            "file_path": f"/workspace/partial_{len(requests)}.txt",
+                            "content": "Model,RefCOCO-avg,ERQA\nSeed-1.5-VL-Thinking,91.3,N/A",
+                        })
+                        + "\n```"
                     )
                 })
                 + "\n\n"
@@ -3580,10 +3593,10 @@ def test_blocked_ad_hoc_http_prefers_native_acquisition_before_artifact_write(mo
                 "query": "Seed-1.5-VL-Thinking RefCOCO ERQA",
             })
         else:
-            tool_name = "write_file"
-            # Fenced textual transport keeps the legacy handler-encoded form.
+            tool_name = "Write"
+            # The canonical textual contract: registry name + canonical args.
             arguments = json.dumps({
-                "path": "/workspace/meta_analysis.csv",
+                "file_path": "/workspace/meta_analysis.csv",
                 "content": (
                     "Model,RefCOCO-avg,ERQA\n"
                     "Seed-1.5-VL-Thinking,91.3,44.1\n"
@@ -3934,10 +3947,12 @@ def test_failed_mutation_with_missing_artifact_recovers_before_failure_breaker(m
         )
         if recovering:
             tool_text = (
-                "```write_file\n"
-                "/workspace/output.png\n"
-                "minimal recovered artifact\n"
-                "```"
+                "```Write\n"
+                + json.dumps({
+                    "file_path": "/workspace/output.png",
+                    "content": "minimal recovered artifact",
+                })
+                + "\n```"
             )
         else:
             tool_text = "```python\nraise RuntimeError('chart generation failed')\n```"

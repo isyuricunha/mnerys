@@ -300,7 +300,8 @@ def test_qwen_tool_router_preserves_explicit_artifact_output_budget() -> None:
         "qwen35-9b-tool-router-v4-firstaction-noschema-adapter"
     )
     recovery = _malformed_native_tool_recovery_instruction({"write_file"})
-    assert "both path and content" in recovery
+    # M5.2 increment 3: recovery feedback teaches the canonical contract.
+    assert "Call Write once with both file_path and content" in recovery
     assert "loops" in recovery
 
 

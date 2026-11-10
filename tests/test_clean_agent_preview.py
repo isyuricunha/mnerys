@@ -552,7 +552,7 @@ async def test_empty_required_directory_keeps_native_turn_running(monkeypatch, t
             'id': 'call-mkdir',
             'type': 'function',
             'function': {
-                'name': 'bash',
+                'name': 'Bash',
                 'arguments': json.dumps({'command': f'mkdir -p {output}'}),
             },
         }]}}]},
@@ -561,9 +561,9 @@ async def test_empty_required_directory_keeps_native_turn_running(monkeypatch, t
             'id': 'call-write',
             'type': 'function',
             'function': {
-                'name': 'write_file',
+                'name': 'Write',
                 'arguments': json.dumps({
-                    'path': str(output / 'answer.txt'), 'content': 'done',
+                    'file_path': '/workspace/output.html', 'content': '<html>done</html>',
                 }),
             },
         }]}}]},
@@ -895,30 +895,30 @@ async def test_malformed_writer_body_handoff_reopens_writer_after_two_tool_viola
         {'choices': [{'delta': {'tool_calls': [{
             'index': 0, 'id': 'malformed-write',
             'function': {
-                'name': 'write_file',
-                'arguments': '{"path":"/workspace/output.tex"}\n{"content":"truncated"}',
+                'name': 'Write',
+                'arguments': '{"file_path":"/workspace/output.tex"}\n{"content":"truncated"}',
             },
         }]}}]},
         {'choices': [{'delta': {'tool_calls': [{
             'index': 0, 'id': 'off-contract-bash-one',
             'function': {
-                'name': 'bash',
+                'name': 'Bash',
                 'arguments': json.dumps({'command': 'echo nope > /workspace/output.tex'}),
             },
         }]}}]},
         {'choices': [{'delta': {'tool_calls': [{
             'index': 0, 'id': 'off-contract-bash-two',
             'function': {
-                'name': 'bash',
+                'name': 'Bash',
                 'arguments': json.dumps({'command': 'echo nope > /workspace/output.tex'}),
             },
         }]}}]},
         {'choices': [{'delta': {'tool_calls': [{
             'index': 0, 'id': 'recovered-write',
             'function': {
-                'name': 'write_file',
+                'name': 'Write',
                 'arguments': json.dumps({
-                    'path': '/workspace/output.tex',
+                    'file_path': '/workspace/output.tex',
                     'content': '\\begin{tabular}{ll}A & B\\\\\\end{tabular}',
                 }),
             },
@@ -977,7 +977,7 @@ async def test_malformed_writer_body_handoff_reopens_writer_after_two_tool_viola
     assert 'tools' not in requests[1]
     assert 'tools' not in requests[2]
     assert requests[3]['tool_choice'] == {
-        'type': 'function', 'function': {'name': 'write_file'},
+        'type': 'function', 'function': {'name': 'Write'},
     }
     assert [block.tool_type for block in executed] == ['write_file']
     events = [json.loads(chunk[6:]) for chunk in raw if '[DONE]' not in chunk]
@@ -1001,15 +1001,15 @@ async def test_concatenated_writer_arguments_execute_as_bounded_ordered_calls(mo
     import src.clean_agent_preview as module
 
     concatenated = ''.join(json.dumps(item) for item in (
-        {'path': '/workspace/results/1.tex', 'content': '1.tex'},
-        {'path': '/workspace/results/1.tex', 'content': '\\begin{table}One\\end{table}'},
-        {'path': '/workspace/results/2.tex', 'content': '2.tex'},
-        {'path': '/workspace/results/2.tex', 'content': '\\begin{table}Two\\end{table}'},
+        {'file_path': '/workspace/results/1.tex', 'content': '1.tex'},
+        {'file_path': '/workspace/results/1.tex', 'content': '\\begin{table}One\\end{table}'},
+        {'file_path': '/workspace/results/2.tex', 'content': '2.tex'},
+        {'file_path': '/workspace/results/2.tex', 'content': '\\begin{table}Two\\end{table}'},
     ))
     responses = iter([
         {'choices': [{'delta': {'tool_calls': [{
             'index': 0, 'id': 'concatenated-writes',
-            'function': {'name': 'write_file', 'arguments': concatenated},
+            'function': {'name': 'Write', 'arguments': concatenated},
         }]}}]},
         {'choices': [{'delta': {'content': 'Created the requested TeX files.'}}]},
     ])
@@ -1087,13 +1087,13 @@ def test_concatenated_writer_recovery_fails_closed_for_ambiguous_or_large_batche
 
     ambiguous = {
         'id': 'ambiguous', 'type': 'function', 'function': {
-            'name': 'write_file',
+            'name': 'Write',
             'arguments': '{"path":"/workspace/a","content":"a"}{"path":"/workspace/b","mode":"x"}',
         },
     }
     too_large = {
         'id': 'large', 'type': 'function', 'function': {
-            'name': 'write_file',
+            'name': 'Write',
             'arguments': ''.join(
                 json.dumps({'path': f'/workspace/{index}', 'content': 'x'})
                 for index in range(17)
@@ -1124,7 +1124,7 @@ def test_mixed_writer_argument_recovers_only_grounded_leading_json_write():
 '''
     source = {
         'id': 'mixed', 'type': 'function', 'function': {
-            'name': 'write_file',
+            'name': 'Write',
             'arguments': json.dumps(first) + trailing,
         },
     }
@@ -1309,7 +1309,7 @@ async def test_repeated_off_contract_calls_recover_via_required_artifact_body(mo
     responses = iter([
         {'choices': [{'delta': {'reasoning_content': 'reasoning-one', 'tool_calls': [{
             'index': 0, 'id': 'bad-bash',
-            'function': {'name': 'bash', 'arguments': json.dumps({
+            'function': {'name': 'Bash', 'arguments': json.dumps({
                 'command': 'echo nope',
             })},
         }]}}]},
@@ -2143,9 +2143,9 @@ async def test_stream_bounds_research_to_two_searches_fetch_then_synthesis(monke
         }}
 
     packets = iter([
-        {'choices': [{'delta': {'tool_calls': [call(0, 'web_search', {'query': 'topic overview'})]}}]},
-        {'choices': [{'delta': {'tool_calls': [call(1, 'web_search', {'query': 'topic official source'})]}}]},
-        {'choices': [{'delta': {'tool_calls': [call(2, 'web_fetch', {'url': 'https://example.org/source'})]}}]},
+        {'choices': [{'delta': {'tool_calls': [call(0, 'WebSearch', {'query': 'topic overview'})]}}]},
+        {'choices': [{'delta': {'tool_calls': [call(1, 'WebSearch', {'query': 'topic official source'})]}}]},
+        {'choices': [{'delta': {'tool_calls': [call(2, 'WebFetch', {'url': 'https://example.org/source'})]}}]},
         {'choices': [{'delta': {'content': 'Complete evidence-grounded answer with https://example.org/source. ' +
             'The sources describe the topic and explain how the findings were obtained. '
             'Their methods support the reported observations but do not establish every broader claim. '
@@ -2201,13 +2201,13 @@ async def test_stream_bounds_research_to_two_searches_fetch_then_synthesis(monke
 
     assert executions == ['web_search', 'web_search', 'web_fetch']
     assert requests[2]['tool_choice'] == {
-        'type': 'function', 'function': {'name': 'web_fetch'},
+        'type': 'function', 'function': {'name': 'WebFetch'},
     }
     assert all(
         schema['function']['name'] != 'web_search'
         for schema in requests[2]['tools']
     )
-    assert [schema['function']['name'] for schema in requests[3]['tools']] == ['web_fetch']
+    assert [schema['function']['name'] for schema in requests[3]['tools']] == ['WebFetch']
     assert requests[3].get('tool_choice') != 'none'
     assert any(
         'Retrieved source URLs: https://example.org/source' in str(message.get('content', ''))
@@ -2227,19 +2227,19 @@ async def test_stream_research_prerequisite_precedes_broad_web_answer(monkeypatc
     packets = [
         {'choices': [{'delta': {'tool_calls': [{
             'index': 0, 'id': 'search-1', 'function': {
-                'name': 'web_search',
+                'name': 'WebSearch',
                 'arguments': json.dumps({'query': 'latest AI news'}),
             },
         }]}}]},
         {'choices': [{'delta': {'tool_calls': [{
             'index': 0, 'id': 'search-2', 'function': {
-                'name': 'web_search',
+                'name': 'WebSearch',
                 'arguments': json.dumps({'query': 'AI policy and model releases today'}),
             },
         }]}}]},
         {'choices': [{'delta': {'tool_calls': [{
             'index': 0, 'id': 'fetch-1', 'function': {
-                'name': 'web_fetch',
+                'name': 'WebFetch',
                 'arguments': json.dumps({'url': 'https://example.org/ai-news'}),
             },
         }]}}]},
@@ -2314,12 +2314,12 @@ async def test_stream_research_prerequisite_precedes_broad_web_answer(monkeypatc
 
     assert len(requests) == (3 if embedded_article or empty_second_search else 4)
     assert requests[1]['tool_choice'] == 'required'
-    assert [s['function']['name'] for s in requests[1]['tools']] == ['web_search']
+    assert [s['function']['name'] for s in requests[1]['tools']] == ['WebSearch']
     if not embedded_article and not empty_second_search:
         assert requests[2]['tool_choice'] == {
-            'type': 'function', 'function': {'name': 'web_fetch'},
+            'type': 'function', 'function': {'name': 'WebFetch'},
         }
-    assert any(s['function']['name'] == 'web_fetch' for s in requests[-1]['tools'])
+    assert any(s['function']['name'] == 'WebFetch' for s in requests[-1]['tools'])
     assert requests[-1].get('tool_choice') != 'none'
     assert any(
         event.get('type') == 'completion_recovery'
@@ -4958,9 +4958,9 @@ async def test_native_workspace_write_allows_evidence_backed_completion(monkeypa
     responses = iter([
         {'choices': [{'delta': {'tool_calls': [{
             'index': 0, 'id': 'write', 'function': {
-                'name': 'write_file',
+                'name': 'Write',
                 'arguments': json.dumps({
-                    'path': '/workspace/output.txt', 'content': 'verified result',
+                    'file_path': '/workspace/output.txt', 'content': 'verified result',
                 }),
             },
         }]}}]},
@@ -5050,7 +5050,7 @@ async def test_native_bash_arguments_use_canonical_execution_content(monkeypatch
     import src.clean_agent_preview as module
     command = "printf '%s\\n' ODY_SHELL_FILES_READONLY; cat /etc/hostname"
     responses = iter([
-        {'choices': [{'delta': {'tool_calls': [{'index': 0, 'id': 'shell', 'function': {'name': 'bash', 'arguments': json.dumps({'command': command})}}]}}]},
+        {'choices': [{'delta': {'tool_calls': [{'index': 0, 'id': 'shell', 'function': {'name': 'Bash', 'arguments': json.dumps({'command': command})}}]}}]},
         {'choices': [{'delta': {'content': 'Marker verified.'}}]},
     ])
     class Response:
@@ -5086,12 +5086,12 @@ async def test_native_shell_evidence_cannot_finish_with_required_artifact_missin
 
     responses = iter([
         {'choices': [{'delta': {'tool_calls': [{'index': 0, 'id': 'analyze',
-            'function': {'name': 'bash', 'arguments': json.dumps({
+            'function': {'name': 'Bash', 'arguments': json.dumps({
                 'command': 'python3 -c "print(42)"',
             })}}]}}]},
         {'choices': [{'delta': {'tool_calls': [{'index': 0, 'id': 'write',
-            'function': {'name': 'write_file', 'arguments': json.dumps({
-                'path': '/workspace/output.html', 'content': '<html>done</html>',
+            'function': {'name': 'Write', 'arguments': json.dumps({
+                'file_path': '/workspace/output.html', 'content': '<html>done</html>',
             })}}]}}]},
         {'choices': [{'delta': {'content': 'Created and verified output.html.'}}]},
     ])
@@ -5384,7 +5384,7 @@ async def test_model_choice_budget_preserves_evidence_for_final_answer_without_e
     _tool_budget = 6
     def call(i):
         return {'index': i, 'id': f'call-{i}', 'function': {
-            'name': 'web_fetch', 'arguments': json.dumps({'url': f'https://example.org/{i}'})}}
+            'name': 'WebFetch', 'arguments': json.dumps({'url': f'https://example.org/{i}'})}}
     packets = iter([
         {'choices': [{'delta': {'tool_calls': [call(i) for i in range(6)]}}]},
         {'choices': [{'delta': {'tool_calls': [call(7)]}}]},
@@ -5433,7 +5433,7 @@ async def test_failed_static_fetch_recovers_once_through_rendered_browser(monkey
 
     responses = iter([
         {'choices': [{'delta': {'tool_calls': [{'index': 0, 'id': 'fetch', 'function': {
-            'name': 'web_fetch',
+            'name': 'WebFetch',
             'arguments': json.dumps({'url': 'https://www.reuters.com/example'}),
         }}]}}]},
         {'choices': [{'delta': {'tool_calls': [{'index': 0, 'id': 'browser', 'function': {
@@ -5441,7 +5441,7 @@ async def test_failed_static_fetch_recovers_once_through_rendered_browser(monkey
             'arguments': json.dumps({'action': 'open', 'url': 'https://www.reuters.com/example'}),
         }}]}}]},
         {'choices': [{'delta': {'tool_calls': [{'index': 0, 'id': 'alternative', 'function': {
-            'name': 'web_fetch',
+            'name': 'WebFetch',
             'arguments': json.dumps({'url': 'https://example.org/report'}),
         }}]}}]},
         {'choices': [{'delta': {'content': 'Reuters blocked both access methods. The alternative report was readable.'}}]},
@@ -5500,7 +5500,7 @@ async def test_failed_static_fetch_recovers_once_through_rendered_browser(monkey
         schema['function']['name'] != 'web_fetch'
         for schema in requests[1].get('tools', [])
     )
-    assert any(schema['function']['name'] == 'web_fetch' for schema in requests[2]['tools'])
+    assert any(schema['function']['name'] == 'WebFetch' for schema in requests[2]['tools'])
     assert any('Use another relevant source' in str(msg.get('content')) for msg in requests[2]['messages'])
     events = [json.loads(chunk[6:]) for chunk in raw if '[DONE]' not in chunk]
     assert any(event.get('type') == 'tool_loop_recovery' for event in events)
@@ -5515,7 +5515,7 @@ async def test_duplicate_fetch_does_not_hide_distinct_pagination_request(monkeyp
     def tool_call(call_id, url):
         return {
             'index': 0, 'id': call_id,
-            'function': {'name': 'web_fetch', 'arguments': json.dumps({'url': url})},
+            'function': {'name': 'WebFetch', 'arguments': json.dumps({'url': url})},
         }
 
     first = 'https://api.example.org/feed?start=0'
@@ -5566,7 +5566,7 @@ async def test_duplicate_fetch_does_not_hide_distinct_pagination_request(monkeyp
     assert executions == [first, next_page]
     assert any('different arguments' in chunk for chunk in raw)
     assert any(
-        schema['function']['name'] == 'web_fetch'
+        schema['function']['name'] == 'WebFetch'
         for schema in requests[2].get('tools', [])
     )
 
@@ -5589,7 +5589,7 @@ async def test_blocked_search_engine_browser_forces_native_web_search(monkeypatc
         {'choices': [{'delta': {'tool_calls': [{
             'index': 0, 'id': 'search-1',
             'function': {
-                'name': 'web_search',
+                'name': 'WebSearch',
                 'arguments': json.dumps({'query': 'latest AI news'}),
             },
         }]}}]},
@@ -5658,7 +5658,7 @@ async def test_blocked_search_engine_browser_forces_native_web_search(monkeypatc
 
     assert executions == ['private_browser', 'web_search']
     assert requests[1]['tool_choice'] == 'required'
-    assert [s['function']['name'] for s in requests[1]['tools']] == ['web_search']
+    assert [s['function']['name'] for s in requests[1]['tools']] == ['WebSearch']
     events = [json.loads(chunk[6:]) for chunk in raw if '[DONE]' not in chunk]
     assert any(
         event.get('type') == 'tool_loop_recovery'
@@ -5680,7 +5680,7 @@ async def test_native_stream_reserves_remaining_budget_for_required_artifact(mon
     payloads.extend([
         {"choices": [{"delta": {"tool_calls": [{
             "index": 0, "id": f"search-{index}",
-            "function": {"name": "web_search", "arguments": json.dumps({"query": f"topic {index}"})},
+            "function": {"name": "WebSearch", "arguments": json.dumps({"query": f"topic {index}"})},
         }]}}]}
         for index in range(module.NATIVE_ARTIFACT_RESEARCH_LIMIT - 1)
     ])
@@ -5799,7 +5799,7 @@ async def test_native_stream_reserves_wall_time_for_required_artifact(monkeypatc
     responses = iter([
         {"choices": [{"delta": {"tool_calls": [{
             "index": 0, "id": "slow-search",
-            "function": {"name": "web_search", "arguments": json.dumps({"query": "topic"})},
+            "function": {"name": "WebSearch", "arguments": json.dumps({"query": "topic"})},
         }]}}]},
         {"choices": [{"delta": {"tool_calls": [{
             "index": 0, "id": "artifact-write",
@@ -5961,8 +5961,8 @@ async def test_exact_native_read_gets_tool_free_synthesis_round(monkeypatch):
 
     responses = iter([
         {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "read-1", "function": {
-            "name": "read_file",
-            "arguments": json.dumps({"path": "/workspace/sample.txt", "limit": 3}),
+            "name": "Read",
+            "arguments": json.dumps({"file_path": "/workspace/sample.txt", "limit": 3}),
         }}]}}]},
         {"choices": [{"delta": {"content": "Read the requested three lines."}}]},
     ])
@@ -6228,7 +6228,7 @@ async def test_empty_search_retry_preserves_evidence_dedupe_and_execution_budget
     arguments = json.dumps({'query': 'documentation domains'})
     packets = iter([
         {'choices': [{'delta': {'tool_calls': [{'index': 0, 'id': f'search-{i}',
-            'function': {'name': 'web_search', 'arguments': arguments}}]}}]}
+            'function': {'name': 'WebSearch', 'arguments': arguments}}]}}]}
         for i in range(3 if recovers else 2)
     ] + [{'choices': [{'delta': {'content': 'Used the available source.'}}]}])
     class Response:
@@ -6505,15 +6505,15 @@ async def test_suppressed_evidence_tool_recovers_missing_artifact_with_writer(
     responses = iter([
         {'choices': [{'delta': {'tool_calls': [{
                 'index': 0, 'id': f'search-{index}', 'function': {
-                'name': 'web_search', 'arguments': search_arguments,
+                'name': 'WebSearch', 'arguments': search_arguments,
                 },
             }]}}]}
         for index in range(1, 4)
     ] + [
         {'choices': [{'delta': {'tool_calls': [{
             'index': 0, 'id': 'write-1', 'function': {
-                'name': 'write_file', 'arguments': json.dumps({
-                    'path': output_alias, 'content': '# Verified report\nEvidence retained.\n',
+                'name': 'Write', 'arguments': json.dumps({
+                    'file_path': output_alias, 'content': '# Verified report\nEvidence retained.\n',
                 }),
             },
         }]}}]},
@@ -6587,7 +6587,7 @@ async def test_suppressed_evidence_tool_recovers_missing_artifact_with_writer(
     recovery = recovery_events[0]
     assert recovery['missing_artifacts'] == [output_alias]
     assert any(
-        tool['function']['name'] == 'write_file'
+        tool['function']['name'] == 'Write'
         for tool in requests[4].get('tools', [])
     )
     final = [event for event in events if event.get('type') == 'final_response']
@@ -6820,8 +6820,8 @@ async def test_native_stream_stops_fourth_full_rewrite_to_same_target(monkeypatc
 
     packets = [
         {'choices': [{'delta': {'tool_calls': [{'index': 0, 'id': f'write-{i}',
-            'function': {'name': 'write_file', 'arguments': json.dumps({
-                'path': '/tmp_workspace/results/report.md', 'content': f'version {i}',
+            'function': {'name': 'Write', 'arguments': json.dumps({
+                'file_path': '/tmp_workspace/results/report.md', 'content': f'version {i}',
             })}}]}}]}
         for i in range(1, 5)
     ] + [{'choices': [{'delta': {'content': 'Finished from the latest saved report.'}}]}]
@@ -6883,9 +6883,9 @@ async def test_native_stream_redirects_repeated_filename_image_inference(monkeyp
     ]
     packets = iter([
         {'choices': [{'delta': {'tool_calls': [{'index': 0, 'id': 'bash-1',
-            'function': {'name': 'bash', 'arguments': json.dumps({'command': commands[0]})}}]}}]},
+            'function': {'name': 'Bash', 'arguments': json.dumps({'command': commands[0]})}}]}}]},
         {'choices': [{'delta': {'tool_calls': [{'index': 0, 'id': 'bash-2',
-            'function': {'name': 'bash', 'arguments': json.dumps({'command': commands[1]})}}]}}]},
+            'function': {'name': 'Bash', 'arguments': json.dumps({'command': commands[1]})}}]}}]},
         {'choices': [{'delta': {'content': 'Classified it from visual evidence.'}}]},
     ])
     requests = []
@@ -7093,7 +7093,7 @@ async def test_native_stream_marks_masked_shell_pipeline_failure_as_error(monkey
 
     packets = iter([
         {'choices': [{'delta': {'tool_calls': [{'index': 0, 'id': 'bash-1',
-            'function': {'name': 'bash', 'arguments': json.dumps({
+            'function': {'name': 'Bash', 'arguments': json.dumps({
                 'command': 'ls /missing-directory | head',
             })}}]}}]},
         {'choices': [{'delta': {'content': 'The directory could not be listed.'}}]},

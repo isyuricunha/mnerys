@@ -256,9 +256,15 @@ def _malformed_native_tool_recovery_instruction(names: Set[str]) -> str:
     """Return targeted, schema-level recovery for dropped native calls."""
 
     if "write_file" in set(names or ()):
+        # M5.2 increment 3: recovery feedback teaches the canonical contract —
+        # the model-visible name and argument keys are the registry's.
+        from src.tool_registry import canonical_name_for_handler
+
+        canonical = canonical_name_for_handler("write_file") or "write_file"
+        path_key = "file_path" if canonical == "Write" else "path"
         return (
-            "Your previous write_file call was incomplete or malformed. Call "
-            "write_file once with both path and content. Keep the file within "
+            f"Your previous {canonical} call was incomplete or malformed. Call "
+            f"{canonical} once with both {path_key} and content. Keep the file within "
             "the output budget by using loops, reusable functions, CSS, or data "
             "arrays instead of repeating generated markup. Do not restate the plan."
         )
@@ -7148,11 +7154,11 @@ When referencing app entities by id, use clickable markdown anchors:
 _DOMAIN_RULES = {
     "web": """\
 ## Web rules
-- For web lookup/search/latest/current requests, use `web_search` or `web_fetch`.
+- For web lookup/search/latest/current requests, use `WebSearch` or `WebFetch`.
 - Do not use shell, Python, curl, requests, or scraping code for web lookup unless web tools are unavailable or already failed.
 - For YouTube comments, transcripts, metadata, or latest channel videos, use `youtube_tool` when it is available instead of scraping the JavaScript page.
 - For products, hardware, software, launches, and releases, distinguish announcement date from release/ship/availability date. Do not call an announced future product "current" or "available" unless the evidence says it is shipping/available now.
-- "Research X" means `trigger_research`, not a one-off `web_search`, unless the user explicitly asks for a quick lookup.""",
+- "Research X" means `trigger_research`, not a one-off `WebSearch`, unless the user explicitly asks for a quick lookup.""",
     "documents": """\
 ## Document rules
 - For long code/content (>15 lines), use `create_document` instead of pasting into chat.
@@ -7199,8 +7205,8 @@ _DOMAIN_RULES = {
     "files": """\
 ## File rules
 - Use file tools for real disk files. Use document tools only for editor documents.
-- Prefer `grep`, `glob`, and `ls` over shell equivalents when available.
-- Use `edit_file`/`write_file` for writes; avoid shell redirection/heredocs for editing files.""",
+- Prefer `Grep`, `Glob`, and `ls` over shell equivalents when available.
+- Use `Edit`/`Write` for writes; avoid shell redirection/heredocs for editing files.""",
     "settings": """\
 ## Settings/API rules
 - Use `manage_settings` for preferences and tool enable/disable.
@@ -7971,14 +7977,14 @@ def _domain_rules_for_tools(tool_names: set) -> list[str]:
 # Sections with multiple tools use a tuple key.
 TOOL_SECTIONS = {
     "bash": """\
-```bash
+```Bash
 <shell command>
 ```
 Run any shell command. Output is returned to you. Use for: installing packages, checking files, git, system info, process management, etc.
-Do NOT use bash/curl for web lookup/search/latest/current requests when `web_search` or `web_fetch` is available.
-NEVER use bash to create or change files — no `>`/`>>` redirects, no heredocs (`cat > f << 'EOF'`), no `tee`, `sed -i`, `awk -i`, no `python -c` that writes. To CREATE a new file or deliberately provide its COMPLETE replacement use `write_file`; to change part of an existing file use `edit_file` or `apply_patch`. Never send a partial file to `write_file`, because it can discard unrelated existing code. Those tools show a diff and are the ONLY allowed way to write files. (bash is for read-only inspection: `ls`, `cat` to READ, `grep`, `git status`/`git diff`, builds, installs.)
+Do NOT use Bash/curl for web lookup/search/latest/current requests when `WebSearch` or `WebFetch` is available.
+NEVER use Bash to create or change files — no `>`/`>>` redirects, no heredocs (`cat > f << 'EOF'`), no `tee`, `sed -i`, `awk -i`, no `python -c` that writes. To CREATE a new file or deliberately provide its COMPLETE replacement use `Write`; to change part of an existing file use `Edit` or `apply_patch`. Never send a partial file to `Write`, because it can discard unrelated existing code. Those tools show a diff and are the ONLY allowed way to write files. (Bash is for read-only inspection: `ls`, `cat` to READ, `grep`, `git status`/`git diff`, builds, installs.)
 For LONG-running commands (package installs, pip/npm, ffmpeg, model downloads, training, builds — anything that may take more than ~20s), make the FIRST line `#!bg` to run it in the BACKGROUND. You get a job id back immediately and are automatically re-invoked with the full output when it finishes — so you never block the chat waiting. Example:
-```bash
+```Bash
 #!bg
 pip install openai-whisper
 ```
@@ -7989,29 +7995,29 @@ NEVER pipe multi-line Python through `python -c "..."` — shell quoting eats re
 ```python
 <python code>
 ```
-Execute Python code. Use for computation, data processing, scripting. NOT for writing code for the user (use create_document for that). Same sandbox limits as bash — no TTY, no GUI, no `input()`; for anything the user should interact with, generate a single HTML file with inline JS instead.
+Execute Python code. Use for computation, data processing, scripting. NOT for writing code for the user (use create_document for that). Same sandbox limits as Bash — no TTY, no GUI, no `input()`; for anything the user should interact with, generate a single HTML file with inline JS instead.
 Prefer a dedicated tool whenever one fits the job (reading, searching, or writing files); use python only for computation/processing no dedicated tool covers - not for reading or writing files.
-Do NOT use Python/requests for web lookup/search/latest/current requests when `web_search` or `web_fetch` is available.""",
+Do NOT use Python/requests for web lookup/search/latest/current requests when `WebSearch` or `WebFetch` is available.""",
 
     "web_search": """\
-```web_search
+```WebSearch
 <search query>
 ```
 Or with JSON for fresh news:
-```web_search
+```WebSearch
 {"query": "<your query>", "time_filter": "day"}
 ```
-Search the web for a SINGLE quick fact/lookup mid-task. For recently published news/articles, pass `time_filter` ("day", "week", "month", or "year"); do not use a publication filter for current weather, prices, or other current facts. For weather, prefer `get_weather`. NOT for "research X" / "do research on X" / "look into X" requests — those mean a multi-source DEEP RESEARCH job: use `trigger_research` instead (it runs in the Deep Research sidebar and produces a full report). web_search = one quick query; trigger_research = a researched report.
+Search the web for a SINGLE quick fact/lookup mid-task. For recently published news/articles, pass `time_filter` ("day", "week", "month", or "year"); do not use a publication filter for current weather, prices, or other current facts. For weather, prefer `get_weather`. NOT for "research X" / "do research on X" / "look into X" requests — those mean a multi-source DEEP RESEARCH job: use `trigger_research` instead (it runs in the Deep Research sidebar and produces a full report). WebSearch = one quick query; trigger_research = a researched report.
 Choose the `query` yourself from the user's full request and recent conversation context. If the latest user message is only "can you search", "look it up", or similar, search for the prior topic, not the literal follow-up phrase.
-If this `web_search` tool section is visible, search is available. Do NOT tell the user web/search tools are unavailable.
+If this `WebSearch` tool section is visible, search is available. Do NOT tell the user web/search tools are unavailable.
 For products, hardware, software, launches, and releases, distinguish announcement date from release/ship/availability date. Do not call an announced future product "current" or "available" unless the evidence says it is shipping/available now.
-Use this instead of `bash`, `curl`, `python`, `requests`, scraping code, or browser navigation to Google/DuckDuckGo/Bing for web lookup/search/latest/current requests. This is Odysseus' private search path and uses the configured backend, normally SearXNG.""",
+Use this instead of `Bash`, `curl`, `python`, `requests`, scraping code, or browser navigation to Google/DuckDuckGo/Bing for web lookup/search/latest/current requests. This is Odysseus' private search path and uses the configured backend, normally SearXNG.""",
 
     "web_fetch": """\
-```web_fetch
+```WebFetch
 <url or domain>
 ```
-Fetch and read the text content of a SPECIFIC URL the user names (e.g. "check example.com", "what does this page say <url>"). A bare domain like `example.com` works (defaults to https). Use this when you already have a concrete URL. For open-ended lookups use `web_search`, and for "research X" jobs use `trigger_research`.""",
+Fetch and read the text content of a SPECIFIC URL the user names (e.g. "check example.com", "what does this page say <url>"). A bare domain like `example.com` works (defaults to https). Use this when you already have a concrete URL. For open-ended lookups use `WebSearch`, and for "research X" jobs use `trigger_research`.""",
 
     "get_weather": """\
 ```get_weather
@@ -8032,25 +8038,25 @@ Registered browser session metadata only: session_info. Page/document reads and 
 Read YouTube-specific data without fighting the JavaScript UI. Actions: `comments`, `transcript`, `metadata`, `latest_channel_video`. Use `latest_channel_video` with `max_results` for latest N uploads from a channel. Use this for YouTube comments/transcripts/channel uploads; use `private_browser` only when the user wants visible site interaction.""",
 
     "read_file": """\
-```read_file
+```Read
 <file path>
 ```
-Read a text file or extract readable text from a PDF or Office document. Optional JSON arguments `offset` and `limit` select a line range.""",
+Read a text file or extract readable text from a PDF or Office document. Optional JSON arguments `offset` and `limit` select a line range:
+```Read
+{"file_path": "<file path>", "offset": 1, "limit": 100}
+```""",
 
     "write_file": """\
-```write_file
-<file path>
-<file contents>
+```Write
+{"file_path": "<file path>", "content": "<complete file contents>"}
 ```
-Write content to a file. First line is the path, rest is the content. An empty body is
-refused when the target already holds data — to clear a file on purpose, send
-`{"path": "<file path>", "content": ""}` instead.""",
+Write content to one file. An empty `content` body is refused when the target already holds data — to clear a file on purpose, send `"content": ""`.""",
 
     "edit_file": """\
-```edit_file
-{"path": "<file path>", "old_string": "<exact text to replace>", "new_string": "<replacement>", "replace_all": false}
+```Edit
+{"file_path": "<file path>", "old_string": "<exact text to replace>", "new_string": "<replacement>", "replace_all": false}
 ```
-Edit an EXISTING file by exact string replacement. PREFER this over bash (sed/echo/redirects) for changing files — it shows a before/after diff. `old_string` must match the file exactly and be unique unless `replace_all` is true. Use write_file to create a new file.""",
+Edit an EXISTING file by exact string replacement. PREFER this over Bash (sed/echo/redirects) for changing files — it shows a before/after diff. `old_string` must match the file exactly and be unique unless `replace_all` is true. Use `Write` to create a new file.""",
 
     "apply_patch": """\
 ```apply_patch
@@ -8132,7 +8138,7 @@ Generate an image. Line 1 = description, line 2 = model name, line 3 = WxH (e.g.
     "manage_webhooks": "- ```manage_webhooks``` — Configure outgoing webhooks (HTTP notifications on events like chat completion). Args (JSON): {\"action\": \"list|add|delete|enable|disable\", ...}",
     "manage_tokens": "- ```manage_tokens``` — Generate or revoke API access tokens for external integrations. Args (JSON): {\"action\": \"list|create|delete\", ...}",
     "manage_documents": "- ```manage_documents``` — List, read/open, delete, or tidy documents in the editor panel. Args (JSON): {\"action\": \"list|read|delete|tidy\", ...}. `list` returns rows like `[Title](#document-<id>) — lang, size, updated 5m ago` sorted MOST-RECENT FIRST; the user clicks the anchor to open. `read` (aliases: view/open/get) takes `document_id` and returns the content. When the user asks \"open/show/read my notes\" or \"what documents do I have\", use this — do NOT shell out, do NOT curl.",
-    "manage_research": "- ```manage_research``` — List, read/open, or delete saved DEEP RESEARCH results from the Library. Args (JSON): {\"action\": \"list|read|delete\", \"id\": \"<id>\", \"search\": \"...\"}. `list` returns rows like `[query](#research-<id>) — N sources` MOST-RECENT FIRST; the user clicks to open. `read` (aliases: open/view/get) takes `id` and returns the report text + sources. Use when the user says \"open/read/find/delete my research\" or \"that report\". This IS how you read a finished report: when the user refers to a just-completed deep-research job (\"check it out\", \"read that report\", \"summarize the research\") WITHOUT giving an id, call `manage_research` with `action:list` to get the most-recent id, then `action:read` with that id, and answer from the returned text. Do NOT `web_fetch`/`app_api` the `/api/research/report/{id}` URL — that endpoint renders HTML for the browser, not clean text — and do NOT start a fresh `web_search`/`trigger_research` just to read an existing report. To START new research, use trigger_research instead.",
+    "manage_research": "- ```manage_research``` — List, read/open, or delete saved DEEP RESEARCH results from the Library. Args (JSON): {\"action\": \"list|read|delete\", \"id\": \"<id>\", \"search\": \"...\"}. `list` returns rows like `[query](#research-<id>) — N sources` MOST-RECENT FIRST; the user clicks to open. `read` (aliases: open/view/get) takes `id` and returns the report text + sources. Use when the user says \"open/read/find/delete my research\" or \"that report\". This IS how you read a finished report: when the user refers to a just-completed deep-research job (\"check it out\", \"read that report\", \"summarize the research\") WITHOUT giving an id, call `manage_research` with `action:list` to get the most-recent id, then `action:read` with that id, and answer from the returned text. Do NOT `WebFetch`/`app_api` the `/api/research/report/{id}` URL — that endpoint renders HTML for the browser, not clean text — and do NOT start a fresh `WebSearch`/`trigger_research` just to read an existing report. To START new research, use trigger_research instead.",
     "manage_settings": "- ```manage_settings``` — View/change the REAL app settings (same ones the Settings panel writes) AND turn tools on/off. Change a setting: `{\"action\":\"set\",\"key\":\"...\",\"value\":\"...\"}` — keys accept friendly aliases, e.g. voice→tts_voice, \"search engine\"→search_provider, \"default model\"→default_model, \"teacher model\"→teacher_model, \"task/background model\"→task_model, \"image quality\"→image_quality, \"reminder channel\"→reminder_channel (browser|email|ntfy), \"agent timeout\"/\"max tool calls\"/\"token budget\". Read: `{\"action\":\"get\",\"key\":\"...\"}`; see all: `{\"action\":\"list\"}`; reset one: `{\"action\":\"reset\",\"key\":\"...\"}`. Use this when the user asks to change ANY preference instead of making them open Settings. Secrets/API keys are read-only (tell them to set those in the panel). Tool toggles: `{\"action\":\"disable_tool|enable_tool\",\"tool\":\"shell\"}` (aliases: shell/search/browser/documents/memory/skills/images/tasks/notes/calendar/email), list disabled: `{\"action\":\"list_tools\"}`.",
     "manage_notes": """\
 ```manage_notes
@@ -8262,8 +8268,18 @@ def _section_text(name: str, default: str) -> str:
     return val if isinstance(val, str) and val.strip() else default
 
 
+def _canonical_tool_display(name: str) -> str:
+    """Model-facing name for a tool: canonical registry name when governed."""
+    try:
+        from src.tool_registry import canonical_name_for_handler
+    except Exception:  # pragma: no cover - registry always present in practice
+        return name
+    return canonical_name_for_handler(str(name or "").strip()) or name
+
+
 def _compact_tool_line(name: str, section: str) -> str:
     """One-line fenced-tool usage hint for compact/local prompts."""
+    name = _canonical_tool_display(name)
     text = (section or "").strip()
     if not text:
         return f"- `{name}`"
@@ -8744,14 +8760,12 @@ def _uploaded_files_context_message(uploaded_files: Optional[List[Dict]]) -> Opt
         lines.append(f"- ... {len(uploaded_files) - 20} more upload(s) omitted from this manifest")
     lines.extend([
         "",
-        # M5.2 note: this hint is seen by BOTH transports. Textual-only local
-        # models execute the legacy handler spelling as a fenced call, while
-        # schema-declaring models follow the canonical wire vocabulary
-        # regardless of prose hints. Prompt-vocabulary migration follows each
-        # route's advertised surface (increment 2), so the legacy spelling
-        # stays here.
-        "For a readable non-image attachment, call `read_file` on its listed path before answering. "
-        "`read_file` automatically extracts TXT, PDF, DOC/DOCX, PPTX, XLS/XLSX, and EPUB content. "
+        # M5.2: the canonical `Read` name works on every route now — schema
+        # models see it on the wire, textual models admit it through the
+        # registry in either mode (the fine-tuned compatibility route still
+        # resolves exact canonical names).
+        "For a readable non-image attachment, call `Read` on its listed path before answering. "
+        "`Read` automatically extracts TXT, PDF, DOC/DOCX, PPTX, XLS/XLSX, and EPUB content. "
         "Do not use bash, cat, grep, unzip, or ad-hoc Python to read an uploaded document. "
         "Do not say uploaded files are undiscoverable when they are listed here.",
     ])
@@ -14727,7 +14741,7 @@ def _build_system_prompt(
                     f'The ENTIRE form is in the markdown above. Every field, on every '
                     f'page, is a bullet line you can see now.\n\n'
                     f'DO NOT try to "read the file", "open the PDF", or call '
-                    f'filesystem / read_file / mcp__filesystem__read_file / any '
+                    f'filesystem / Read / mcp__filesystem__read_file / any '
                     f'file-reading tool. The form IS the document above. Just edit it.\n\n'
                     f'DO NOT ask the user to upload, share, or re-attach. The form is '
                     f'already loaded.\n\n'
@@ -14768,7 +14782,7 @@ def _build_system_prompt(
                     f'are NOT part of the document.\n'
                     f'```\n{_doc_numbered}\n```\n'
                     f'You ALREADY HAVE this document — it is right above. Do NOT ask the user to paste '
-                    f'it, and do NOT use read_file, bash, cat, or any tool to fetch it: it lives in the '
+                    f'it, and do NOT use Read, Bash, cat, or any tool to fetch it: it lives in the '
                     f'editor, NOT on disk, so those attempts will fail. Every request is about THIS '
                     f'document unless the user clearly says otherwise.\n'
                     f'A "[Doc edit: L25]" prefix means the user is pointing at that line — use the '
@@ -15405,8 +15419,15 @@ def _resolve_tool_blocks(
     declared_tool_names: Optional[Set[str]] = None,
     declared_tool_schemas: Optional[Sequence[dict]] = None,
     sealed_internal_calls: Optional[Set[Tuple[str, str]]] = None,
+    legacy_compat: bool = True,
 ):
-    """Choose native function calls or fenced code block parsing. Returns (tool_blocks, used_native)."""
+    """Choose native function calls or fenced code block parsing. Returns (tool_blocks, used_native).
+
+    ``legacy_compat`` selects the textual tool-vocabulary contract (M5.2):
+    governed turns (False) admit built-in calls through the canonical registry
+    only; the fine-tuned compatibility route keeps the historical vocabulary.
+    Native calls are always registry-governed.
+    """
     used_native = False
     converted_calls = []  # native calls that converted, ALIGNED with tool_blocks
     def _tool_block_content_key(content: Any) -> str:
@@ -15563,7 +15584,21 @@ def _resolve_tool_blocks(
             skip_fenced=(is_api_model and not allow_fenced_for_api),
             additional_tool_names=declared_tool_names,
             additional_tool_schemas=declared_tool_schemas,
+            legacy_compat=legacy_compat,
         )
+        if tool_blocks:
+            # M5.2: registry-rejected textual calls are records, not operations.
+            # They must survive the declared/offered availability filters (the
+            # model is told exactly which names exist; a rejected call is the
+            # feedback channel) and must not be collapsed into identical
+            # neighboring calls — every rejected call_id keeps its own truthful
+            # rejection result for the continuation history.
+            declared_tool_names = (
+                set(declared_tool_names) | {REJECTED_CALL_TOOL_TYPE}
+                if declared_tool_names else None
+            )
+            if is_api_model and offered_tool_names is not None:
+                offered_tool_names = set(offered_tool_names) | {REJECTED_CALL_TOOL_TYPE}
         if tool_blocks:
             if declared_tool_names:
                 undeclared = [
@@ -15603,6 +15638,11 @@ def _resolve_tool_blocks(
             unique_blocks = []
             seen_blocks = set()
             for block in tool_blocks:
+                if block.tool_type == REJECTED_CALL_TOOL_TYPE:
+                    # Keep every rejected call: each call_id receives its own
+                    # truthful rejection result (native-path parity).
+                    unique_blocks.append(block)
+                    continue
                 block = _recover_manage_email_tool_block(
                     block,
                     active_document=active_document,
@@ -17905,7 +17945,7 @@ def _web_followup_context_directive(
     if latest:
         parts.append(f"Current follow-up: {latest}.")
     parts.append(
-        "Use this context when choosing web_search/web_fetch queries. Do not search the literal follow-up alone."
+        "Use this context when choosing WebSearch/WebFetch queries. Do not search the literal follow-up alone."
     )
     return "\n".join(parts)
 
@@ -27785,6 +27825,11 @@ async def stream_agent_loop(
                 {(exact_approval.pending.tool_name, exact_approval.pending.content)}
                 if exact_approval is not None else None
             ),
+            # M5.2: the qwen3.8 fine-tuned router was trained on the legacy
+            # tool vocabulary and has no schemas, so it keeps the documented
+            # compatibility carve-out. Every other textual route admits calls
+            # through the canonical registry only.
+            legacy_compat=bool(_qwen38_tool_router),
         )
         _requested_tool_names = sorted({
             str(call.get("name") or "")
