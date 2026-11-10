@@ -290,28 +290,41 @@ themselves complete M5 or release an unverified feature.
 documented recovery behavior across restart/disconnect; negative
 authority tests and isolated durable-storage tests pass.
 
-#### M5.2 — Model-familiar, native tools and safe file edits
+#### M5.2 — Anthropic-first native tools and safe file edits
 
-- Expose a compact **model-visible** tool vocabulary following established
-  Claude Code, Codex, Gemini CLI, Hermes and OpenClaw patterns rather
-  than inventing Mnerys-only names. Different providers may receive
-  faithful aliases/adapters, but all invoke the **same** audited Gateway
-  operation and schema-validated Python implementation.
+- Adopt **Claude Code's tool vocabulary as the default model-facing
+  convention**: `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`,
+  `WebFetch`, `WebSearch`, `ToolSearch` and `Skill`, as capabilities
+  become available. Preserve familiar semantics, descriptions and error
+  reporting. These are reference names, **not** a claim that all models
+  accept identical tool schemas. Avoid inventing Mnerys-only names for
+  common operations.
+- Distinguish **Claude Code's tool names** from the Anthropic Messages
+  API's versioned **built-in tool schemas** (notably `bash` with its
+  `bash_20250124` type and `str_replace_based_edit_tool` with the
+  `text_editor_20250728` type). Use Anthropic-defined native schemas
+  only for compatible models/APIs and verify the actual accepted versions;
+  other providers use translated function-calling definitions while
+  reaching the **same** audited Gateway operations and Python execution
+  code. Never send a Claude-only schema to a model that cannot accept it.
 - Required semantic operations: file read (including line ranges),
   create/write, targeted edit, structured patch, directory listing,
   file-name glob and content search, shell execution, foreground/background
   process control, web search/fetch, browser interaction, and discovery/
   invocation of installed MCP tools and skills. Avoid replacing a safe
   native file operation with an arbitrary shell command.
-- Prefer familiar model-facing spellings when compatible with the model's
-  actual protocol: `read_file`/Claude `Read`, `write_file`/`Write`,
-  `edit_file`/`Edit`/Hermes `patch`/Gemini `replace`,
-  `apply_patch` (including the OpenAI native patch format where supported),
-  `list_directory`, `glob`/`Glob`, `grep`/`Grep`/
-  `grep_search`/`search_files`, `shell`/`exec`/`Bash`/
-  `run_shell_command`, `process`, `web_search`, `web_fetch`,
-  and `browser`. These are **profiles/aliases**, not independent engines.
-  MCP standardizes discovery and tool schemas, not one universal tool name.
+- Implement directory listing through `Read`/editor `view` and file
+  discovery through `Glob`/`Grep`; `Write` must distinguish creating a
+  new file from overwriting one, while `Edit` provides precise replacement.
+  Expose structured patch support through a compatible `apply_patch`
+  adapter when appropriate, without forcing OpenAI-specific syntax on
+  Claude. Background process control, browser and MCP invocation retain
+  dedicated capabilities with documented names rather than masquerading
+  as file operations. `ToolSearch` and `Skill` provide discovery and
+  activation; MCP tools preserve their own namespacing and schemas.
+  Provider-specific aliases remain compatibility adapters, never
+  separate agent engines. MCP standardizes tool discovery/schema
+  exchange, not a universal vocabulary.
 - File overwrite/edit protection: track a server-trusted, owner/session-
   scoped read baseline or version; reject edits on an unread or changed
   existing file, enforce atomic compare-and-write where supported, and
@@ -326,7 +339,10 @@ authority tests and isolated durable-storage tests pass.
 
 **Exit gate:** real provider-backed read/search/edit/patch/shell tests;
 unread/stale file edits rejected; exact tool calls, permissions and
-results agree between the model trace, Gateway and client UI.
+results agree between the model trace, Gateway and client UI. Verify
+Claude-compatible names and versioned native schemas separately from
+OpenAI-compatible and other model adapters, without losing tool results,
+authorization or streaming fidelity.
 
 #### M5.3 — Natural CWD, permission UX and opt-in YOLO
 
@@ -485,8 +501,13 @@ settings remain stable across restart and backend changes.
 capabilities operate through one authenticated Gateway, and no client
 claims tool execution without a real authorized tool event.
 
-**Model-facing tool naming references:** [Hermes built-ins](https://hermes-agent.nousresearch.com/docs/reference/tools-reference),
-[Claude Code tools](https://code.claude.com/docs/en/tools-reference),
+**Tool contract references:** primary:
+[Claude Code built-in tools](https://code.claude.com/docs/en/tools-reference),
+[Anthropic tool-use contract](https://platform.claude.com/docs/en/agents-and-tools/tool-use/how-tool-use-works),
+[Anthropic Bash tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/bash-tool),
+and [Anthropic text editor](https://platform.claude.com/docs/en/agents-and-tools/tool-use/text-editor-tool).
+Compatibility references:
+[Hermes built-ins](https://hermes-agent.nousresearch.com/docs/reference/tools-reference),
 [Gemini CLI tools](https://geminicli.com/docs/reference/tools/),
 [OpenAI Codex tool guidance](https://developers.openai.com/cookbook/examples/gpt-5/codex_prompting_guide),
 [OpenAI native apply_patch](https://developers.openai.com/api/docs/guides/tools-apply-patch),
