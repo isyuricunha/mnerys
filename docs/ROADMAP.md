@@ -349,6 +349,23 @@ negative authority and isolated durable-storage tests pass.
   approval routing, result handling, streaming and cache efficiency with
   real providers.
 
+**Increment 1 status (verified):** the canonical registry
+(`src/tool_registry.py`, contract in `docs/architecture/M5_2_TOOL_REGISTRY.md`)
+is integrated: provider wire projection for tools and history
+(`Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash`/`WebFetch`/`WebSearch`;
+`ToolSearch`/`Skill` reserved but unavailable), inbound native-call
+validation with legacy/alias/unavailable rejection and model-recoverable
+feedback, sealed-approval replay exemption, harmony alias protection for
+canonical names, and registry-aware resolution audit — with the existing
+handler-keyed authority, approval-fingerprint, resource-binding and dispatch
+machinery unchanged. Anthropic wire shape verified against the current
+official tool-use documentation. Remaining for M5.2: read-before-edit
+enforcement for existing files (read baseline/version, stale-edit rejection),
+`ToolSearch`/`Skill` implementations, textual-channel and prompt-vocabulary
+migration for local/finetuned routes, compact-preview canonicalization, and
+the real-provider exit-gate matrix (read/search/edit/patch/shell on at least
+two provider API protocols).
+
 **Exit gate:** real provider-backed read/search/edit/patch/shell tests;
 unread/stale file edits rejected; exact tool calls, permissions and
 results agree between the model trace, Gateway and client UI. Verify

@@ -46,6 +46,7 @@ from src.constants import (
 from src.path_confinement import canonical_root, confine, is_inside
 from src.tool_utils import _truncate, get_mcp_manager
 from src.tool_types import ToolBlock
+from src.tool_registry import REJECTED_CALL_TOOL_TYPE, rejected_block_result
 from src.agent_runtime.resource_binding import (
     NATIVE_FILESYSTEM_TOOLS, active_resource_operation, bind_resource_operation,
     resolve_filesystem_operation,
@@ -1656,6 +1657,15 @@ async def execute_tool_block(
         raise TypeError(
             "execute_tool_block requires security_context; pass a "
             "ToolRunSecurityContext or NO_TOOL_SECURITY_CONTEXT explicitly"
+        )
+    # M5.2: a registry-rejected model call is a record, never an operation.
+    # The agent loop skips these blocks before dispatch; this guard protects
+    # every other executor (preview, harness recovery) from dispatching one.
+    if getattr(block, "tool_type", "") == REJECTED_CALL_TOOL_TYPE:
+        rejection = rejected_block_result(getattr(block, "content", ""))
+        return (
+            f"{rejection.get('rejected_tool') or 'tool'}: rejected before execution",
+            rejection,
         )
     if (
         not isinstance(security_context, ToolRunSecurityContext)

@@ -32,7 +32,7 @@ from itertools import count
 from datetime import date, datetime, timedelta
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, Iterable, List, Mapping, Optional, Sequence, Set
+from typing import Any, AsyncGenerator, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 from urllib.parse import parse_qs, parse_qsl, quote, unquote, urlencode, urlparse
 
 from src.llm_core import (
@@ -105,6 +105,19 @@ from src.agent_runtime.completion import with_completion_gate
 from src.agent_runtime.runtime_selection import is_compact_preview_contract
 from src.teacher_escalation import with_teacher_takeover, request_teacher_takeover
 from src.tool_utils import _truncate, get_mcp_manager
+from src.tool_registry import (
+    CANONICAL_NAMES,
+    HANDLER_IDS,
+    REJECTED_CALL_TOOL_TYPE,
+    UNAVAILABLE_NAMES,
+    ToolRegistryError,
+    canonical_name_for_handler,
+    handler_for_canonical,
+    legacy_names,
+    rejected_block_content,
+    rejected_block_result,
+    resolve_model_call,
+)
 from src.agent_tools import (
     parse_tool_blocks,
     strip_tool_blocks,
@@ -699,6 +712,51 @@ def _canonical_native_tool_name_for_offered(
     return value
 
 
+def _resolve_registry_native_call(
+    tc: Dict[str, Any],
+    name: str,
+    offered_tool_names: Optional[Set[str]],
+) -> Optional[ToolRegistryError]:
+    """M5.2: validate one model-generated native call against the registry.
+
+    Governance follows the advertised surface: when registry tools were
+    offered this turn, the wire declared their canonical Claude Code names,
+    so a native call naming one is validated and translated to its internal
+    handler identity exactly once, in place — keeping the authority,
+    approval-fingerprint and dispatch machinery, all keyed on handler ids,
+    authoritative and unchanged. Legacy built-in spellings and unavailable
+    tools are rejected: the caller records a non-executing rejection and the
+    model receives an accurate, actionable result instead of execution.
+
+    Turns that declared no registry tool (no-schema finetune routes,
+    textual-only transports, MCP-only offers) keep their inherited
+    vocabulary; their native calls are not governed here.
+
+    Returns the rejection error, or None when the call may proceed. Governed
+    calls arrive rewritten; non-registry names (inherited tools, MCP, and
+    request-scoped external tools) are returned untouched.
+    """
+    if (
+        not offered_tool_names
+        or HANDLER_IDS.isdisjoint(offered_tool_names)
+    ):
+        return None
+    if (
+        name not in CANONICAL_NAMES
+        and name not in legacy_names()
+        and name not in UNAVAILABLE_NAMES
+    ):
+        return None
+    try:
+        resolved = resolve_model_call(name, tc.get("arguments", "{}"))
+    except ToolRegistryError as error:
+        return error
+    if resolved.governed:
+        tc["name"] = resolved.handler
+        tc["arguments"] = json.dumps(resolved.arguments or {}, ensure_ascii=False)
+    return None
+
+
 def _native_tool_name_was_accepted(name: str, accepted_names: Set[str]) -> bool:
     """Match native and namespaced spellings of the same executed tool.
 
@@ -710,6 +768,11 @@ def _native_tool_name_was_accepted(name: str, accepted_names: Set[str]) -> bool:
     if not requested:
         return False
     if requested in accepted_names:
+        return True
+    # M5.2: a canonical native call is accepted under its internal handler id
+    # (the registry rewrote it at the resolution boundary), so the audit must
+    # not report the executed tool as a rejected request.
+    if handler_for_canonical(requested) in accepted_names:
         return True
     requested_leaf = requested.removeprefix("mcp__").split("__")[-1]
     return any(
@@ -786,6 +849,9 @@ _BROWSER_MCP_PREFIX = "mcp__builtin_browser__"
 _QWEN38_TOOL_ROUTER_PROMPT = (
     "Odysseus tools. Emit one native tool call, then stop. After a successful tool result, answer from it; "
     "never repeat the same tool with the same arguments. "
+    # M5.2 note: this route is a finetuned textual-transport model whose
+    # training contract still names the legacy handler spellings; its prompt
+    # vocabulary must not drift from the weights it was trained with.
     "HARD CODING ORDER: when the user asks to add, change, or fix code, "
     "the next calls must be read_file then edit_file or apply_patch, then "
     "host_shell for tests. Never call host_shell for pytest, builds, or "
@@ -4151,11 +4217,15 @@ def _model_request_snapshot(
     agent_prompt_mode: str = "",
 ) -> dict:
     """Return only model-visible request fields for opt-in diagnostics."""
+    # M5.2: the snapshot mirrors the provider wire, where registry-backed
+    # schemas and prior tool calls carry their canonical names — a diagnostic
+    # that showed internal handler ids would misrepresent the request.
+    from src.tool_registry import project_messages_for_wire, project_tools_for_wire
     return {
         "round": round_num,
         "model": model,
-        "messages": messages,
-        "tools": tools,
+        "messages": project_messages_for_wire(messages),
+        "tools": project_tools_for_wire(tools) or [],
         "temperature": temperature,
         "max_tokens": max_tokens,
         # prompt_type is an internal routing hint, not part of the provider
@@ -8674,6 +8744,12 @@ def _uploaded_files_context_message(uploaded_files: Optional[List[Dict]]) -> Opt
         lines.append(f"- ... {len(uploaded_files) - 20} more upload(s) omitted from this manifest")
     lines.extend([
         "",
+        # M5.2 note: this hint is seen by BOTH transports. Textual-only local
+        # models execute the legacy handler spelling as a fenced call, while
+        # schema-declaring models follow the canonical wire vocabulary
+        # regardless of prose hints. Prompt-vocabulary migration follows each
+        # route's advertised surface (increment 2), so the legacy spelling
+        # stays here.
         "For a readable non-image attachment, call `read_file` on its listed path before answering. "
         "`read_file` automatically extracts TXT, PDF, DOC/DOCX, PPTX, XLS/XLSX, and EPUB content. "
         "Do not use bash, cat, grep, unzip, or ad-hoc Python to read an uploaded document. "
@@ -15328,6 +15404,7 @@ def _resolve_tool_blocks(
     passthrough_tool_names: Optional[Set[str]] = None,
     declared_tool_names: Optional[Set[str]] = None,
     declared_tool_schemas: Optional[Sequence[dict]] = None,
+    sealed_internal_calls: Optional[Set[Tuple[str, str]]] = None,
 ):
     """Choose native function calls or fenced code block parsing. Returns (tool_blocks, used_native)."""
     used_native = False
@@ -15345,8 +15422,51 @@ def _resolve_tool_blocks(
         seen_calls = set()
         for tc in native_tool_calls:
             original_tc_name = str(tc.get("name", "") or "").strip()
+            # M5.2 canonical registry gate: validated before every other
+            # guard. Governed calls are rewritten to their internal handler
+            # identity; rejected ones never convert and never execute — each
+            # rejected call still receives its own truthful tool result below
+            # so the model can recover instead of looping silently.
+            # A sealed approval replayed verbatim by the resumed turn carries
+            # the exact internal identity of the already-approved operation.
+            # It is not a fresh model call: it stays ungoverned here and the
+            # execution path applies the sealed authority, redundancy and
+            # replay-prevention guards exactly as before (M5.2).
+            _sealed_replay = bool(
+                sealed_internal_calls
+                and (original_tc_name, tc.get("arguments", "{}")) in sealed_internal_calls
+            )
+            # M5.2 canonical registry gate: validated before every other
+            # guard. Governed calls are rewritten to their internal handler
+            # identity; rejected ones never convert and never execute — each
+            # rejected call still receives its own truthful tool result below
+            # so the model can recover instead of looping silently.
+            _registry_rejection = (
+                None if _sealed_replay
+                else _resolve_registry_native_call(
+                    tc, original_tc_name, offered_tool_names,
+                )
+            )
+            if _registry_rejection is not None:
+                tool_blocks.append(ToolBlock(
+                    REJECTED_CALL_TOOL_TYPE,
+                    rejected_block_content(
+                        original_tc_name,
+                        tc.get("arguments", "{}"),
+                        _registry_rejection,
+                    ),
+                ))
+                converted_calls.append(tc)
+                logger.warning(
+                    "  -> REJECTED registry call: %s (%s)",
+                    original_tc_name,
+                    _registry_rejection,
+                )
+                continue
+            # Governed calls were rewritten in place to the internal handler
+            # identity; the offered/declared checks must see that identity.
             tc_name = _canonical_native_tool_name_for_offered(
-                original_tc_name,
+                str(tc.get("name", "") or "").strip(),
                 offered_tool_names,
             )
             tc_args = _normalize_native_alias_arguments(
@@ -27661,6 +27781,10 @@ async def stream_agent_loop(
                 for schema in normalized_external_tool_schemas
             },
             declared_tool_schemas=normalized_external_tool_schemas,
+            sealed_internal_calls=(
+                {(exact_approval.pending.tool_name, exact_approval.pending.content)}
+                if exact_approval is not None else None
+            ),
         )
         _requested_tool_names = sorted({
             str(call.get("name") or "")
@@ -32225,6 +32349,38 @@ async def stream_agent_loop(
                 tool_index=i,
                 tool_name=block.tool_type,
             )
+            # M5.2: a registry-rejected model call is a record, not an
+            # operation. It never reaches routing, approvals, budgets or the
+            # dispatcher; every rejected call_id still receives its truthful
+            # rejection result so the model can correct the call next round.
+            if block.tool_type == REJECTED_CALL_TOOL_TYPE:
+                _rejection = rejected_block_result(block.content)
+                _rejected_tool = str(_rejection.get("rejected_tool") or "")
+                _rejection_text = str(
+                    _rejection.get("output") or _rejection.get("error")
+                    or "The tool call was rejected before execution."
+                )
+                tool_results.append(_rejection_text)
+                tool_result_texts.append(_rejection_text)
+                tool_result_records.append({
+                    "tool_name": REJECTED_CALL_TOOL_TYPE,
+                    "desc": f"{_rejected_tool}: rejected before execution",
+                    "content": str((native_call or {}).get("arguments", "")) if native_call else block.content,
+                    "result": _rejection,
+                    "text": _rejection_text,
+                })
+                yield tool_event_frame({
+                    "type": "tool_output",
+                    "tool": REJECTED_CALL_TOOL_TYPE,
+                    "command": _rejected_tool,
+                    "output": _rejection_text,
+                    "exit_code": 1,
+                    "execution_attempted": False,
+                    "blocked": True,
+                    "round": round_num,
+                    **({"call_id": tool_call_id, "tool_call_id": tool_call_id} if tool_call_id else {}),
+                }, result=_rejection)
+                continue
             _runtime_action = propose_action(block, tool_call_id, native_call)
             _call_signature = _tool_call_signature(block.tool_type, block.content)
             _previous_failure = _failed_call_history.get(_call_signature)

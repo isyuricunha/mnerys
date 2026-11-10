@@ -58,7 +58,7 @@ def test_tool_task_cancelled_on_generator_close(monkeypatch):
     )
     monkeypatch.setattr(al, "execute_tool_block", _slow_exec, raising=False)
 
-    native_calls = [{"name": "bash", "arguments": json.dumps({"command": "sleep 60"})}]
+    native_calls = [{"name": "Bash", "arguments": json.dumps({"command": "sleep 60"})}]
 
     async def _fake_stream(_candidates, messages, **kwargs):
         yield f'data: {json.dumps({"delta": "Running it now."})}\n\n'

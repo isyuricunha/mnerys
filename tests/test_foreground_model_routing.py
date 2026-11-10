@@ -2411,7 +2411,7 @@ def test_multi_round_agent_uses_only_selected_model(monkeypatch):
         round_number += 1
         seen_candidates.append([(url, model) for url, model, _headers in candidates])
         if round_number == 1:
-            call = {"name": "bash", "arguments": json.dumps({"command": "printf ok"})}
+            call = {"name": "Bash", "arguments": json.dumps({"command": "printf ok"})}
             yield f'data: {json.dumps({"type": "tool_calls", "calls": [call]})}\n\n'
         else:
             yield f'data: {json.dumps({"delta": "done"})}\n\n'
@@ -2503,7 +2503,7 @@ def test_multi_round_agent_pins_answering_fallback_for_the_run(monkeypatch):
         assert kwargs["fallback_on_empty"] is False
         if round_number == 1:
             yield f'data: {json.dumps({"type": "fallback", "selected_model": "selected-model", "answered_by": "backup-model", "candidate_index": 1})}\n\n'
-            call = {"name": "bash", "arguments": json.dumps({"command": "printf ok"})}
+            call = {"name": "Bash", "arguments": json.dumps({"command": "printf ok"})}
             yield f'data: {json.dumps({"type": "tool_calls", "calls": [call]})}\n\n'
         else:
             yield f'data: {json.dumps({"delta": "done"})}\n\n'
@@ -2565,13 +2565,13 @@ def test_late_agent_fallback_records_each_round_and_stays_pinned(monkeypatch):
         seen_candidates.append(candidates)
         if round_number == 1:
             yield 'data: {"delta": "primary round"}\n\n'
-            call = {"name": "bash", "arguments": json.dumps({"command": "printf one"})}
+            call = {"name": "Bash", "arguments": json.dumps({"command": "printf one"})}
             yield f'data: {json.dumps({"type": "tool_calls", "calls": [call]})}\n\n'
         elif round_number == 2:
             yield f'data: {json.dumps({"type": "fallback", "selected_model": "selected-model", "answered_by": "backup-model", "candidate_index": 1})}\n\n'
             yield f'data: {json.dumps({"type": "model_actual", "requested_model": "backup-model", "model": "provider-backup-alias"})}\n\n'
             yield 'data: {"delta": "backup round"}\n\n'
-            call = {"name": "bash", "arguments": json.dumps({"command": "printf two"})}
+            call = {"name": "Bash", "arguments": json.dumps({"command": "printf two"})}
             yield f'data: {json.dumps({"type": "tool_calls", "calls": [call]})}\n\n'
         else:
             yield 'data: {"delta": "backup final"}\n\n'
@@ -2680,7 +2680,7 @@ def test_agent_terminal_later_round_error_stops_after_completed_tool(
         calls += 1
         if calls == 1:
             tool_call = {
-                "name": "bash",
+                "name": "Bash",
                 "arguments": json.dumps({"command": "printf one"}),
             }
             yield f'data: {json.dumps({"type": "tool_calls", "calls": [tool_call]})}\n\n'

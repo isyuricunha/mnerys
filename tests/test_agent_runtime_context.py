@@ -739,9 +739,9 @@ def test_active_client_skill_requires_toolsets_are_added_to_schema(monkeypatch):
         if isinstance(tool, dict)
     }
 
-    assert "bash" in tool_names
+    assert "Bash" in tool_names
     assert "manage_skills" in tool_names
-    assert "grep" in tool_names
+    assert "Grep" in tool_names
 
 
 def test_active_client_skill_prevents_direct_low_signal_reply(monkeypatch):
@@ -790,7 +790,7 @@ def test_active_client_skill_prevents_direct_low_signal_reply(monkeypatch):
 
     assert not any(metric.get("direct_low_signal") for metric in metrics)
     assert "manage_skills" in tool_names
-    assert "grep" in tool_names
+    assert "Grep" in tool_names
 
 
 def test_terminal_agent_mode_prevents_direct_low_signal_reply(monkeypatch):
@@ -989,7 +989,7 @@ def test_host_shell_schema_hidden_for_unsafe_bridge_url(monkeypatch):
         if isinstance(tool, dict)
     }
 
-    assert "bash" in tool_names
+    assert "Bash" in tool_names
     assert "host_shell" not in tool_names
 
 
@@ -1038,7 +1038,7 @@ def test_host_shell_schema_seeded_with_tui_bridge_when_retrieval_returns_none(mo
         if isinstance(tool, dict)
     }
 
-    assert "bash" in tool_names
+    assert "Bash" in tool_names
     assert "host_shell" in tool_names
 
 
@@ -1100,11 +1100,11 @@ def test_tui_local_workspace_turn_hides_backend_file_tools(monkeypatch):
     }
 
     assert "host_shell" in tool_names
-    assert "bash" not in tool_names
-    assert "grep" in tool_names
+    assert "Bash" not in tool_names
+    assert "Grep" in tool_names
     assert "ls" in tool_names
-    assert "glob" in tool_names
-    assert "read_file" in tool_names
+    assert "Glob" in tool_names
+    assert "Read" in tool_names
     assert "get_workspace" not in tool_names
 
 

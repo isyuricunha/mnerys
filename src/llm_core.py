@@ -1430,9 +1430,13 @@ def _model_disallows_reasoning_effort_with_chat_tools(model: str) -> bool:
 #
 # So rename the colliding tools on the way out and map the names back on the
 # way in. Confined to the transport layer: callers keep using the real names.
+# M5.2: `bash` is no longer aliased here. The model-visible shell tool is the
+# canonical `Bash`, which no provider adapter may rename. Only inherited tools
+# OUTSIDE the canonical registry (python, browser) may still be aliased, and
+# `_alias_harmony_tools` refuses to touch any canonical name. Whether gpt-oss
+# tolerates `Bash` must be confirmed by the real-provider M5.2 exit-gate tests.
 _HARMONY_TOOL_ALIASES = {
     "python": "run_python_code",
-    "bash": "run_shell_command",
     "browser": "web_browser_tool",
 }
 _HARMONY_TOOL_ALIASES_REVERSE = {v: k for k, v in _HARMONY_TOOL_ALIASES.items()}
@@ -1447,9 +1451,14 @@ def _alias_harmony_tools(tools: Optional[List[Dict]], model: str) -> Optional[Li
     """Rename tools that collide with harmony built-ins. Returns a copy."""
     if not tools or not _is_harmony_model(model):
         return tools
+    from src.tool_registry import CANONICAL_NAMES
+
     out = []
     for t in tools:
         fn = t.get("function") or {}
+        if fn.get("name") in CANONICAL_NAMES:
+            out.append(t)  # canonical names are never renamed by an adapter
+            continue
         alias = _HARMONY_TOOL_ALIASES.get(fn.get("name"))
         if alias:
             t = copy.deepcopy(t)
@@ -2355,6 +2364,9 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
              reasoning_effort: Optional[str] = None) -> str:
     """Synchronous LLM call with optional prompt type enhancement."""
     provider = _detect_provider(url)
+    # M5.2: same canonical history projection as the async path.
+    from src.tool_registry import project_messages_for_wire
+    messages = project_messages_for_wire(messages)
     h = _provider_headers(provider)
     # Tolerate headers that arrive as a JSON string (some sessions stored them
     # double-encoded) — otherwise h.update() throws "dictionary update sequence
@@ -2685,6 +2697,12 @@ async def llm_call_async(
 ) -> str | tuple[str, str]:
     """Asynchronous LLM call using httpx with connection pooling, timeout, retry logic, and performance logging."""
     provider = _detect_provider(url)
+    # M5.2: no tool schemas are declared on this path, but prior tool calls in
+    # history must still project to the canonical registry names so a
+    # conversation renders identically on the streaming and non-streaming
+    # transports.
+    from src.tool_registry import project_messages_for_wire
+    messages = project_messages_for_wire(messages)
     messages_copy = _provider_reasoning_messages(_sanitize_llm_messages(messages), provider)
 
     # Consolidate multiple system messages into one at the start.
@@ -3038,6 +3056,13 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
       - data: [DONE]                       — end of stream
     """
     provider = _detect_provider(url)
+    # M5.2: the one place model-visible tool names are decided for every
+    # provider protocol. Registry-backed handlers leave as their canonical
+    # Claude Code names (schemas and prior tool calls alike); admission and
+    # availability were already decided upstream and are never widened here.
+    from src.tool_registry import project_messages_for_wire, project_tools_for_wire
+    tools = project_tools_for_wire(tools)
+    messages = project_messages_for_wire(messages)
     messages_copy = _provider_reasoning_messages(_sanitize_llm_messages(messages), provider)
 
     # Consolidate multiple system messages into one at the start.

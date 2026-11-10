@@ -1282,6 +1282,13 @@ def _parse_xml_invoke(name, body) -> Optional[ToolBlock]:
         params[pname] = pval.strip()
     # Local import to avoid a circular import at module load.
     from src.tool_schemas import function_call_to_tool_block
+    # M5.2: a canonical Claude Code invoke name keeps its exact case — the
+    # registry owns that vocabulary and translates its arguments. Only names
+    # outside the registry fall back to the lowercase legacy mapping.
+    if name != tool_name:
+        from src.tool_registry import CANONICAL_NAMES
+        if name in CANONICAL_NAMES:
+            return function_call_to_tool_block(name, json.dumps(params))
     return function_call_to_tool_block(tool_name, json.dumps(params))
 
 

@@ -514,9 +514,9 @@ def test_verified_artifact_survives_provider_error_during_finish_round(monkeypat
         if calls == 1:
             tool_calls = [
                 {
-                    "name": "write_file",
+                    "name": "Write",
                     "arguments": json.dumps({
-                        "path": "/workspace/output.html",
+                        "file_path": "/workspace/output.html",
                         "content": "<main>complete</main>",
                     }),
                 },
@@ -570,9 +570,9 @@ def test_uninspected_artifact_still_fails_on_provider_error(monkeypatch):
         calls += 1
         if calls == 1:
             tool_call = {
-                "name": "write_file",
+                "name": "Write",
                 "arguments": json.dumps({
-                    "path": "/workspace/answer.json",
+                    "file_path": "/workspace/answer.json",
                     "content": '{"status": "unverified"}',
                 }),
             }
@@ -768,6 +768,8 @@ def test_terminal_shell_wrapped_edit_file_json_is_recovered_with_literal_operato
     )
 
     assert recovered.tool_type == "edit_file"
+    # Harness-side shell-wrapped recovery keeps the internal handler-encoded
+    # argument form (M5.2: only model-emitted calls use canonical names).
     assert json.loads(recovered.content) == {
         "path": "/workspace/app.py",
         "old_string": "x >> y",

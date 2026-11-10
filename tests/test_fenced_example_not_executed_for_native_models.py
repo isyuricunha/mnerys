@@ -128,7 +128,9 @@ def test_native_model_illustrative_bash_fence_not_executed(monkeypatch):
 def test_native_model_real_native_tool_call_is_executed(monkeypatch):
     exec_calls = []
     _patch_common(monkeypatch, exec_calls)
-    native_calls = [{"name": "bash", "arguments": json.dumps({"command": "echo hi"})}]
+    # M5.2: the native channel advertises the canonical registry vocabulary,
+    # so the model calls `Bash` and the call converts to the internal handler.
+    native_calls = [{"name": "Bash", "arguments": json.dumps({"command": "echo hi"})}]
     events = _run_loop(
         monkeypatch, "gpt-4o",
         ["Sure, let me check that for you."],
@@ -351,11 +353,33 @@ def test_declared_environment_drops_unrelated_textual_and_native_tools():
 
 
 def test_resolve_tool_blocks_native_path_untouched_when_native_calls_present():
-    native_calls = [{"name": "bash", "arguments": json.dumps({"command": "echo hi"})}]
-    blocks, used_native, _ = al._resolve_tool_blocks("some prose", native_calls, round_num=1, is_api_model=True)
+    blocks, used_native, _ = al._resolve_tool_blocks(
+        "some prose",
+        [{"name": "Bash", "arguments": json.dumps({"command": "echo hi"})}],
+        round_num=1, is_api_model=True,
+    )
     assert used_native is True
     assert len(blocks) == 1
     assert blocks[0].tool_type == "bash"
+    assert blocks[0].content == "echo hi"
+
+
+def test_resolve_tool_blocks_rejects_legacy_native_name_without_execution():
+    # M5.2: a legacy built-in spelling on the native channel of a governed
+    # turn (registry tools were offered) is a rejected record, never a
+    # converted executable block.
+    blocks, used_native, converted = al._resolve_tool_blocks(
+        "some prose",
+        [{"name": "bash", "arguments": json.dumps({"command": "echo hi"})}],
+        round_num=1, is_api_model=True,
+        offered_tool_names={"read_file", "bash"},
+    )
+    assert used_native is True
+    assert len(blocks) == 1
+    assert blocks[0].tool_type == "tool_call_rejected"
+    record = json.loads(blocks[0].content)["result"]
+    assert record["blocked"] is True and record["execution_attempted"] is False
+    assert converted[0]["name"] == "bash"
 
 
 # ---------------------------------------------------------------------------

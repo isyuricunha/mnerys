@@ -1075,7 +1075,9 @@ def test_web_fetch_js_failure_exposes_private_browser_next_round(monkeypatch):
         if len(sent_tools) == 1:
             call = {
                 "id": "call_fetch",
-                "name": "web_fetch",
+                # Schema-declaring route: the model speaks the canonical
+                # registry vocabulary (M5.2).
+                "name": "WebFetch",
                 "arguments": json.dumps({"url": "https://www.spacex.com/launches/"}),
             }
             yield f'data: {json.dumps({"type": "tool_calls", "calls": [call]})}\n\n'

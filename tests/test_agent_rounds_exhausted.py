@@ -426,9 +426,9 @@ def test_native_explicit_script_run_uses_backend_bash_after_write(monkeypatch):
                 "type": "tool_calls",
                 "calls": [{
                     "id": "write-script",
-                    "name": "write_file",
+                    "name": "Write",
                     "arguments": json.dumps({
-                        "path": "/workspace/calculate.py",
+                        "file_path": "/workspace/calculate.py",
                         "content": "print('ok')",
                     }),
                 }],
@@ -492,7 +492,7 @@ def test_adaptive_turn_can_finish_after_more_than_legacy_coding_cap(monkeypatch)
                 "type": "tool_calls",
                 "calls": [{
                     "id": f"progress-{n}",
-                    "name": "web_fetch",
+                    "name": "WebFetch",
                     "arguments": json.dumps({"url": f"https://example.com/page-{n}"}),
                 }],
             }) + "\n\n"
@@ -938,9 +938,9 @@ def test_same_round_duplicate_tool_calls_are_deduplicated_without_merging_distin
     assert converted == []
 
     native_calls = [
-        {"id": "a", "name": "bash", "arguments": json.dumps({"command": "pwd"})},
-        {"id": "b", "name": "bash", "arguments": json.dumps({"command": "pwd"})},
-        {"id": "c", "name": "bash", "arguments": json.dumps({"command": "whoami"})},
+        {"id": "a", "name": "Bash", "arguments": json.dumps({"command": "pwd"})},
+        {"id": "b", "name": "Bash", "arguments": json.dumps({"command": "pwd"})},
+        {"id": "c", "name": "Bash", "arguments": json.dumps({"command": "whoami"})},
     ]
     native_blocks, used_native, converted = al._resolve_tool_blocks(
         "", native_calls, round_num=1,
@@ -1454,12 +1454,14 @@ def test_tui_coding_turn_replaces_duplicate_edit_with_requested_tests(monkeypatc
         nonlocal stream_round
         stream_round += 1
         if stream_round == 1:
-            name, arguments = "read_file", {"path": "parser.py"}
+            # deepseek-v4-pro is a schema-declaring native route: the model
+            # speaks the canonical registry vocabulary (M5.2).
+            name, arguments = "Read", {"file_path": "parser.py"}
         else:
             # The second call is the requested mutation. Every later model
             # response repeats it, reproducing the live DeepSeek failure.
-            name, arguments = "edit_file", {
-                "path": "parser.py",
+            name, arguments = "Edit", {
+                "file_path": "parser.py",
                 "old_string": "VALUE = 1",
                 "new_string": "VALUE = 2",
             }
@@ -1547,17 +1549,17 @@ def test_failed_forced_verifier_allows_an_adapted_test_command(monkeypatch):
         nonlocal stream_round
         stream_round += 1
         if stream_round == 1:
-            name, arguments = "read_file", {"path": "parser.py"}
+            name, arguments = "Read", {"file_path": "parser.py"}
         elif stream_round == 2:
-            name, arguments = "edit_file", {
-                "path": "parser.py",
+            name, arguments = "Edit", {
+                "file_path": "parser.py",
                 "old_string": "VALUE = 1",
                 "new_string": "VALUE = 2",
             }
         elif stream_round == 3:
             # This is replaced by the one deterministic fallback verifier.
-            name, arguments = "edit_file", {
-                "path": "parser.py",
+            name, arguments = "Edit", {
+                "file_path": "parser.py",
                 "old_string": "VALUE = 1",
                 "new_string": "VALUE = 2",
             }
@@ -2025,9 +2027,9 @@ def test_terminal_artifact_run_reserves_last_round_for_mutation(monkeypatch):
         if recovering:
             call = {
                 "id": "write-final",
-                "name": "write_file",
+                "name": "Write",
                 "arguments": json.dumps({
-                    "path": "/workspace/report.csv",
+                    "file_path": "/workspace/report.csv",
                     "content": "source,status\nA,verified\n",
                 }),
             }
@@ -2979,9 +2981,9 @@ def test_terminal_write_file_uses_exact_required_artifact_path(monkeypatch):
             "type": "tool_calls",
             "calls": [{
                 "id": "write-nested",
-                "name": "write_file",
+                "name": "Write",
                 "arguments": json.dumps({
-                    "path": "/workspace/papers/meta_analysis.csv",
+                    "file_path": "/workspace/papers/meta_analysis.csv",
                     "content": "Model,RefCOCO-avg,ERQA\n",
                 }),
             }],
@@ -3155,7 +3157,7 @@ def test_blocked_ad_hoc_http_without_exit_code_enters_artifact_recovery(monkeypa
                 "type": "tool_calls",
                 "calls": [{
                     "id": "write-1",
-                    "name": "write_file",
+                    "name": "Write",
                     "arguments": "/workspace/meta_analysis.csv\nModel,RefCOCO-avg,ERQA\nSeed-1.5-VL-Thinking,91.3,NaN\n",
                 }],
             }) + "\n\n"
@@ -3240,9 +3242,9 @@ def test_artifact_recovery_suppresses_python_until_text_artifact_written(monkeyp
                 "command": "import requests; requests.get('https://arxiv.org/pdf/2507.01006')",
             })
         else:
-            tool_name = "write_file"
+            tool_name = "Write"
             arguments = json.dumps({
-                "path": "/workspace/meta_analysis.csv",
+                "file_path": "/workspace/meta_analysis.csv",
                 "content": (
                     "Model,RefCOCO-avg,ERQA\n"
                     "Qwen3-VL-A22B-Instruct,91.9,51.3\n"
@@ -3333,6 +3335,8 @@ def test_binary_artifact_recovery_keeps_generation_tools_for_png(monkeypatch):
         if not recovering:
             tool_name = "write_file"
             arguments = json.dumps({
+                # Textual fenced transport keeps the legacy handler-encoded
+                # argument form (M5.2 increment-1 boundary).
                 "path": "/workspace/data.csv",
                 "content": "metric,value\naccuracy,1\n",
             })
@@ -3577,6 +3581,7 @@ def test_blocked_ad_hoc_http_prefers_native_acquisition_before_artifact_write(mo
             })
         else:
             tool_name = "write_file"
+            # Fenced textual transport keeps the legacy handler-encoded form.
             arguments = json.dumps({
                 "path": "/workspace/meta_analysis.csv",
                 "content": (
@@ -3679,9 +3684,9 @@ def test_failed_trailing_tool_with_missing_artifact_enters_recovery(monkeypatch)
                 "type": "tool_calls",
                 "calls": [{
                     "id": "write-1",
-                    "name": "write_file",
+                    "name": "Write",
                     "arguments": json.dumps({
-                        "path": "/workspace/meta_analysis.csv",
+                        "file_path": "/workspace/meta_analysis.csv",
                         "content": (
                             "Model,RefCOCO-avg,ERQA\n"
                             "Qwen3-VL-A22B-Instruct,91.9,51.3\n"
@@ -4117,7 +4122,7 @@ def test_repeated_web_fetch_pagination_forces_convergence(monkeypatch):
             "type": "tool_calls",
             "calls": [{
                 "id": f"fetch-page-{n}",
-                "name": "web_fetch",
+                "name": "WebFetch",
                 "arguments": json.dumps({
                     "url": (
                         "https://crates.io/api/v1/crates"

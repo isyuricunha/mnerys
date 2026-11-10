@@ -17,6 +17,13 @@ from typing import Any, Optional
 from src.tool_types import ToolBlock, TOOL_TAGS
 from src.tool_parsing import _TOOL_NAME_MAP
 from src.tool_security import BUILTIN_EMAIL_TOOLS
+from src.tool_registry import (
+    CANONICAL_NAMES,
+    REJECTED_CALL_TOOL_TYPE,
+    ToolRegistryError,
+    rejected_block_content,
+    resolve_model_call,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2047,6 +2054,29 @@ def _repair_truncated_readonly_inspect_args(
 
 def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock]:
     """Convert a native function call into a ToolBlock for the existing execution pipeline."""
+    # M5.2: a canonical Claude Code name resolves through the registry —
+    # validated once and translated to the internal handler identity — so
+    # every converter caller (native calls, XML invoke, the preview) shares
+    # one argument contract. A rejected call returns the inert record block;
+    # the dispatcher refuses it without execution.
+    if name in CANONICAL_NAMES:
+        try:
+            resolved = resolve_model_call(name, arguments)
+        except ToolRegistryError as error:
+            logger.warning("Rejected canonical tool call %s: %s", name, error)
+            return ToolBlock(
+                REJECTED_CALL_TOOL_TYPE,
+                rejected_block_content(name, arguments, error),
+            )
+        if resolved.governed:
+            # Re-enter with the internal handler identity so every per-tool
+            # content encoding and repair below stays exactly as it is for a
+            # legacy native call — the registry changes names and argument
+            # keys only, never the execution encoding.
+            return function_call_to_tool_block(
+                resolved.handler,
+                json.dumps(resolved.arguments or {}, ensure_ascii=False),
+            )
     tool_type = _TOOL_NAME_MAP.get(name, name)
     try:
         if not arguments or (isinstance(arguments, str) and not arguments.strip()):
