@@ -35,6 +35,18 @@ suite exercises the real dispatcher, shell producer and Agent Core with a
 synthetic provider and a Web route fixture. Live provider acceptance and
 deployment remain unverified for this change.
 
+On the private preview, revision `873f9c5def29` produced an actual Mistral
+approval for a read-only `ls -1`; the owner decision executed the sealed
+command once and the persisted tool event recorded exit code zero and the
+real temporary-workspace result. The next provider request failed with HTTP
+422 because the runtime sent the OpenAI-compatible `reasoning_content` field
+to a provider that accepts reasoning as typed message content. The assistant
+persisted the failure, not a successful continuation. The provider adapter
+now encodes accumulated reasoning as the documented thinking content chunk;
+the wire shape was independently accepted by the configured provider, while
+end-to-end continuation after this follow-up still requires live acceptance.
+See [Mistral reasoning messages](https://docs.mistral.ai/inference/conversations/reasoning).
+
 The separate Gateway v1 tool-availability observation is not resolved by
 this repair. In the preview, the Mistral endpoint has no explicit
 `supports_tools` value or per-model tool-mode mapping. Runtime logs show

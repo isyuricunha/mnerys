@@ -19,6 +19,85 @@ edge cases (empty, garbage, missing fields) so a refactor doesn't silently
 drop thinking content or break non-Mistral providers.
 """
 from src.llm_core import _normalize_mistral_content
+import httpx
+import pytest
+
+
+def test_provider_reasoning_replay_uses_documented_message_content_chunks():
+    from src.llm_core import _provider_reasoning_messages
+    original = [
+        {"role": "assistant", "content": None, "reasoning_content": "reasoned",
+         "tool_calls": [{"id": "call", "type": "function", "function": {"name": "bash", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "call", "content": "real result"},
+    ]
+    adapted = _provider_reasoning_messages(original, "mistral")
+    assert "reasoning_content" not in adapted[0]
+    assert adapted[0]["content"] == [{"type": "thinking", "thinking": [{"type": "text", "text": "reasoned"}], "closed": True}]
+    assert adapted[0]["tool_calls"] == original[0]["tool_calls"]
+    assert adapted[1] == original[1]
+    assert original[0]["reasoning_content"] == "reasoned"
+    assert _provider_reasoning_messages(original, "openai") == original
+
+
+def test_provider_reasoning_replay_keeps_assistant_text_and_existing_chunks():
+    from src.llm_core import _provider_reasoning_messages
+    messages = [
+        {"role": "assistant", "content": "visible", "reasoning_content": "private"},
+        {"role": "assistant", "content": [{"type": "text", "text": "second"}], "reasoning_content": "more"},
+    ]
+    adapted = _provider_reasoning_messages(messages, "mistral")
+    assert adapted[0]["content"][-1] == {"type": "text", "text": "visible"}
+    assert adapted[1]["content"][-1] == {"type": "text", "text": "second"}
+    assert all("reasoning_content" not in message for message in adapted)
+
+
+def test_provider_reasoning_replay_does_not_duplicate_existing_thinking():
+    from src.llm_core import _provider_reasoning_messages
+    chunks = [{"type": "thinking", "thinking": [{"type": "text", "text": "original"}], "closed": True},
+              {"type": "text", "text": "answer"}]
+    result = _provider_reasoning_messages([
+        {"role": "assistant", "content": chunks, "reasoning_content": "original"},
+    ], "mistral")
+    assert result[0]["content"] == chunks
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["sync", "async", "stream"])
+async def test_provider_wire_request_encodes_reasoning_for_all_call_paths(monkeypatch, mode):
+    import json
+    from src import llm_core
+    captured = []
+    messages = [
+        {"role": "user", "content": "Perform the action"},
+        {"role": "assistant", "content": "Working", "reasoning_content": "prior thinking"},
+        {"role": "user", "content": "Continue"},
+    ]
+
+    def response(request):
+        captured.append(json.loads(request.content))
+        if mode == "stream":
+            return httpx.Response(200, request=request, text='data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n')
+        return httpx.Response(200, request=request, json={"choices": [{"message": {"content": "OK"}}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
+        monkeypatch.setattr(llm_core, "_get_http_client", lambda: client)
+        monkeypatch.setattr(llm_core, "_is_host_dead", lambda _: False)
+        monkeypatch.setattr(llm_core, "_clear_host_dead", lambda *args: None)
+        monkeypatch.setattr(llm_core, "note_model_activity", lambda *args, **kw: None)
+        if mode == "sync":
+            def post(url, **kwargs):
+                return response(httpx.Request("POST", url, json=kwargs["json"]))
+            monkeypatch.setattr(llm_core.httpx, "post", post)
+            llm_core._response_cache.clear()
+            llm_core.llm_call("https://api.mistral.ai/v1", "mistral-small-latest", messages)
+        elif mode == "async":
+            await llm_core.llm_call_async("https://api.mistral.ai/v1", "mistral-small-latest", messages)
+        else:
+            _ = [event async for event in llm_core.stream_llm("https://api.mistral.ai/v1", "mistral-small-latest", messages)]
+    assistant = next(m for m in captured[0]["messages"] if m["role"] == "assistant")
+    assert "reasoning_content" not in assistant
+    assert assistant["content"][0]["thinking"][0]["text"] == "prior thinking"
+    assert assistant["content"][1] == {"type": "text", "text": "Working"}
 
 
 def test_string_passthrough_returns_text_with_empty_thinking():

@@ -1811,6 +1811,37 @@ def _normalize_mistral_content(content):
     return "".join(text_parts), "".join(thinking_parts)
 
 
+def _provider_reasoning_messages(messages, provider):
+    """Encode the runtime's reasoning field using the provider's wire shape.
+
+    Mistral accepts thinking as assistant content chunks, not as the
+    OpenAI-compatible ``reasoning_content`` extension. Preserve tool calls
+    and the complete accumulated reasoning without mutating shared history.
+    Other providers retain their existing transport format.
+    """
+    if provider != "mistral":
+        return messages
+    adapted = []
+    for original in messages:
+        item = dict(original)
+        reasoning = item.pop("reasoning_content", None)
+        if item.get("role") == "assistant" and isinstance(reasoning, str) and reasoning:
+            content = item.get("content")
+            if isinstance(content, list) and any(
+                isinstance(chunk, dict) and chunk.get("type") == "thinking" for chunk in content
+            ):
+                adapted.append(item)
+                continue
+            chunks = [{"type": "thinking", "thinking": [{"type": "text", "text": reasoning}], "closed": True}]
+            if isinstance(content, str) and content:
+                chunks.append({"type": "text", "text": content})
+            elif isinstance(content, list):
+                chunks.extend(content)
+            item["content"] = chunks
+        adapted.append(item)
+    return adapted
+
+
 def _convert_openai_content_to_anthropic(content):
     """Convert OpenAI multimodal content blocks to Anthropic format.
 
@@ -2323,7 +2354,8 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
              thinking_mode: Optional[str] = None,
              reasoning_effort: Optional[str] = None) -> str:
     """Synchronous LLM call with optional prompt type enhancement."""
-    h = _provider_headers(_detect_provider(url))
+    provider = _detect_provider(url)
+    h = _provider_headers(provider)
     # Tolerate headers that arrive as a JSON string (some sessions stored them
     # double-encoded) — otherwise h.update() throws "dictionary update sequence
     # element #0 has length 1; 2 is required".
@@ -2335,7 +2367,7 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
     if isinstance(headers, dict):
         h.update(headers)
 
-    messages_copy = _sanitize_llm_messages(messages)
+    messages_copy = _provider_reasoning_messages(_sanitize_llm_messages(messages), provider)
 
     # Consolidate multiple system messages into one at the start.
     sys_parts = []
@@ -2350,7 +2382,6 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
     else:
         messages_copy = non_sys
 
-    provider = _detect_provider(url)
     cache_key = _get_cache_key(
         url, model, messages_copy, temperature, max_tokens, headers=headers,
         thinking_mode=thinking_mode, reasoning_effort=reasoning_effort,
@@ -2654,7 +2685,7 @@ async def llm_call_async(
 ) -> str | tuple[str, str]:
     """Asynchronous LLM call using httpx with connection pooling, timeout, retry logic, and performance logging."""
     provider = _detect_provider(url)
-    messages_copy = _sanitize_llm_messages(messages)
+    messages_copy = _provider_reasoning_messages(_sanitize_llm_messages(messages), provider)
 
     # Consolidate multiple system messages into one at the start.
     sys_parts = []
@@ -3007,7 +3038,7 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
       - data: [DONE]                       — end of stream
     """
     provider = _detect_provider(url)
-    messages_copy = _sanitize_llm_messages(messages)
+    messages_copy = _provider_reasoning_messages(_sanitize_llm_messages(messages), provider)
 
     # Consolidate multiple system messages into one at the start.
     # Some models (e.g. Qwen3.5) reject system messages that aren't first.
