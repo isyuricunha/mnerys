@@ -121,8 +121,7 @@ def test_allow_for_chat_session_applies_to_later_turns_in_only_that_chat():
 
     resolved_card = pending.public_payload()
     resolved_card["resolved"] = "approve"
-    # Resolving is a server action, and only the server's signature on the card
-    # makes it a grant. A card that merely looks resolved is not one.
+    # Include a legacy signature to prove copied/reloaded history cannot grant.
     stamp_chat_session_grant(resolved_card, "session-1", "approve")
     history = [
         ChatMessage(
@@ -139,6 +138,8 @@ def test_allow_for_chat_session_applies_to_later_turns_in_only_that_chat():
         model="test",
         history=history,
     )
+    assert CHAT_SESSION_APPROVAL_CONTEXT_MARKER not in (session.get_context_messages()[-1].get("metadata") or {})
+    session.grant_chat_session_approval()
 
     messages = session.get_context_messages()
     assert messages[-1]["metadata"][CHAT_SESSION_APPROVAL_CONTEXT_MARKER] is True
@@ -149,8 +150,7 @@ def test_allow_for_chat_session_applies_to_later_turns_in_only_that_chat():
     assert future_turn.approval_gate_bypassed is True
     assert future_turn.decision_for("bash").allowed is True
 
-    # The persisted card is bound to its original chat id, so a fork/copy does
-    # not inherit the grant merely by copying transcript metadata.
+    # Forks and a newly hydrated instance of the same session cannot inherit it.
     other_session = Session(
         id="session-2",
         name="Fork",
@@ -165,6 +165,11 @@ def test_allow_for_chat_session_applies_to_later_turns_in_only_that_chat():
     other_turn = ToolRunSecurityContext(external_untrusted_context_seen=True)
     other_turn.observe_messages(other_messages)
     assert other_turn.decision_for("bash").allowed is False
+    recovered = Session(id=session.id, name=session.name, endpoint_url=session.endpoint_url,
+                        model=session.model, history=history)
+    recovered_turn = ToolRunSecurityContext(external_untrusted_context_seen=True)
+    recovered_turn.observe_messages(recovered.get_context_messages())
+    assert recovered_turn.decision_for("bash").allowed is False
 
 
 def test_deny_executes_nothing_and_grants_no_task_or_chat_scope():

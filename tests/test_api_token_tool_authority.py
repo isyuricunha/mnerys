@@ -420,8 +420,8 @@ def test_client_supplied_approval_metadata_does_not_grant_the_chat_session_bypas
     assert context.decision_for("bash").allowed is False
 
 
-def test_a_grant_the_server_signed_still_bypasses_the_gate_for_that_chat():
-    """The fix must not simply deny every chat-session grant."""
+def test_only_a_live_session_grant_bypasses_the_gate_for_that_chat():
+    """A historical signed decision is audit only, even in the same session."""
     from src.tool_approval_scopes import stamp_chat_session_grant
 
     card = {
@@ -437,6 +437,10 @@ def test_a_grant_the_server_signed_still_bypasses_the_gate_for_that_chat():
         ChatMessage("user", "continue the work"),
     ])
 
+    context = ToolRunSecurityContext(external_untrusted_context_seen=True)
+    context.observe_messages(session.get_context_messages())
+    assert context.decision_for("bash").allowed is False
+    session.grant_chat_session_approval()
     context = ToolRunSecurityContext(external_untrusted_context_seen=True)
     context.observe_messages(session.get_context_messages())
 
@@ -662,7 +666,7 @@ def test_sanitizing_metadata_leaves_ordinary_payloads_alone():
 
 
 def test_a_token_cannot_reuse_the_grant_its_owner_made_in_the_browser():
-    """The grant is genuine and correctly signed, so only the delegated check
+    """The grant is genuine and process-local, so only the delegated check
     stops it. Confirmed live: exploitable before this change, closed after."""
     from src.tool_approval_scopes import stamp_chat_session_grant
 
@@ -677,6 +681,7 @@ def test_a_token_cannot_reuse_the_grant_its_owner_made_in_the_browser():
         ChatMessage("assistant", "approval requested", {"tool_events": [{"ask_user": card}]}),
         ChatMessage("user", "continue"),
     ])
+    session.grant_chat_session_approval()
     messages = session.get_context_messages()
 
     owner_turn = ToolRunSecurityContext(external_untrusted_context_seen=True)

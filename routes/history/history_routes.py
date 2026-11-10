@@ -14,7 +14,7 @@ from core.database import SessionLocal, ChatMessage as DbChatMessage, Session as
 from src.auth_helpers import effective_user, require_chat_api_token_scope
 from src.topic_analyzer import analyze_topics
 from src.upload_handler import reserve_message_upload_references
-from src.tool_approval_scopes import sanitize_client_message_metadata
+from src.tool_approval_scopes import CHAT_SESSION_APPROVAL_SIGNATURE_FIELD, sanitize_client_message_metadata
 from routes.session_routes import (
     _message_role,
     _message_text,
@@ -27,6 +27,37 @@ logger = logging.getLogger(__name__)
 
 _HISTORY_INLINE_MEDIA_THRESHOLD = 200_000
 _DATA_IMAGE_RE = re.compile(r"data:image/[^;,\"]+;base64,[A-Za-z0-9+/=\s]+")
+
+
+def _project_history_approvals(entries, admission, session_id):
+    """Historical cards are observations; only a current seal can offer a decision."""
+    from src.tool_approvals import tool_approval_store
+
+    principal = getattr(admission, "principal", None)
+    owner = str(getattr(principal, "owner_id", None) or "").strip().casefold()
+    for entry in entries:
+        metadata = entry.get("metadata")
+        events = metadata.get("tool_events") if isinstance(metadata, dict) else None
+        if not isinstance(events, list):
+            continue
+        projected = list(events)
+        for index, event in enumerate(events):
+            card = event.get("ask_user") if isinstance(event, dict) else None
+            if not isinstance(card, dict) or card.get("kind") != "tool_approval":
+                continue
+            if card.get("resolved"):
+                projected[index] = {**event, "ask_user": {
+                    key: value for key, value in card.items() if key != CHAT_SESSION_APPROVAL_SIGNATURE_FIELD
+                }}
+                continue
+            seal = tool_approval_store.peek(card.get("approval_id")) if not getattr(principal, "delegated", True) else None
+            if seal and seal.owner == owner and seal.session_id == session_id and not seal.origin_profile:
+                view = seal.public_payload()
+            else:
+                view = {"kind": "tool_approval", "resolved": "unavailable"}
+            projected[index] = {**event, "ask_user": view}
+        entry["metadata"] = {**metadata, "tool_events": projected}
+    return entries
 
 
 def _sft_trace_file_for_owner(owner: str | None) -> str | None:
@@ -297,7 +328,7 @@ def setup_history_routes(session_manager, upload_handler=None) -> APIRouter:
         limit: Optional[int] = None,
         offset: Optional[int] = None,
     ) -> Dict[str, Any]:
-        _verify_session_owner(request, session_id)
+        admission = _verify_session_owner(request, session_id)
         if limit is not None:
             page_limit = max(1, min(int(limit), 100))
             db = SessionLocal()
@@ -328,7 +359,7 @@ def setup_history_routes(session_manager, upload_handler=None) -> APIRouter:
                     if not (entry.get("metadata") or {}).get("hidden")
                 ]
                 return {
-                    "history": history_dict,
+                    "history": _project_history_approvals(history_dict, admission, session_id),
                     "model": db_session.model,
                     "endpoint_url": db_session.endpoint_url,
                     "endpoint_id": getattr(db_session, "endpoint_id", None),
@@ -392,7 +423,7 @@ def setup_history_routes(session_manager, upload_handler=None) -> APIRouter:
                 db.close()
 
         return {
-            "history": history_dict,
+            "history": _project_history_approvals(history_dict, admission, session_id),
             "model": session.model,
             "endpoint_url": session.endpoint_url,
             "endpoint_id": getattr(session, "endpoint_id", None),

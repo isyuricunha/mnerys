@@ -5,14 +5,11 @@ Pure data models — no database logic, no side effects.
 These are simple datacontainers. All persistence is handled by SessionManager.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional, TYPE_CHECKING
 
 from src.tool_approval_scopes import (
     CHAT_SESSION_APPROVAL_CONTEXT_MARKER,
-    CHAT_SESSION_APPROVAL_DECISION,
-    CHAT_SESSION_APPROVAL_SIGNATURE_FIELD,
-    verify_chat_session_grant,
 )
 
 if TYPE_CHECKING:
@@ -36,43 +33,6 @@ def get_session_manager_instance() -> Optional["SessionManager"]:
 # Keep legacy name for backward compatibility
 set_session_manager = set_session_manager_instance
 get_session_manager = get_session_manager_instance
-
-
-def _history_grants_chat_session_approval(
-    history: List["ChatMessage"],
-    session_id: str,
-) -> bool:
-    """Return whether this exact chat has a resolved session-scope grant."""
-
-    expected_session = str(session_id or "")
-    if not expected_session:
-        return False
-    for message in reversed(history or []):
-        metadata = getattr(message, "metadata", None)
-        if not isinstance(metadata, dict):
-            continue
-        tool_events = metadata.get("tool_events")
-        if not isinstance(tool_events, list):
-            continue
-        for event in reversed(tool_events):
-            ask_user = event.get("ask_user") if isinstance(event, dict) else None
-            if not isinstance(ask_user, dict):
-                continue
-            if (
-                ask_user.get("kind") == "tool_approval"
-                and ask_user.get("resolved") == CHAT_SESSION_APPROVAL_DECISION
-                and str(ask_user.get("session_id") or "") == expected_session
-                # Shape proves nothing here: routes that accept a
-                # caller-supplied metadata blob write into this same history.
-                and verify_chat_session_grant(
-                    ask_user.get(CHAT_SESSION_APPROVAL_SIGNATURE_FIELD),
-                    expected_session,
-                    ask_user.get("approval_id"),
-                    CHAT_SESSION_APPROVAL_DECISION,
-                )
-            ):
-                return True
-    return False
 
 
 @dataclass
@@ -134,6 +94,11 @@ class Session:
     # closed rather than guess when these are missing.
     revision: Optional[int] = None
     incarnation_id: Optional[str] = None
+    _approval_binding: tuple | None = field(default=None, init=False, repr=False, compare=False)
+
+    def grant_chat_session_approval(self) -> None:
+        """Remember an admitted chat-scope decision on this live session only."""
+        self._approval_binding = (self.id, self.owner, self.incarnation_id)
 
     def __post_init__(self):
         if self.headers is None:
@@ -228,7 +193,15 @@ class Session:
                 resumed["reasoning_content"] = thinking
                 messages[index] = resumed
             break
-        if not _history_grants_chat_session_approval(self.history, self.id):
+        # A transcript, including a legacy signed card or a marker in copied
+        # metadata, cannot reconstitute this process-local decision.
+        for index, message in enumerate(messages):
+            metadata = message.get("metadata")
+            if isinstance(metadata, dict) and CHAT_SESSION_APPROVAL_CONTEXT_MARKER in metadata:
+                clean = dict(metadata)
+                clean.pop(CHAT_SESSION_APPROVAL_CONTEXT_MARKER)
+                messages[index] = {**message, "metadata": clean}
+        if self._approval_binding != (self.id, self.owner, self.incarnation_id):
             return messages
 
         # Keep the grant close to the latest user request so route-neutral
