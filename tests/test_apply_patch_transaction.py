@@ -34,6 +34,11 @@ async def test_apply_patch_rolls_back_every_file_when_commit_fails(
         "_resolve_tool_path",
         lambda path: str(tmp_path / path),
     )
+    # M5.2: patches over existing files require a recorded full-file read; the
+    # rollback mechanics under test run after that contract check.
+    from src.agent_runtime.read_baselines import record_file_read
+    record_file_read("", "", str(first), ("full", 1, 0))
+    record_file_read("", "", str(second), ("full", 1, 0))
     original_replace = filesystem_tools.os.replace
     calls = 0
 

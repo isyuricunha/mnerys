@@ -1,4 +1,6 @@
 import asyncio
+import fcntl
+import hashlib
 import json
 import os
 import re
@@ -7,10 +9,120 @@ import secrets
 import shutil
 import time
 import tempfile
+from contextlib import contextmanager
 from typing import Optional, Dict, Any, Tuple, List
 
 from src.constants import MAX_READ_CHARS, MAX_DIFF_LINES, MAX_OUTPUT_CHARS
 from src.path_confinement import is_inside
+
+
+# ---------------------------------------------------------------------------
+# Validated in-place mutation primitives (M5.2 read-before-edit)
+# ---------------------------------------------------------------------------
+
+@contextmanager
+def _open_mutation_fd(path: str):
+    """Open an existing file for a validated, lock-held, in-place mutation.
+
+    The final path component is opened through the parent directory fd with
+    ``O_NOFOLLOW``, so a symlink swap of the file between resolution and open
+    is refused instead of followed, and the returned descriptor pins the exact
+    inode for the whole validate-and-mutate sequence — a later path swap
+    cannot redirect the write. An exclusive ``flock`` on the descriptor
+    serializes every cooperating writer of this server across threads and
+    processes. Non-cooperating writers (running shell commands) are outside
+    this lock by nature; the baseline contract handles them by invalidation,
+    not by pretending they cannot race (documented residual).
+    """
+    directory = os.path.dirname(path) or "."
+    name = os.path.basename(path)
+    if not name:
+        raise ValueError("mutation target must be a file name inside a directory")
+    dir_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        fd = os.open(name, os.O_RDWR | os.O_NOFOLLOW, dir_fd=dir_fd)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            try:
+                yield fd
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+    finally:
+        os.close(dir_fd)
+
+
+def _read_fd_bytes(fd: int) -> bytes:
+    os.lseek(fd, 0, os.SEEK_SET)
+    chunks = []
+    while True:
+        chunk = os.read(fd, 1 << 20)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _rewrite_fd_contents(fd: int, text: str) -> int:
+    """Replace the descriptor's whole content in place, preserving the file's
+    identity, ownership and permissions by construction (same inode)."""
+    data = text.encode("utf-8")
+    os.lseek(fd, 0, os.SEEK_SET)
+    os.ftruncate(fd, len(data))
+    view = memoryview(data)
+    while view:
+        written = os.write(fd, view)
+        view = view[written:]
+    os.fsync(fd)
+    return len(data)
+
+
+def _fd_identity(fd: int):
+    from src.agent_runtime.resources import FileObjectIdentity
+    info = os.fstat(fd)
+    return FileObjectIdentity(info.st_dev, info.st_ino, "file")
+
+
+def _refresh_baseline_after_mutation(owner, session_id, path, new_text: str) -> None:
+    """Re-baseline the file after a successful server-side mutation: the
+    server knows the exact content it wrote, so the next edit can validate
+    against it without forcing a redundant reread."""
+    from src.agent_runtime.read_baselines import (
+        DEFAULT_MAX_BASELINE_FILE_BYTES,
+        OBSERVATION_FULL,
+        ReadBaseline,
+        read_baseline_store,
+    )
+    from src.agent_runtime.resources import FileObjectIdentity
+    encoded = new_text.encode("utf-8")
+    if len(encoded) > DEFAULT_MAX_BASELINE_FILE_BYTES:
+        # Beyond the baseline contract's size bound: no baseline, so the next
+        # edit requires a fresh read (fail-closed).
+        read_baseline_store().invalidate(owner, session_id, path)
+        return
+    try:
+        info = os.stat(path)
+    except OSError:
+        read_baseline_store().invalidate(owner, session_id, path)
+        return
+    read_baseline_store().record(ReadBaseline(
+        owner=str(owner or "").strip().casefold(),
+        session_id=str(session_id or "").strip(),
+        path=str(path),
+        identity=FileObjectIdentity(info.st_dev, info.st_ino, "file"),
+        content_sha256=hashlib.sha256(encoded).hexdigest(),
+        size=info.st_size,
+        mtime_ns=info.st_mtime_ns,
+        observation=(OBSERVATION_FULL, 1, 0),
+        recorded_at=time.time(),
+    ))
+
+
+def _baseline_mutation_error(error: Exception) -> Dict[str, Any]:
+    """Uniform, actionable error result for a read-before-edit refusal."""
+    return {"error": str(error), "exit_code": 1, "read_before_edit": True}
+
 
 _CODENAV_SKIP_DIRS = frozenset({
     ".git", ".hg", ".svn", "node_modules", "venv", ".venv", "__pycache__",
@@ -236,19 +348,48 @@ class EditFileTool:
             return {"error": "edit_file: old_string and new_string are identical", "exit_code": 1}
 
         def _apply():
-            """Helper function that performs the actual string replacement and file writing logic."""
-            # Exact replacement must not normalize unrelated CRLF/CR newlines.
-            with open(path, "r", encoding="utf-8", newline="") as f:
-                original = f.read()
-            updated, status = _edit_file_text(original, old, new, replace_all)
-            if updated is None:
-                return original, None, status
-            attempted.append(True)
-            with open(path, "w", encoding="utf-8", newline="") as f:
-                f.write(updated)
-            return original, updated, "ok"
+            """Validated, lock-held in-place replacement.
 
-        # In-place rewrite: a failure after truncation may leave partial bytes.
+            The descriptor pins the inode for the whole sequence: identity and
+            content digest are validated on the same fd that is rewritten, so
+            a path swap after the open cannot redirect the mutation, and
+            cooperating writers are mutually excluded by the flock."""
+            from src.agent_runtime.read_baselines import (
+                AnchorOutsideObservedLines,
+                observed_line_span_covers,
+                require_baseline_for_mutation,
+            )
+            with _open_mutation_fd(path) as fd:
+                raw = _read_fd_bytes(fd)
+                # Strict UTF-8 decode on the raw bytes: a non-text file is
+                # refused exactly as before, and no newline translation ever
+                # touches unrelated CRLF/CR content.
+                original = raw.decode("utf-8")
+                baseline = require_baseline_for_mutation(
+                    ctx.get("owner"), ctx.get("session_id"), path,
+                    tool="edit_file",
+                    current_bytes=raw,
+                    current_identity=_fd_identity(fd),
+                )
+                updated, status = _edit_file_text(original, old, new, replace_all)
+                if updated is None:
+                    return original, None, status
+                if not baseline.full_read and not observed_line_span_covers(baseline, original, old):
+                    # A partial read authorizes replacing only content the
+                    # agent actually observed — never unread lines.
+                    raise AnchorOutsideObservedLines(
+                        f"edit_file: the text being replaced in {path} is outside the lines "
+                        f"observed by the last Read (lines {baseline.observation[1]}-"
+                        f"{baseline.observation[2]}). Read the file (or the relevant range) "
+                        "and retry."
+                    )
+                attempted.append(True)
+                _rewrite_fd_contents(fd, updated)
+                _refresh_baseline_after_mutation(ctx.get("owner"), ctx.get("session_id"), path, updated)
+                return original, updated, "ok"
+
+        # Validated in-place rewrite: the descriptor pins the inode, so the
+        # identity/digest check and the rewrite observe the same file object.
         attempted = []
         partial = lambda: {"mutation_attempted": True} if attempted else {}
         try:
@@ -261,6 +402,12 @@ class EditFileTool:
             return {"error": f"edit_file: {path}: permission denied", "exit_code": 1, **partial()}
         except OSError as e:
             return {"error": f"edit_file: {path}: {e}", "exit_code": 1, **partial()}
+        except ValueError as e:
+            # Read-baseline contract refusals are ValueErrors with actionable
+            # guidance; nothing was mutated.
+            if type(e).__module__ == "src.agent_runtime.read_baselines":
+                return _baseline_mutation_error(e)
+            raise
 
         if status == "not_found":
             return {"error": f"edit_file: old_string not found in {path}. Read the file and match it exactly.", "exit_code": 1}
@@ -311,8 +458,8 @@ class ReadFileTool:
                         lines = extracted.splitlines(keepends=True)
                         start = max(offset, 1) - 1
                         stop = start + limit if limit > 0 else None
-                        return "".join(lines[start:stop])[:MAX_READ_CHARS]
-                    return extracted[:MAX_READ_CHARS + 1]
+                        return "".join(lines[start:stop])[:MAX_READ_CHARS], ("opaque", 0, 0)
+                    return extracted[:MAX_READ_CHARS + 1], ("opaque", 0, 0)
                 if offset > 0 or limit > 0:
                     start = max(offset, 1)
                     out, n, budget = [], 0, MAX_READ_CHARS
@@ -328,10 +475,21 @@ class ReadFileTool:
                             if budget <= 0:
                                 out.append(f"\n... [truncated at {MAX_READ_CHARS} chars]")
                                 break
-                    return "".join(out)
+                    # The baseline must describe exactly what was observed: the
+                    # lines actually returned, not the range that was asked for.
+                    return "".join(out), ("lines", start, start + n - 1)
                 with open(path, "r", encoding="utf-8", errors="replace") as f:
-                    return f.read(MAX_READ_CHARS + 1)
-            data = await asyncio.to_thread(_read)
+                    raw = f.read(MAX_READ_CHARS + 1)
+                if len(raw) > MAX_READ_CHARS:
+                    # A truncated read observed only the complete lines of the
+                    # prefix; unread lines must not be silently authorized.
+                    prefix = raw[:MAX_READ_CHARS]
+                    return (
+                        prefix + f"\n... [truncated at {MAX_READ_CHARS} chars]",
+                        ("lines", 1, prefix.count("\n")),
+                    )
+                return raw, ("full", 1, 0)
+            data, observation = await asyncio.to_thread(_read)
         except FileNotFoundError:
             return {"error": f"read_file: {path}: not found", "exit_code": 1}
         except PermissionError:
@@ -342,6 +500,11 @@ class ReadFileTool:
             return {"error": f"read_file: {path}: {e}", "exit_code": 1}
         if not (offset > 0 or limit > 0) and len(data) > MAX_READ_CHARS:
             data = data[:MAX_READ_CHARS] + f"\n... [truncated at {MAX_READ_CHARS} chars]"
+        # M5.2: a real, successful read is the server-side baseline that later
+        # write_file/edit_file/apply_patch calls validate against. Recording is
+        # best-effort: without a baseline the mutation is simply refused.
+        from src.agent_runtime.read_baselines import record_file_read
+        record_file_read(ctx.get("owner"), ctx.get("session_id"), path, observation)
         return {"output": data, "exit_code": 0}
 
 
@@ -385,6 +548,27 @@ class _EmptyBodyWouldTruncate(Exception):
         self.path = path
         self.existing_bytes = existing_bytes
 
+
+class _TargetAppeared(Exception):
+    """Raised inside the write thread when the exclusive creation of a new
+    file lost a race with another creator: the destination exists and was NOT
+    overwritten. Carries the path so the caller can tell the model to read it
+    first instead of silently clobbering whatever appeared."""
+
+    def __init__(self, path: str):
+        super().__init__(path)
+        self.path = path
+
+
+class _PatchTargetChanged(Exception):
+    """Raised inside apply_patch when a target's content no longer matches the
+    digest the patch was prepared against. The whole patch aborts before any
+    replace; existing backups are restored by the caller's rollback."""
+
+    def __init__(self, path: str):
+        super().__init__(path)
+        self.path = path
+
 def _parse_write_intent(content: str) -> tuple[str, str, bool, bool]:
     """Classify the original transport, before binding or source normalization.
 
@@ -413,6 +597,7 @@ class WriteFileTool:
     async def execute(self, content: str, ctx: dict) -> dict:
         from src.tool_execution import _display_tool_path, _resolve_tool_path
         from src.agent_runtime.resource_binding import active_resource_operation
+        from src.agent_runtime.read_baselines import ReadBaselineError
         bound = active_resource_operation()
         original = bound.operation.input if bound is not None else content
         try:
@@ -472,52 +657,74 @@ class WriteFileTool:
         attempted = []
         try:
             def _write():
-                old = ""
-                try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        old = f.read()
-                except (FileNotFoundError, IsADirectoryError, UnicodeDecodeError, OSError):
-                    old = ""
                 d = os.path.dirname(path)
                 if d:
                     os.makedirs(d, exist_ok=True)
-                if not body.strip() and not declared_clear:
-                    # Empty/whitespace-only writes to an already-empty file are no-ops.
-                    # Avoid reopening in truncating mode: another writer may have added
-                    # data since the read above.
-                    if os.path.isfile(path):
-                        existing_bytes = os.path.getsize(path)
-                        if existing_bytes > 0:
-                            raise _EmptyBodyWouldTruncate(path, existing_bytes)
-                        return old, 0
-
+                if not os.path.isfile(path):
+                    # New-file creation: exclusive semantics only. A file that
+                    # appears meanwhile is never silently overwritten — the
+                    # caller is told to Read it first (M5.2).
                     try:
-                        if body:
-                            # Publish whitespace content atomically. Writing it
-                            # after exclusive creation could overwrite bytes from
-                            # a writer that filled the new placeholder meanwhile.
+                        if not body.strip() and not declared_clear:
+                            if body:
+                                # Publish whitespace content atomically. Writing it
+                                # after exclusive creation could overwrite bytes from
+                                # a writer that filled the new placeholder meanwhile.
+                                _write_new_file_without_overwrite(path, body)
+                            else:
+                                # An exact empty body needs no staged data, so create
+                                # the file exclusively and never write through it.
+                                with open(path, "x", encoding="utf-8"):
+                                    pass
                             attempted.append(True)
-                            _write_new_file_without_overwrite(path, body)
-                        else:
-                            # An exact empty body needs no staged data, so create
-                            # the file exclusively and never write through it.
-                            attempted.append(True)
-                            with open(path, "x", encoding="utf-8"):
-                                pass
+                            return "", len(body)
+                        attempted.append(True)
+                        _write_new_file_without_overwrite(path, body)
+                        return "", len(body)
                     except FileExistsError:
                         if os.path.isfile(path):
-                            existing_bytes = os.path.getsize(path)
-                            if existing_bytes > 0:
-                                raise _EmptyBodyWouldTruncate(path, existing_bytes)
-                            return old, 0
+                            raise _TargetAppeared(path)
                         raise
-                    return old, len(body)
 
-                attempted.append(True)
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(body)
-                return old, len(body)
+                # Existing-file overwrite: validated, lock-held, in-place
+                # mutation. The descriptor pins the inode for the whole
+                # validate-and-write sequence, so a path swap after the open
+                # cannot redirect it and cooperating writers are mutually
+                # excluded; a failure mid-write may leave partial bytes, which
+                # the result reports honestly (mutation_attempted).
+                from src.agent_runtime.read_baselines import require_baseline_for_mutation
+                with _open_mutation_fd(path) as fd:
+                    raw = _read_fd_bytes(fd)
+                    old = raw.decode("utf-8", errors="replace")
+                    if not body.strip() and not declared_clear:
+                        # Empty/whitespace-only writes to an already-empty file
+                        # are no-ops; over a file with bytes they are refused.
+                        if len(raw) > 0:
+                            raise _EmptyBodyWouldTruncate(path, len(raw))
+                        return old, 0
+                    require_baseline_for_mutation(
+                        ctx.get("owner"), ctx.get("session_id"), path,
+                        tool="write_file",
+                        current_bytes=raw,
+                        current_identity=_fd_identity(fd),
+                    )
+                    attempted.append(True)
+                    size = _rewrite_fd_contents(fd, body)
+                    _refresh_baseline_after_mutation(ctx.get("owner"), ctx.get("session_id"), path, body)
+                    return old, size
             old_content, size = await asyncio.to_thread(_write)
+        except _TargetAppeared as e:
+            return {
+                "error": (
+                    f"write_file: {e.path} appeared while the write was being prepared "
+                    "and was not overwritten. Read it first if you intend to modify it."
+                ),
+                "exit_code": 1,
+                "appeared_during_creation": True,
+            }
+        except ReadBaselineError as e:
+            # Read-before-edit refusal: nothing was mutated.
+            return _baseline_mutation_error(e)
         except _EmptyBodyWouldTruncate as e:
             clear_call = json.dumps({"path": raw_path, "content": ""})
             return {
@@ -557,6 +764,7 @@ class ApplyPatchTool:
         corruption when the model patches stale context.
         """
         from src.tool_execution import _resolve_tool_path
+        from src.agent_runtime.read_baselines import ReadBaselineError
 
         patch_text = content or ""
         stripped = patch_text.strip()
@@ -574,7 +782,13 @@ class ApplyPatchTool:
             ops = _parse_agent_patch(patch_text)
             if not ops:
                 return {"error": "apply_patch: no file operations found", "exit_code": 1}
+            owner = ctx.get("owner")
+            session_id = ctx.get("session_id")
             prepared = []
+            # Digest of each mutating target as the patch was prepared against;
+            # re-verified right before the replaces so the validation-to-mutation
+            # window cannot silently admit different content.
+            validated_digests: Dict[str, str] = {}
             for op in ops:
                 path = _resolve_tool_path(op["path"])
                 kind = op["kind"]
@@ -586,14 +800,26 @@ class ApplyPatchTool:
                 elif kind == "delete":
                     if not os.path.isfile(path):
                         return {"error": f"apply_patch: {op['path']}: not found", "exit_code": 1}
-                    with open(path, "r", encoding="utf-8") as f:
-                        old = f.read()
+                    raw = open(path, "rb").read()
+                    old = raw.decode("utf-8")
+                    from src.agent_runtime.read_baselines import require_baseline_for_mutation
+                    require_baseline_for_mutation(
+                        owner, session_id, path,
+                        tool="apply_patch", current_bytes=raw, current_identity=None,
+                    )
+                    validated_digests[path] = hashlib.sha256(raw).hexdigest()
                     new = ""
                 else:
                     if not os.path.isfile(path):
                         return {"error": f"apply_patch: {op['path']}: not found", "exit_code": 1}
-                    with open(path, "r", encoding="utf-8") as f:
-                        old = f.read()
+                    raw = open(path, "rb").read()
+                    old = raw.decode("utf-8")
+                    from src.agent_runtime.read_baselines import require_baseline_for_mutation
+                    require_baseline_for_mutation(
+                        owner, session_id, path,
+                        tool="apply_patch", current_bytes=raw, current_identity=None,
+                    )
+                    validated_digests[path] = hashlib.sha256(raw).hexdigest()
                     new = _apply_patch_hunks(old, op["hunks"], op["path"])
                 prepared.append((kind, path, old, new))
 
@@ -624,6 +850,16 @@ class ApplyPatchTool:
                         raise
                     staged.append((path, temp_path))
 
+                # M5.2: re-verify every mutating target against the digest the
+                # patch was prepared against, before anything is moved. A
+                # target that changed since preparation aborts the whole patch.
+                for _kind, path, _old, _new in prepared:
+                    if path in validated_digests:
+                        with open(path, "rb") as handle:
+                            current = hashlib.sha256(handle.read()).hexdigest()
+                        if current != validated_digests[path]:
+                            raise _PatchTargetChanged(path)
+
                 for _kind, path, _old, _new in prepared:
                     if os.path.exists(path):
                         directory = os.path.dirname(path) or "."
@@ -643,6 +879,14 @@ class ApplyPatchTool:
                     if kind != "delete":
                         os.replace(staged_by_path[path], path)
                 staged.clear()
+                # The server knows the exact content it just wrote; re-baseline
+                # each target so subsequent edits validate against it.
+                from src.agent_runtime.read_baselines import read_baseline_store
+                for kind, path, _old, new in prepared:
+                    if kind == "delete":
+                        read_baseline_store().invalidate(owner, session_id, path)
+                    else:
+                        _refresh_baseline_after_mutation(owner, session_id, path, new)
             except BaseException:
                 for path, backup_path in reversed(backups):
                     try:
@@ -671,6 +915,19 @@ class ApplyPatchTool:
                 diff = _unified_diff(old, new, path)
                 if diff:
                     diffs.append(diff)
+        except ReadBaselineError as e:
+            # Read-before-edit refusal: nothing was mutated.
+            return _baseline_mutation_error(e)
+        except _PatchTargetChanged as e:
+            return {
+                "error": (
+                    f"apply_patch: {e.path} changed after the patch was prepared "
+                    "(content digest mismatch); the patch was not applied. "
+                    "Read the file again and retry with fresh context."
+                ),
+                "exit_code": 1,
+                "patch_target_changed": True,
+            }
         except (ValueError, UnicodeDecodeError, PermissionError, OSError) as e:
             return {"error": f"apply_patch: {e}", "exit_code": 1}
 

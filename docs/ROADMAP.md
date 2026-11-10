@@ -359,12 +359,29 @@ feedback, sealed-approval replay exemption, harmony alias protection for
 canonical names, and registry-aware resolution audit — with the existing
 handler-keyed authority, approval-fingerprint, resource-binding and dispatch
 machinery unchanged. Anthropic wire shape verified against the current
-official tool-use documentation. Remaining for M5.2: read-before-edit
-enforcement for existing files (read baseline/version, stale-edit rejection),
-`ToolSearch`/`Skill` implementations, textual-channel and prompt-vocabulary
-migration for local/finetuned routes, compact-preview canonicalization, and
-the real-provider exit-gate matrix (read/search/edit/patch/shell on at least
-two provider API protocols).
+official tool-use documentation.
+
+**Increment 2 status (verified):** server-verified read-before-edit
+protection for existing files. `write_file`, `edit_file` and `apply_patch`
+mutations of an existing file require a real, successful server-side `Read`
+baseline for the same owner and session, bound to the file identity (device,
+inode), the full-content SHA-256, and the observation shape (full read, line
+range, or derived document text). Partial reads authorize anchored edits only
+inside the observed lines and never a full-file overwrite of unread content;
+stale, replaced, expired, cross-session and forged baselines are refused with
+actionable reread guidance before any byte is written. The validate-then-
+mutate sequence is descriptor-pinned: O_NOFOLLOW open through the parent
+directory fd, an exclusive flock held across validation and the in-place
+rewrite, and post-mutation re-baselining of the exact written content. New
+files keep exclusive-creation semantics (an appeared file is never
+overwritten). After `bash`/`python` execution every baseline of the
+owner/session is invalidated — the contained shell write surface is a
+documented boundary of the guarantee, not a silent bypass. Remaining for
+M5.2: `ToolSearch`/`Skill` implementations, textual-channel and
+prompt-vocabulary migration for local/finetuned routes, compact-preview
+canonicalization, derived-artifact writer contracts, and the real-provider
+exit-gate matrix (read/search/edit/patch/shell on at least two provider API
+protocols).
 
 **Exit gate:** real provider-backed read/search/edit/patch/shell tests;
 unread/stale file edits rejected; exact tool calls, permissions and

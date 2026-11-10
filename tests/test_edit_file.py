@@ -69,11 +69,19 @@ async def test_edit_file_blocked_at_execution_for_non_admin(monkeypatch):
 
 
 # ── Behavior ──────────────────────────────────────────────────────────────
+def _record_read_baseline(path: str):
+    """M5.2: these tests exercise edit mechanics, so each one records a real
+    full-file read baseline first (owner/session scoped, as the tools see)."""
+    from src.agent_runtime.read_baselines import record_file_read
+    record_file_read("test", "test-session", path, ("full", 1, 0))
+
+
 @pytest.mark.asyncio
 async def test_edit_file_success():
     p = os.path.join("/tmp", "ef_ok.py")
     open(p, "w").write("def f():\n    return 1\n")
-    res = await EditFileTool().execute(json.dumps({"path": p, "old_string": "return 1", "new_string": "return 2"}), {})
+    _record_read_baseline(p)
+    res = await EditFileTool().execute(json.dumps({"path": p, "old_string": "return 1", "new_string": "return 2"}), {"owner": "test", "session_id": "test-session"})
     assert res["exit_code"] == 0
     assert open(p).read() == "def f():\n    return 2\n"
     assert res["diff"]["added"] == 1 and res["diff"]["removed"] == 1 and res["diff"]["file"] == "ef_ok.py"
@@ -84,7 +92,8 @@ async def test_edit_file_success():
 async def test_edit_file_not_found():
     p = os.path.join("/tmp", "ef_nf.txt")
     open(p, "w").write("hello\n")
-    res = await EditFileTool().execute(json.dumps({"path": p, "old_string": "nope", "new_string": "x"}), {})
+    _record_read_baseline(p)
+    res = await EditFileTool().execute(json.dumps({"path": p, "old_string": "nope", "new_string": "x"}), {"owner": "test", "session_id": "test-session"})
     assert res["exit_code"] == 1 and "not found" in res["error"]
     os.unlink(p)
 
@@ -93,10 +102,11 @@ async def test_edit_file_not_found():
 async def test_edit_file_non_unique():
     p = os.path.join("/tmp", "ef_dup.txt")
     open(p, "w").write("x\nx\n")
-    res = await EditFileTool().execute(json.dumps({"path": p, "old_string": "x", "new_string": "y"}), {})
+    _record_read_baseline(p)
+    res = await EditFileTool().execute(json.dumps({"path": p, "old_string": "x", "new_string": "y"}), {"owner": "test", "session_id": "test-session"})
     assert res["exit_code"] == 1 and "not unique" in res["error"]
     # replace_all resolves it
-    res = await EditFileTool().execute(json.dumps({"path": p, "old_string": "x", "new_string": "y", "replace_all": True}), {})
+    res = await EditFileTool().execute(json.dumps({"path": p, "old_string": "x", "new_string": "y", "replace_all": True}), {"owner": "test", "session_id": "test-session"})
     assert res["exit_code"] == 0 and open(p).read() == "y\ny\n"
     os.unlink(p)
 

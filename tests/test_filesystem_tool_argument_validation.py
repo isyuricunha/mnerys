@@ -85,6 +85,9 @@ async def test_write_file_still_rewrites_existing_text_file(tmp_path, monkeypatc
     target = tmp_path / "notes.txt"
     target.write_text("old", encoding="utf-8")
     monkeypatch.setattr(tool_execution, "_resolve_tool_path", lambda _path: str(target))
+    # M5.2: an existing-file rewrite requires the recorded read baseline.
+    from src.agent_runtime.read_baselines import record_file_read
+    record_file_read("", "", str(target), ("full", 1, 0))
 
     result = await WriteFileTool().execute(
         '{"path":"notes.txt","content":"new"}', {}

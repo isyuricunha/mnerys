@@ -1287,6 +1287,11 @@ _ADMIN_TOOLS = {
     "cancel_download",
 }
 
+# Tools whose execution can mutate arbitrary files without any registry tool
+# call. Every recorded read baseline of the owner/session is invalidated after
+# one of these runs (M5.2 read-before-edit contract).
+_CODE_EXECUTION_TOOLS = frozenset({"bash", "python"})
+
 
 def _owner_is_admin(owner: Optional[str]) -> bool:
     """Mirror route-level admin behavior for agent tool execution."""
@@ -2476,6 +2481,15 @@ async def _execute_tool_block_impl(
             "error": f"Unknown tool: {tool}",
             "exit_code": 1
         }
+
+    if tool in _CODE_EXECUTION_TOOLS:
+        # M5.2 read-before-edit: code execution can mutate any file without a
+        # registry tool call, so every recorded read baseline of this
+        # owner/session is invalidated. The next edit must reread — the shell
+        # bypass becomes a visible, recoverable contract instead of a silent
+        # stale-edit window.
+        from src.agent_runtime.read_baselines import invalidate_for_code_execution
+        invalidate_for_code_execution(owner, session_id)
 
     logger.info(f"Tool executed: {desc} -> exit_code={result.get('exit_code', 'n/a')}")
     return desc, result

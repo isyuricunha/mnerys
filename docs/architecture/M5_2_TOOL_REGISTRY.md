@@ -1,7 +1,7 @@
 # M5.2 — Canonical Tool Registry (Increment 1)
 
-Status: implemented and regression-covered (increment 1). Remaining M5.2
-increments are listed at the end.
+Status: increment 1 (canonical registry) and increment 2 (read-before-edit)
+implemented and regression-covered. Remaining M5.2 work is listed at the end.
 
 ## What this is
 
@@ -164,8 +164,73 @@ Every advertised argument must be honored by the existing handler:
    requests and remains on a self-consistent legacy surface this increment;
    migrating its transport and policy layer to canonical names is increment-2
    work.
-4. **Read-before-edit enforcement for existing files** is the next M5.2
-   increment; current safeguards are preserved, nothing was weakened.
+4. **Read-before-edit enforcement** was increment 2 (implemented above);
+   the filesystem security redesign beyond it (streaming/large-file
+   contracts, derived-artifact writers) remains follow-up work.
+
+## Increment 2 — server-verified read-before-edit (implemented)
+
+`src/agent_runtime/read_baselines.py` adds the second M5.2 layer: a registry
+file-mutation tool — `write_file`, `edit_file`, `apply_patch` — may mutate an
+EXISTING file only when the same owner and session recorded a real,
+successful server-side `Read` of that exact file, and the file still matches
+what was observed.
+
+**Baseline binding.** A baseline is pure server state, keyed
+`(owner, session_id, resolved path)`: the file identity (device, inode via
+`FileObjectIdentity`), the full-content SHA-256, size, mtime_ns, and the
+observation shape — `FULL` (whole file), `LINES a-b` (a range or truncated
+read), or `OPAQUE` (derived document text, authorizes nothing). The model
+never sees or supplies a version token, so there is nothing to forge. A
+partial read authorizes an anchored edit only when every occurrence of the
+anchor text lies inside the observed lines, and never authorizes a full-file
+overwrite of unread content.
+
+**Lifecycle.** Invalid on: TTL expiry (1h), store eviction (2048 entries,
+oldest first), file replacement (identity change — delete-and-recreate,
+rename-swap, symlink swap), content change (digest mismatch), code execution
+(`bash`/`python` invalidate every baseline of the owner/session — see the
+boundary below), and process restart (in-memory store, matching the approval
+store; a restart is a new incarnation). Permission/resolution changes refuse
+the mutation before the baseline check is ever reached (confinement runs
+first).
+
+**Validate-then-mutate sequence.** The mutating tools open the target through
+the parent directory fd with `O_NOFOLLOW` on the final component (a symlink
+swap of the file is refused, not followed), take an exclusive `flock` on that
+descriptor, and validate identity + digest on the SAME fd they rewrite in
+place — so a path swap after the open cannot redirect the write, cooperating
+writers (this server's tools, any process, any thread) are mutually excluded,
+and ownership/permissions/identity are preserved by construction (same
+inode). After a successful mutation the tool re-baselines the exact content
+it wrote (server-observed), so read→edit→edit flows work without redundant
+rereads. `apply_patch` re-verifies every target's digest immediately before
+its staged replaces and aborts the whole patch on mismatch (existing backup
+rollback unchanged). New-file creation keeps the exclusive semantics: a file
+that appears during creation is never overwritten — the model is told to Read
+it first.
+
+**Failure semantics.** Every refusal is a `ReadBaselineError` with an
+actionable message (`No recorded read…`, `changed since it was read… Read it
+again`, `replaced or recreated…`, `only partially read…`, `outside the lines
+observed…`) and the result carries `read_before_edit: true`. Refusals happen
+after admission/authority/approval gates and BEFORE any byte is written;
+results report `mutation_attempted` honestly when a mid-write failure left
+partial bytes, and such content no longer matches any baseline — the next
+edit is refused until the agent rereads.
+
+**Enforcement boundary (the honest guarantee).** The contract covers the
+registry's file-mutation tools. It does NOT cover: contained `bash`/`python`
+execution (the sandbox's writable `/workspace` surface can rewrite files with
+no tool call — mitigated by invalidating every session baseline after code
+execution, converting the bypass into a visible reread requirement, not
+hidden; a shell command running CONCURRENTLY with an edit remains a residual
+race that the digest check only narrows), derived-artifact writers
+(`inspect_media`/`generate_image` outputs — follow-up), background jobs
+launched by bash (invalidated at launch; later writes are the same residual
+class), and the TUI host bridge (client-side filesystem; server baselines do
+not apply there). No universal "no edit without read" claim is made beyond
+these boundaries.
 
 ## Tests
 
@@ -183,3 +248,11 @@ Every advertised argument must be honored by the existing handler:
   gateway approval suites), sealed-approval resume
   (`test_mnerys_gateway_filesystem_approvals`), duplicate-dispatch dedup and
   continuation (`test_agent_rounds_exhausted`), and tool-result threading.
+- `tests/test_read_before_edit.py` — the increment-2 contract: read→edit,
+  edit-without-read, wrong file, partial-vs-full replacement, modification
+  and replacement after reading, owner/session isolation, tampered and
+  expired baselines, store bounds, cross-process flock serialization
+  (deterministic marker + held lock), symlink swap refusal, traversal shapes,
+  exclusive creation and appeared-file races, mid-write corruption handling,
+  the bash invalidation boundary with the demonstrated sandbox write surface,
+  and structured-patch behavior.

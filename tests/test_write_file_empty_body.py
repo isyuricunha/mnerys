@@ -24,6 +24,25 @@ from src.tool_parsing import parse_tool_blocks
 RECIPE = "# Classic banana cake\n\nMash 3 bananas. Bake 180C for 1 hour.\n"
 
 
+@pytest.fixture(autouse=True)
+def _isolated_baseline_store():
+    """M5.2: these suites exercise write/edit mechanics; each test gets a
+    fresh baseline store and any seeded existing file records its read."""
+    from src.agent_runtime import read_baselines
+    store = read_baselines.ReadBaselineStore()
+    token = read_baselines._store
+    read_baselines._store = store
+    yield store
+    read_baselines._store = token
+
+
+def _seed_baseline(path, owner="", session_id=""):
+    """Record the read baseline the read-before-edit contract requires for an
+    existing target; the mechanics under test run after that contract check."""
+    from src.agent_runtime.read_baselines import record_file_read
+    record_file_read(owner, session_id, str(path), ("full", 1, 0))
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("before", [None, "", "original bytes"])
 @pytest.mark.parametrize("shape,body", [("bare", ""), ("text", ""), ("text", " \t\n"),
@@ -35,6 +54,7 @@ async def test_bound_dispatch_preserves_original_write_intent(tmp_path, monkeypa
     target = tmp_path / "extensionless"
     if before is not None:
         target.write_text(before)
+        _seed_baseline(target, owner="admin")
     content = str(target) if shape == "bare" else (
         json.dumps({"path": str(target), "content": body}) if shape == "json" else f"{target}\n{body}"
     )
@@ -107,6 +127,7 @@ def target():
 def _seed(path, text=RECIPE):
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(text)
+    _seed_baseline(path)
     return text
 
 
@@ -284,20 +305,25 @@ async def test_empty_body_over_an_already_empty_file_succeeds(target):
 async def test_empty_body_does_not_truncate_data_written_after_the_size_check(
     target, monkeypatch
 ):
-    """A write racing the size check must survive the empty-body path."""
+    """A write racing the content read must survive the empty-body path.
+
+    M5.2: the guard now reads the descriptor's true bytes instead of trusting
+    an earlier size probe, so a concurrent writer that lands before the read
+    is SEEN and the empty body is refused — the concurrent content survives
+    either way; it is never truncated."""
     _seed(target, "")
-    real_getsize = os.path.getsize
+    import src.agent_tools.filesystem_tools as fs
+    real_read_fd_bytes = fs._read_fd_bytes
 
-    def write_after_size_check(path):
-        size = real_getsize(path)
-        if path == target and size == 0:
-            with open(path, "w", encoding="utf-8") as handle:
-                handle.write("concurrent update")
-        return size
+    def write_concurrent_then_read(fd):
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write("concurrent update")
+        return real_read_fd_bytes(fd)
 
-    monkeypatch.setattr(os.path, "getsize", write_after_size_check)
+    monkeypatch.setattr(fs, "_read_fd_bytes", write_concurrent_then_read)
     res = await WriteFileTool().execute(_text_call(target, ""), {})
-    assert res["exit_code"] == 0, res
+    assert res["exit_code"] == 1, res
+    assert "empty body" in res.get("error", "") or "refused" in res.get("error", ""), res
     assert _read(target) == "concurrent update"
 
 
@@ -467,6 +493,7 @@ async def test_explicit_json_whitespace_content_authorizes_replacement(tmp_path,
     initial = b"ORIGINAL NONEMPTY CONTENT\n"
     target = tmp_path / "whitespace_replace.txt"
     target.write_bytes(initial)
+    _seed_baseline(target, owner="admin")
     execute = server_authorized_executor(te.execute_tool_block)
     block = function_call_to_tool_block("write_file", json.dumps({"path": str(target), "content": " \t"}))
     assert block is not None
@@ -495,6 +522,7 @@ async def test_legacy_command_nonempty_write_still_works(tmp_path, monkeypatch):
     monkeypatch.setattr(te, "_owner_is_admin", lambda owner: True)
     target = tmp_path / "nonempty_command.txt"
     target.write_text("before\n")
+    _seed_baseline(target, owner="admin")
     execute = server_authorized_executor(te.execute_tool_block)
     block = function_call_to_tool_block("write_file", json.dumps({"command": str(target) + "\nhello world"}))
     assert block is not None

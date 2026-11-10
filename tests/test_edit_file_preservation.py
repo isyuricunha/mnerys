@@ -5,11 +5,16 @@ import json
 import pytest
 
 from src.agent_tools.filesystem_tools import EditFileTool
+from src.agent_runtime.read_baselines import record_file_read
 
 
 def edit(path, old, new, **options):
+    # M5.2: exercise edit mechanics, so record the real full-file baseline the
+    # contract requires first (same owner/session the call executes under).
+    record_file_read("test", "test-session", str(path), ("full", 1, 0))
     return asyncio.run(EditFileTool().execute(json.dumps({
-        "path": str(path), "old_string": old, "new_string": new, **options}), {}))
+        "path": str(path), "old_string": old, "new_string": new, **options}),
+        {"owner": "test", "session_id": "test-session"}))
 
 
 @pytest.mark.parametrize("original", [

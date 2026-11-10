@@ -180,6 +180,92 @@ async def test_sealed_write_file_has_exact_single_destination(monkeypatch, tmp_p
 
 
 @pytest.mark.asyncio
+async def test_sealed_edit_file_requires_recorded_read_and_executes_once(monkeypatch, tmp_path):
+    """M5.2 read-before-edit: the approved edit of an EXISTING file executes
+    exactly once when the session recorded the read, and the sealed replay of
+    the pending identity stays a legitimate internal handler-identifier flow."""
+    import src.agent_loop as loop
+    from src.agent_runtime.read_baselines import record_file_read
+    content = json.dumps({
+        "path": "a.txt",
+        "old_string": "Original text.",
+        "new_string": "Approved edit.",
+    })
+    workspace, admission, session, ports, options, store, pending = sealed_turn(
+        monkeypatch, tmp_path, tool="edit_file", content=content,
+    )
+    # The realistic approval flow: the model read the file in this session
+    # before proposing the edit, so the server-side baseline exists.
+    record_file_read("alice", session.id, str(workspace / "a.txt"), ("full", 1, 0))
+    monkeypatch.setattr(loop, "get_setting", lambda key, default=None: default)
+    monkeypatch.setattr(loop, "get_mcp_manager", lambda: None)
+    monkeypatch.setattr(loop, "blocked_tools_for_owner", lambda owner: set())
+    monkeypatch.setattr(loop, "estimate_tokens", lambda *a, **k: 10)
+    import src.tool_execution as execution
+    monkeypatch.setattr(execution, "_owner_is_admin", lambda owner: owner == "alice")
+
+    async def provider(*args, **kwargs):
+        yield "data: " + json.dumps({
+            "type": "tool_calls",
+            "calls": [{
+                "id": "exact-edit-file",
+                "name": pending.tool_name,
+                "arguments": pending.content,
+            }],
+        }) + "\n\n"
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(loop, "stream_llm_with_fallback", provider)
+    delivery, events = await collect(admission, session, options)
+    assert delivery.outcome.state == "completed"
+    assert any(event.type == "tool.completed" for event in events), [
+        (event.type, event.payload) for event in events]
+    assert (workspace / "a.txt").read_text(encoding="utf-8") == "Approved edit."
+    assert store.peek(pending.approval_id) is None
+
+
+@pytest.mark.asyncio
+async def test_sealed_edit_file_without_a_recorded_read_is_refused_safely(monkeypatch, tmp_path):
+    """M5.2 read-before-edit: even an approved edit of an existing file is
+    refused when the session never recorded a read — fail-closed, with the
+    actionable reread guidance, and the approval is consumed by the attempt."""
+    import src.agent_loop as loop
+    content = json.dumps({
+        "path": "a.txt",
+        "old_string": "Original text.",
+        "new_string": "Approved edit.",
+    })
+    workspace, admission, session, ports, options, store, pending = sealed_turn(
+        monkeypatch, tmp_path, tool="edit_file", content=content,
+    )
+    monkeypatch.setattr(loop, "get_setting", lambda key, default=None: default)
+    monkeypatch.setattr(loop, "get_mcp_manager", lambda: None)
+    monkeypatch.setattr(loop, "blocked_tools_for_owner", lambda owner: set())
+    monkeypatch.setattr(loop, "estimate_tokens", lambda *a, **k: 10)
+    import src.tool_execution as execution
+    monkeypatch.setattr(execution, "_owner_is_admin", lambda owner: owner == "alice")
+
+    async def provider(*args, **kwargs):
+        yield "data: " + json.dumps({
+            "type": "tool_calls",
+            "calls": [{
+                "id": "exact-edit-file",
+                "name": pending.tool_name,
+                "arguments": pending.content,
+            }],
+        }) + "\n\n"
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(loop, "stream_llm_with_fallback", provider)
+    delivery, events = await collect(admission, session, options)
+    assert delivery.outcome.state == "completed"
+    # The file is untouched: no read baseline, no edit.
+    assert (workspace / "a.txt").read_text(encoding="utf-8") == "Original text."
+    assert any("No recorded read" in json.dumps(event.payload) for event in events), [
+        (event.type, event.payload) for event in events]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("change", [
     "file_replaced", "alias_retargeted", "parent_replaced",
     "root_replaced", "different_workspace", "disabled_tool",
