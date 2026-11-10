@@ -132,4 +132,6 @@ def tracker_status_line(tracker: TurnTracker) -> str:
         return "turn cancelled"
     if tracker.status == "awaiting_approval":
         return "turn waits for an approval decision"
+    if tracker.status == "approval_decided":
+        return "approval decision recorded"
     return "turn streaming…"

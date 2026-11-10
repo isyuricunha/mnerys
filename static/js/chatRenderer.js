@@ -3391,6 +3391,7 @@ export function addMessage(role, content, modelName, metadata) {
             const approvalStatus = ev.ask_user?.kind === 'tool_approval'
               ? (ev.ask_user.resolved === 'deny' ? 'denied'
                 : ['approve', 'approve_task'].includes(ev.ask_user.resolved) ? 'approved'
+                : ev.ask_user.resolved === 'unavailable' ? 'approval unavailable'
                 : ev.ask_user.resolved ? 'resolved' : 'awaiting approval')
               : '';
             let outHtml = '';

@@ -110,6 +110,18 @@ def test_tracker_ignores_garbage_and_unknown_kinds():
     assert tracker.rendered_text == ""
 
 
+def test_tracker_recovery_invalidates_a_stale_pending_approval_only():
+    tracker = TurnTracker()
+    tracker.apply({"sequence": 1, "kind": "turn.awaiting_approval", "payload": {"approval_id": "a" * 43}})
+    assert tracker.apply({"sequence": 2, "kind": "turn.completed", "payload": {}}) is None
+    assert tracker.apply({"sequence": 2, "kind": "turn.failed", "payload": {
+        "code": "interrupted", "effects": "unknown", "retryable": False,
+    }}) == "turn.failed"
+    assert tracker.status == "failed" and tracker.failure_code == "interrupted"
+    assert tracker.approval_id is None
+    assert tracker.apply({"sequence": 2, "kind": "turn.failed", "payload": {"code": "interrupted"}}) is None
+
+
 def test_tool_line_renders_human_readable_statuses():
     assert tool_line("tool.started", {"tool": "manage_notes"}) == "▸ tool manage_notes started"
     assert tool_line("tool.completed", {"tool": "t", "exit_code": 3}) == (
@@ -160,6 +172,17 @@ async def test_pump_stops_on_the_terminal_event():
     pump = TurnPump(gateway, "t1", "s1", tracker, record, poll_interval=0.01)
     assert await pump.run() == "completed"
     assert seen == ["message.delta", "turn.completed"]
+
+
+async def test_pump_reads_recovery_after_historical_pending_terminal():
+    gateway = _ScriptedGateway([[
+        {"sequence": 1, "kind": "turn.awaiting_approval", "payload": {"approval_id": "a" * 43}},
+        {"sequence": 2, "kind": "turn.failed", "payload": {"code": "interrupted", "effects": "unknown", "retryable": False}},
+    ]])
+    tracker = TurnTracker()
+    pump = TurnPump(gateway, "t1", "s1", tracker, lambda kind: asyncio.sleep(0), poll_interval=0.01)
+    assert await pump.run() == "failed"
+    assert tracker.failure_code == "interrupted" and tracker.approval_id is None
 
 
 async def test_pump_reconnects_with_the_same_cursor_and_no_duplicates():

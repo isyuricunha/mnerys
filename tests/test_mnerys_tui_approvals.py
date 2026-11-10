@@ -87,6 +87,27 @@ class _Harness(App[None]):
         self.push_screen(ChatScreen(self.client, "s1", session_name="n"))
 
 
+async def test_restart_recovery_disables_historical_pending_approval():
+    events = [
+        {"sequence": 1, "kind": "approval.requested", "payload": {"approval_id": APPROVAL_ID}},
+        {"sequence": 2, "kind": "turn.awaiting_approval", "payload": {"approval_id": APPROVAL_ID}},
+        {"sequence": 3, "kind": "turn.failed", "payload": {"code": "interrupted", "effects": "unknown", "retryable": False}},
+    ]
+    client, state = _gateway(events)
+    app = _Harness(client)
+    try:
+        async with app.run_test(size=(110, 36)) as pilot:
+            await pilot.pause(0.2)
+            app.screen.post_message(ChatInput.Submitted("Continue"))
+            await _settle(pilot, "interrupted")
+            assert app.screen.pending_approval_id is None
+            assert app.screen._approval_bar is None
+            await app.screen.action_approve()
+            assert state["decisions"] == []
+    finally:
+        await client.close()
+
+
 async def _settle(pilot, needle: str, tries=60) -> str:
     parts: list[str] = []
     texts = ""

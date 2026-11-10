@@ -6397,11 +6397,23 @@ import { invalidateSettings } from './appConfig.js';
 
     let res;
     try {
-      res = await fetch(`${API_BASE}/api/chat/resume/${sessionId}`);
+      const expectedRunId = _streamRunIds.get(sessionId);
+      res = await fetch(`${API_BASE}/api/chat/resume/${sessionId}`, expectedRunId
+        ? { headers: { 'X-Odysseus-Run-Id': expectedRunId } } : undefined);
     } catch (e) {
       return false;
     }
     if (!res.ok || !res.body) return false;
+    const recovered = res.headers.get('X-Mnerys-Recovery-State');
+    if (recovered) {
+      await res.body.cancel().catch(() => {});
+      if (recovered === 'interrupted' && sessionModule.getCurrentSessionId() === sessionId) {
+        uiModule.showToast('Turn interrupted. Unconfirmed tool effects are unknown.');
+      }
+      // History already contains the saved transcript. Never append a
+      // second assistant message from a metadata-only recovery response.
+      return true;
+    }
     const resumeRunId = res.headers.get('X-Odysseus-Run-Id') || '';
     const resumeGatewayProfile = res.headers.get('X-Mnerys-Gateway-Profile') || '';
     if (resumeRunId) _streamRunIds.set(sessionId, resumeRunId);

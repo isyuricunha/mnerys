@@ -8,7 +8,7 @@ duplicate visible output, and exposes the rendered conversation state.
 from dataclasses import dataclass, field
 
 TERMINAL_STATUSES = frozenset({
-    "completed", "failed", "cancelled", "awaiting_approval",
+    "completed", "failed", "cancelled", "awaiting_approval", "approval_decided",
 })
 
 TOOL_EVENT_PREFIX = "tool."
@@ -41,7 +41,12 @@ class TurnTracker:
             return None
         kind = str(item.get("kind", ""))
         payload = item.get("payload") or {}
-        if sequence <= self.applied_sequence or self.status in TERMINAL_STATUSES:
+        settled_pending = (
+            self.status == "awaiting_approval" and (
+                kind == "approval.decided" or (kind == "turn.failed" and payload.get("code") == "interrupted")
+            )
+        )
+        if sequence <= self.applied_sequence or (self.status in TERMINAL_STATUSES and not settled_pending):
             return None
         if kind == "message.delta":
             text = payload.get("text")
@@ -65,12 +70,20 @@ class TurnTracker:
             decision = payload.get("decision")
             if isinstance(decision, str) and decision:
                 self.approval_decided = decision
+            self.approval_id = None
+            if settled_pending:
+                self.status = "approval_decided"
+        elif kind == "turn.approval_decided":
+            self.approval_id = None
+            self.status = "approval_decided"
         elif kind == "turn.completed":
             self.status = "completed"
         elif kind == "turn.failed":
             self.status = "failed"
             code = payload.get("code")
             self.failure_code = code if isinstance(code, str) else None
+            if code == "interrupted":
+                self.approval_id = None
         elif kind == "turn.cancelled":
             self.status = "cancelled"
         elif kind == "turn.awaiting_approval":

@@ -243,6 +243,8 @@ class ChatScreen(Screen[None]):
             await self._clear_approval()
         elif kind == "turn.awaiting_approval":
             await self._show_approval(tracker.approval_id)
+        elif kind == "turn.failed" and tracker.failure_code == "interrupted":
+            await self._clear_approval(outcome="interrupted; start a new turn")
         elif kind == "message.delta":
             block.set_text(tracker.rendered_text)
             self.conversation.scroll_end(animate=False, force=True)
@@ -281,9 +283,9 @@ class ChatScreen(Screen[None]):
         except MnerysCliError:
             pass  # the pending state itself is still true; the card stays
 
-    async def _clear_approval(self) -> None:
+    async def _clear_approval(self, *, outcome="decided by the Gateway") -> None:
         if self._approval_bar is not None:
-            self._approval_bar.set_outcome("decided by the Gateway")
+            self._approval_bar.set_outcome(outcome)
         self.pending_approval_id = None
         self._approval_bar = None
         # The decision window is over; typing returns to the composer.
@@ -324,9 +326,9 @@ class ChatScreen(Screen[None]):
         pump = self.active_pump
         if pump is None:
             return
-        pump.request_cancel()
         try:
             await self.client.cancel_turn(pump.turn_id, pump.session_id)
+            pump.request_cancel()
         except MnerysCliError as exc:
             await self.conversation.mount(SystemNotice(
                 f"cancel request failed: {safe_markup(exc)}", tone="error",

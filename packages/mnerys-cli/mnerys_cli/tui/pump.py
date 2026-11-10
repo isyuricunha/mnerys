@@ -62,7 +62,7 @@ class TurnPump:
                     kind = self.tracker.apply(item)
                     if kind is not None:
                         await self.on_event(kind)
-                    if self.tracker.status in TERMINAL_STATUSES:
+                    if self.tracker.status in TERMINAL_STATUSES - {"awaiting_approval"}:
                         return self.tracker.status
                 self.consecutive_failures = 0
             except MnerysCliError as exc:
