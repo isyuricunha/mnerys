@@ -205,7 +205,7 @@ against the LIVE private Gateway, not fixtures:
 
 ## Post-M4 approval continuation validation (November 2026)
 
-The private preview at `6f4d6343e56a` was exercised with an existing
+The private preview at `6f4d6343e56a` and `cc76180dac73` was exercised with an existing
 authenticated owner session and Mistral Small. In a new disposable workspace,
 the UI displayed a real approval for `ls -1`; the authorized decision led to
 an actual zero-exit shell result containing an unpredictable test filename,
@@ -215,7 +215,12 @@ distinct assistant messages (the approval prompt and the continuation).
 The Web stream returned no HTTP 500. A separate real denial did not run the
 shell and its approval could not be replayed (HTTP 409). During this denial
 test, a persisted-card resolution defect and a tool-status rendering defect
-were found; their fixes require a subsequent preview promotion and retest.
+were found. Both were fixed and retested on `cc76180dac73`: denial is saved
+on the original card, no shell result is recorded, and replay returns 409.
+The installed CLI completed a real Mistral chat; the installed TUI read its
+history and continued the same session. Both v1 turns have durable
+`completed` records, and the shared history contains exactly two user and
+two assistant messages. The temporary API token was revoked after testing.
 
 The ordinary Web stream currently uses process-local replay and does not
 create Gateway v1 durable turn/event records. The transcript persists, but

@@ -230,18 +230,20 @@ GATEWAY_AGENT_CONTRACT.md and CACHE_INVENTORY.md. The historical
 duplicate-transcript repair itself completed earlier as reversible
 logical hiding (see DUPLICATE_TRANSCRIPT_INVENTORY.md).
 
-**Approval continuation repair (validation in progress):** a preview
+**Approval continuation repair (preview verified):** a preview
 approval reached the process producer but failed because rebinding the same
-request made it appear inherited. The candidate repair distinguishes that
+request made it appear inherited. The repair distinguishes that
 rebinding from a child delegation, rechecks claim expiry, and restores the
 Gateway's continuation mode and workspace in the Web adapter. Disposable
 regressions and the private preview exercise real approved shell execution
-and Mistral continuation. A subsequent denial-card and tool-status fix still
-requires preview validation. The complete CI matrix is deferred until
+and Mistral continuation. Revision `cc76180dac73` also passed the real denial,
+persisted-card resolution and HTTP 409 replay checks. The installed CLI and
+TUI continued the same provider-backed conversation with two completed
+durable v1 turns and no duplicate transcript rows. The complete CI matrix is deferred until
 publication. General Web stream replay and pending approvals
 remain process-local across server restarts; durable Gateway v1 event records
 do not cover that general Web stream. See the
-[authority contract](architecture/GATEWAY_AGENT_CONTRACT.md#approval-continuation-authority-validation-in-progress).
+[authority contract](architecture/GATEWAY_AGENT_CONTRACT.md#approval-continuation-authority-preview-verified).
 
 ### M5 — Web, CLI and TUI parity
 

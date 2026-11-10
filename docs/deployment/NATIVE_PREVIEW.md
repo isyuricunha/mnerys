@@ -19,6 +19,32 @@ The Mnerys application is **not containerized**. The maintainer's running native
 
 ## M4 rollout status (November 2026)
 
+**Approval maintenance rollout (November 10, 2026):** the native runner
+promoted `873f9c5def29`, `6f4d6343e56a` and the final application revision
+`cc76180dac73`, from the authentication-fix baseline `d5a14df20809`.
+Each promotion passed candidate validation, PostgreSQL schema compatibility,
+health, protected readiness and effective Web Core cutover checks. Fresh
+PostgreSQL 17 archives were verified and restored into isolated disposable
+instances before promotion; the five primary session/message/turn/event/
+approval table counts matched live data. Previous release snapshots,
+environments and archives remain available for code rollback; no schema
+migration or live data restore was performed. Tailscale access and the
+effective `MNERYS_M21_WEB_CORE_CUTOVER=1` setting were preserved.
+
+On the final revision, an authenticated owner browser session and Mistral
+Small completed approval of `ls -1`, real scoped execution, verified test
+output and model continuation. A separate denial executed no shell and
+replay was refused with HTTP 409. Provider-backed CLI/TUI continuity also
+passed. These are application acceptance results, not evidence of Git
+publication, a new release or the complete hosted CI matrix. General Web
+stream replay remains process-local; see the authority contract and M4
+acceptance for the durable-event limitation.
+
+The native runtime reports the development baseline `version=0.1.0` when
+`MNERYS_RELEASE_VERSION` is not set; its `source_commit` identifies the
+actual snapshot. The latest repository release tag at this validation was
+`v0.16.0`. The maintenance commits were not a newly published release.
+
 The M4 milestone rollout deployed commit `7eb313d4dbe4` (release v0.15.2),
 its necessary validated successor `v0.15.3` (single-save turn persistence,
 terminal-first TUI fixes), and the stabilization successor `v0.15.4`

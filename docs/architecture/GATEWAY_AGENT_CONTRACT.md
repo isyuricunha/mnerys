@@ -16,7 +16,7 @@ Preserve the inherited Python agent loop, tool dispatcher, request authority and
 
 The Web application becomes one Gateway client/adapter, not an authority source. CLI and TUI clients never import server app.py and do not access the database directly.
 
-### Approval continuation authority (validation in progress)
+### Approval continuation authority (preview verified)
 
 An exact approval is a one-use, expiring claim over the sealed operation and
 its resources; it does not extend the request's grants. The dispatcher first
@@ -32,8 +32,9 @@ The Web cutover restores the sealed continuation's message and workspace and
 uses the Gateway-selected agent mode, even when the decision form currently
 shows Chat. Current policy and privilege checks still apply. The regression
 suite exercises the real dispatcher, shell producer and Agent Core with a
-synthetic provider and a Web route fixture. Live provider acceptance and
-deployment remain unverified for this change.
+synthetic provider and a Web route fixture. The final preview revision
+`cc76180dac73` passed authenticated Mistral Small approval, real shell
+execution, model continuation, denial and consumed-approval replay rejection.
 
 On the private preview, revision `873f9c5def29` produced an actual Mistral
 approval for a read-only `ls -1`; the owner decision executed the sealed
@@ -43,16 +44,21 @@ real temporary-workspace result. The next provider request failed with HTTP
 to a provider that accepts reasoning as typed message content. The assistant
 persisted the failure, not a successful continuation. The provider adapter
 now encodes accumulated reasoning as the documented thinking content chunk;
-the wire shape was independently accepted by the configured provider, while
-end-to-end continuation after this follow-up still requires live acceptance.
+the wire shape was accepted by the configured provider, and end-to-end
+continuation passed on `6f4d6343e56a` and again on `cc76180dac73`.
 See [Mistral reasoning messages](https://docs.mistral.ai/inference/conversations/reasoning).
 
 The separate Gateway v1 tool-availability observation is not resolved by
 this repair. In the preview, the Mistral endpoint has no explicit
 `supports_tools` value or per-model tool-mode mapping. Runtime logs show
 Mistral rounds with both zero and six declared schemas; a zero-schema round
-is not evidence that the provider called or executed a tool. The exact reason
-for the earlier zero-schema Agent turn has not been established. Registered,
+is not evidence that the provider called or executed a tool. The general
+`POST /api/v1/turns` entry point constructs `TrustedTextTurnSettings` with
+the requested mode but without an offered tool surface; its default
+`offered_tools=frozenset()` therefore permits no tool schemas even in Agent
+mode. This is an independent server-profile limitation, not an inference
+failure or an approval grant. Expanding that surface is not part of this
+maintenance repair. Registered,
 selected and policy-permitted tools must still be distinguished from schemas
 actually sent, model tool calls, and admitted execution results.
 
