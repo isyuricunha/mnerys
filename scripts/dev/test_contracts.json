@@ -1,45 +1,160 @@
 {
   "version": 1,
-  "static_only": ["docs/**", "*.md", "LICENSE*", "NOTICE*", "assets/**", ".gitignore"],
-  "full_required": ["tests/conftest.py", "tests/helpers/worker_runtime.py", "requirements*.txt", "pyproject.toml"],
+  "static_only": [
+    "docs/**",
+    "*.md",
+    "LICENSE*",
+    "NOTICE*",
+    "assets/**",
+    ".gitignore"
+  ],
+  "full_required": [
+    "tests/conftest.py",
+    "tests/helpers/worker_runtime.py",
+    "requirements*.txt",
+    "pyproject.toml"
+  ],
   "contracts": [
     {
       "name": "local-validation",
-      "sources": ["scripts/dev/**", ".githooks/**", ".github/workflows/ci.yml"],
-      "tests": ["tests/test_mnerys_native_git_hooks.py", "tests/test_affected_tests.py"],
-      "ci": [".github/workflows/ci.yml", ".github/workflows/workflow-security.yml"]
+      "sources": [
+        "scripts/dev/**",
+        ".githooks/**",
+        ".github/workflows/ci.yml"
+      ],
+      "tests": [
+        "tests/test_mnerys_native_git_hooks.py",
+        "tests/test_affected_tests.py"
+      ],
+      "ci": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/workflow-security.yml"
+      ]
     },
     {
       "name": "exact-authority",
-      "sources": ["src/agent_runtime/authority.py", "src/tool_approvals.py", "src/tool_execution.py", "src/gateway_approval_decisions.py"],
-      "tests": ["tests/test_request_authority.py", "tests/test_tool_approvals.py", "tests/test_runtime_resource_integration.py", "tests/test_required_read_operation.py", "tests/test_external_context_tool_gate.py", "tests/test_mnerys_gateway_approval_decisions.py"],
-      "ci": [".github/workflows/ci.yml", ".github/workflows/codeql.yml"]
+      "sources": [
+        "src/agent_runtime/authority.py",
+        "src/tool_approvals.py",
+        "src/tool_execution.py",
+        "src/gateway_approval_decisions.py"
+      ],
+      "tests": [
+        "tests/test_request_authority.py",
+        "tests/test_tool_approvals.py",
+        "tests/test_runtime_resource_integration.py",
+        "tests/test_required_read_operation.py",
+        "tests/test_external_context_tool_gate.py",
+        "tests/test_mnerys_gateway_approval_decisions.py"
+      ],
+      "ci": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/codeql.yml"
+      ]
     },
     {
       "name": "recoverable-state",
-      "sources": ["src/agent_runs.py", "src/gateway_turn_records.py", "src/gateway_stream_delivery.py", "src/gateway_turn_events.py", "src/turn_service.py", "routes/gateway_api.py", "routes/chat_routes.py"],
-      "tests": ["tests/test_mnerys_gateway_stream_delivery.py", "tests/test_mnerys_turn_records_integration.py", "tests/test_mnerys_turn_lifecycle.py", "tests/test_agent_runs_resume_cursor.py", "tests/test_mnerys_gateway_web_core_cutover.py", "tests/test_mnerys_gateway_api.py"],
-      "persistence": ["sqlite", "postgresql17"],
-      "ci": [".github/workflows/ci.yml", ".github/workflows/postgresql17.yml"]
+      "sources": [
+        "src/agent_runs.py",
+        "src/gateway_turn_records.py",
+        "src/gateway_stream_delivery.py",
+        "src/gateway_turn_events.py",
+        "src/turn_service.py",
+        "src/process_reaper.py",
+        "routes/gateway_api.py",
+        "routes/chat_routes.py",
+        "src/gateway_web_recovery.py",
+        "src/gateway_turns.py",
+        "src/agent_tool_events.py",
+        "routes/history/history_routes.py",
+        "src/tool_approvals.py"
+      ],
+      "tests": [
+        "tests/test_gateway_restart_recovery.py",
+        "tests/test_mnerys_gateway_stream_delivery.py",
+        "tests/test_mnerys_turn_records_integration.py",
+        "tests/test_mnerys_turn_lifecycle.py",
+        "tests/test_agent_runs_resume_cursor.py",
+        "tests/test_mnerys_gateway_web_core_cutover.py",
+        "tests/test_mnerys_gateway_api.py",
+        "tests/test_agent_runs_terminal_order.py",
+        "tests/test_mnerys_agent_core_tool_events.py",
+        "tests/test_history_routes_shim.py"
+      ],
+      "persistence": [
+        "sqlite",
+        "postgresql17"
+      ],
+      "ci": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/postgresql17.yml"
+      ]
     },
     {
       "name": "web-rendering",
-      "sources": ["static/js/chat.js", "static/js/chatRenderer.js", "static/js/turnRendering.js"],
-      "tests": ["tests/historyResumeRendering.test.mjs", "tests/turnRendering.test.mjs", "tests/frontendArchitecture.test.mjs", "tests/test_tool_approval_frontend_routing.py"],
-      "ci": [".github/workflows/ci.yml"]
+      "sources": [
+        "static/js/chat.js",
+        "static/js/chatRenderer.js",
+        "static/js/turnRendering.js"
+      ],
+      "tests": [
+        "tests/historyResumeRendering.test.mjs",
+        "tests/turnRendering.test.mjs",
+        "tests/frontendArchitecture.test.mjs",
+        "tests/test_tool_approval_frontend_routing.py"
+      ],
+      "ci": [
+        ".github/workflows/ci.yml"
+      ]
     },
     {
       "name": "schema",
-      "sources": ["core/database.py", "core/models.py", "scripts/migrations/**"],
-      "tests": ["tests/test_mnerys_turn_records.py", "tests/test_mnerys_turn_lifecycle.py", "tests/test_postgresql_support.py"],
-      "persistence": ["sqlite", "postgresql17"],
-      "ci": [".github/workflows/ci.yml", ".github/workflows/postgresql17.yml"]
+      "sources": [
+        "core/database.py",
+        "core/models.py",
+        "scripts/migrations/**"
+      ],
+      "tests": [
+        "tests/test_mnerys_turn_records.py",
+        "tests/test_mnerys_turn_lifecycle.py",
+        "tests/test_postgresql_support.py"
+      ],
+      "persistence": [
+        "sqlite",
+        "postgresql17"
+      ],
+      "ci": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/postgresql17.yml"
+      ]
     },
     {
       "name": "website",
-      "sources": ["website/**"],
-      "tests": ["tests/test_mnerys_website_landing.py", "tests/test_mnerys_website_status.py"],
-      "ci": [".github/workflows/ci.yml"]
+      "sources": [
+        "website/**"
+      ],
+      "tests": [
+        "tests/test_mnerys_website_landing.py",
+        "tests/test_mnerys_website_status.py"
+      ],
+      "ci": [
+        ".github/workflows/ci.yml"
+      ]
+    },
+    {
+      "name": "terminal-clients",
+      "sources": [
+        "packages/mnerys-cli/mnerys_cli/tui/**"
+      ],
+      "tests": [
+        "tests/test_mnerys_tui_chat.py",
+        "tests/test_mnerys_tui_approvals.py",
+        "tests/test_mnerys_tui_continuity.py",
+        "tests/test_mnerys_tui_router_integration.py"
+      ],
+      "ci": [
+        ".github/workflows/ci.yml"
+      ]
     }
   ]
 }

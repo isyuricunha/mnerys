@@ -265,12 +265,15 @@ themselves complete M5 or release an unverified feature.
 
 #### M5.1 — Fast development loop and recoverable run state
 
-**In progress.** The default local validation command now selects changed
-module tests, source-reading fixtures and reviewed negative/integration
-contracts; unknown executable changes require a mapping, and the explicit
-full command remains available. Native staged hooks stay fast. Recovery
-implementation and its restart/disconnect exit evidence are still pending;
-this increment does not complete or publish M5.1.
+**Complete.** The implementation architecture, security model, and exit
+evidence are recorded in
+[M5_1_STATE_RECOVERY.md](architecture/M5_1_STATE_RECOVERY.md). The default
+local validation command (`scripts/dev/git_validation.py affected`) selects
+changed module tests, source-reading fixtures, and reviewed contracts.
+Recovery across server restarts and client disconnects is fully implemented:
+interrupted runs atomically settle with unknown effects (never auto-replayed),
+pending approvals retire as superseded, and historical UI cards project as
+unavailable with no restored executable authority.
 
 - Establish a permanent, version-controlled risk-based test policy:
   focused impacted-module and security/negative tests during development,
@@ -293,9 +296,9 @@ this increment does not complete or publish M5.1.
 - Preserve existing SQLite-default/PostgreSQL-17 support, backups and
   rollback; changes to live data require separate authorization.
 
-**Exit gate:** a tested selective-test workflow, full-CI mapping and
-documented recovery behavior across restart/disconnect; negative
-authority tests and isolated durable-storage tests pass.
+**Exit gate passed:** tested selective-test workflow, full-CI mapping, and
+documented recovery behavior across restart/disconnect (`tests/test_gateway_restart_recovery.py`);
+negative authority and isolated durable-storage tests pass.
 
 #### M5.2 — Anthropic-first native tools and safe file edits
 
