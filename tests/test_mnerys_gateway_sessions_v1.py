@@ -69,7 +69,7 @@ class FakeManager:
             db.close()
 
     def create_session(self, *, session_id: str, name: str, endpoint_url: str,
-                       model: str, owner: str, endpoint_id=None, **_kwargs):
+                       model: str, owner: str, endpoint_id=None, headers=None):
         from core.database import utcnow_naive
 
         db = core_database.SessionLocal()
@@ -77,6 +77,7 @@ class FakeManager:
             db.add(DbSession(
                 id=session_id, name=name, endpoint_url=endpoint_url,
                 model=model, owner=owner, endpoint_id=endpoint_id,
+                headers=dict(headers or {}),
                 revision=0, incarnation_id=uuid4().hex,
                 created_at=utcnow_naive(), updated_at=utcnow_naive(),
             ))
@@ -85,7 +86,7 @@ class FakeManager:
             db.close()
         session = SimpleNamespace(
             id=session_id, name=name, endpoint_url=endpoint_url, model=model,
-            owner=owner, endpoint_id=endpoint_id, headers={},
+            owner=owner, endpoint_id=endpoint_id, headers=dict(headers or {}),
             incarnation_id=uuid4().hex, incognito=False,
             thinking_mode="off",
         )
@@ -245,6 +246,49 @@ def test_create_session_resolves_the_owner_endpoint_and_first_chat_model(
         assert row is not None
         assert row.owner == OWNER
         assert row.model == "vendor/m3-flash"
+
+
+@pytest.mark.parametrize(
+    "base_url,with_key",
+    [
+        ("https://api.mistral.ai/v1", True),
+        ("https://integrate.api.nvidia.com/v1", True),
+        ("http://127.0.0.1:9/v1", False),
+    ],
+)
+def test_gateway_created_session_carries_owner_endpoint_auth_to_turns(
+    v1_app, client, monkeypatch, base_url, with_key,
+):
+    """The model registry and the persisted turn must share endpoint auth."""
+    from src import llm_core
+
+    secret = "synthetic-gateway-credential" if with_key else ""
+    endpoint = _endpoint_row(base_url=base_url)
+    endpoint.api_key = secret
+    _seed_endpoint(v1_app.state.test_engine, endpoint)
+    observed_registry_headers = []
+
+    def list_models(_url, **kwargs):
+        observed_registry_headers.append(kwargs.get("headers") or {})
+        return ["mistral-small-latest"]
+
+    monkeypatch.setattr(llm_core, "list_model_ids", list_models)
+    _auth(client)
+    response = client.post(
+        "/api/v1/sessions",
+        json={"name": "Authenticated gateway session", "model": "mistral-small-latest"},
+    )
+    assert response.status_code == 201, response.text
+    session_id = response.json()["session_id"]
+
+    expected_headers = {"Authorization": f"Bearer {secret}"} if with_key else {}
+    assert observed_registry_headers == [expected_headers]
+    assert v1_app.state.session_manager.sessions[session_id].headers == expected_headers
+    with core_database.SessionLocal() as db:
+        stored = db.query(DbSession).filter(DbSession.id == session_id).one()
+        assert stored.headers == expected_headers
+    if with_key:
+        assert secret not in response.text
 
 
 def test_create_session_honors_an_explicit_endpoint_and_model_hint(

@@ -205,11 +205,18 @@ def create_owner_session(
     from datetime import timezone
     from uuid import uuid4
 
-    from src.endpoint_resolver import build_chat_url, normalize_base
+    from src.endpoint_resolver import build_chat_url, build_headers, normalize_base
 
     endpoint_row = resolve_endpoint_row(owner, endpoint_id)
     model = validated_session_model(endpoint_row, owner, model_hint)
     endpoint_url = build_chat_url(normalize_base(endpoint_row.base_url or ""))
+    # Model validation and turn execution must use the same server-owned
+    # endpoint credentials. The Web session route already persists these
+    # headers; omitting them here makes Gateway-created turns fail with 401.
+    headers = (
+        build_headers(endpoint_row.api_key, endpoint_row.base_url or "")
+        if endpoint_row.api_key else {}
+    )
     session = manager.create_session(
         session_id=str(uuid4()),
         name=name or "",
@@ -217,6 +224,7 @@ def create_owner_session(
         model=model,
         owner=owner,
         endpoint_id=getattr(endpoint_row, "id", None),
+        headers=headers,
     )
     return session
 

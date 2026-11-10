@@ -52,6 +52,27 @@ A terminal state must not return to running. A cancellation request is idempoten
 
 A single writer per session is the initial consistency policy. Every active turn has a revision/fencing token so late background tasks, stale UI tabs or disconnected clients cannot persist into a replaced run. Explicitly define behavior for same-session concurrency (reject or queue), preserve partial output on stop, and reconcile interrupted tool effects after process loss. Do not claim exactly-once effects unless an operation-specific idempotency key and durable receipt enforce it.
 
+## Gateway v1 session endpoint authentication invariant (November 2026)
+
+The owner-scoped Gateway v1 session creation path must carry server-side,
+registered model-endpoint authentication headers into the new session, using
+the same `build_headers` provider rules as the existing Web session route.
+Validation of `/models` alone is insufficient: the subsequent detached
+turn uses the session's persisted header snapshot, and missing headers
+produce unauthorized provider calls despite a successful browser chat.
+
+`create_owner_session` therefore resolves the owner-authorized endpoint,
+validates the requested model and passes the authenticated headers to
+`SessionManager.create_session`, which persists them alongside the session.
+The API response never includes credentials. Credential-less endpoints
+continue to receive an empty header mapping. Endpoint-switching continues
+to refresh headers via `update_owner_session`. The Gateway does not accept
+caller-supplied endpoint URLs or API keys.
+
+Regression: `tests/test_mnerys_gateway_sessions_v1.py` verifies Mistral,
+NVIDIA and credential-less endpoint headers in the created session and
+persisted database row, with no credentials in the API response.
+
 ## M1 incremental implementation: trusted principal and session admission
 
 **Implemented internally; not a new authentication provider or public Gateway API.** Existing routes now project the identity established by their trusted authentication middleware into an immutable `Principal` through `routes/gateway_principal.py`. Bearer callers must have the `chat` scope and a token owner **before any session lookup**. Browser callers retain their authenticated username. Explicit `AUTH_ENABLED=false` single-user mode remains a distinct principal type, not a privilege granted to API tokens.
