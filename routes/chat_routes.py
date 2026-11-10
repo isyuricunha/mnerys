@@ -2972,11 +2972,6 @@ def setup_chat_routes(
             ))
             except AdmissionDenied as exc:
                 raise HTTPException(exc.status_code, exc.detail) from exc
-            if _prepared.approval_denied:
-                return StreamingResponse(
-                    _tool_approval_resolution_stream(_prepared.approval_decision),
-                    media_type="text/event-stream",
-                )
             if _prepared.pending_tool_approval is not None:
                 if not _mark_tool_approval_resolved(
                     sess, tool_approval_id, _prepared.approval_decision,
@@ -2985,6 +2980,11 @@ def setup_chat_routes(
                         "Tool approval %s was consumed but its persisted card could not be marked resolved",
                         tool_approval_id,
                     )
+            if _prepared.approval_denied:
+                return StreamingResponse(
+                    _tool_approval_resolution_stream(_prepared.approval_decision),
+                    media_type="text/event-stream",
+                )
             ctx = _prepared.context
             foreground_policy = _prepared.foreground_policy
             tool_policy = _prepared.tool_policy

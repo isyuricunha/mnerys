@@ -235,9 +235,10 @@ approval reached the process producer but failed because rebinding the same
 request made it appear inherited. The candidate repair distinguishes that
 rebinding from a child delegation, rechecks claim expiry, and restores the
 Gateway's continuation mode and workspace in the Web adapter. Disposable
-regressions exercise real approved shell execution and model continuation;
-live-provider preview acceptance remains outstanding. The complete CI matrix
-is deferred until publication. General Web stream replay and pending approvals
+regressions and the private preview exercise real approved shell execution
+and Mistral continuation. A subsequent denial-card and tool-status fix still
+requires preview validation. The complete CI matrix is deferred until
+publication. General Web stream replay and pending approvals
 remain process-local across server restarts; durable Gateway v1 event records
 do not cover that general Web stream. See the
 [authority contract](architecture/GATEWAY_AGENT_CONTRACT.md#approval-continuation-authority-validation-in-progress).

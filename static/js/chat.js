@@ -4989,6 +4989,7 @@ import { invalidateSettings } from './appConfig.js';
                     currentToolBubble._elapsedTicker = null;
                   }
                   const ok = (json.exit_code === 0 || json.exit_code == null);
+                  const approvalStatus = json.ask_user?.kind === 'tool_approval' ? 'awaiting approval' : '';
                   const cmd = json.command || '';
                   let outHtml = '';
                   if (!_suppressRawToolOutput(json.tool, ok) && json.output && json.output.trim()) {
@@ -5035,7 +5036,7 @@ import { invalidateSettings } from './appConfig.js';
                   }
 	                  const _wasOpen = currentToolBubble.classList.contains('open') || browserTool;
                   currentToolBubble.className = 'agent-thread-node' + (ok ? '' : ' error') + (_wasOpen ? ' open' : '') + (browserTool ? ' browser-preview-node' : '');
-                  currentToolBubble.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${ok ? '\u2713' : '\u2717'}</span>${toolIcon2}<span class="agent-thread-tool">${esc(toolInfo2.label || json.tool)}</span>${toolHeaderAction2}<span class="agent-thread-status">${ok ? 'done' : 'failed'}</span><span class="agent-thread-chevron" aria-hidden="true"></span></div><div class="agent-thread-content">${cmdHtml2}${outHtml}${diffHtml}</div>`;
+                  currentToolBubble.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${approvalStatus ? '\u2026' : ok ? '\u2713' : '\u2717'}</span>${toolIcon2}<span class="agent-thread-tool">${esc(toolInfo2.label || json.tool)}</span>${toolHeaderAction2}<span class="agent-thread-status">${approvalStatus || (ok ? 'done' : 'failed')}</span><span class="agent-thread-chevron" aria-hidden="true"></span></div><div class="agent-thread-content">${cmdHtml2}${outHtml}${diffHtml}</div>`;
                   // Reset so thinking spinner between tools says "Thinking" not the old tool's label
                   _lastToolName = '';
                   uiModule.scrollHistory();
@@ -6545,15 +6546,16 @@ import { invalidateSettings } from './appConfig.js';
     const finishReplayTool = (json) => {
       if (!currentToolBubble) return;
       const ok = json.exit_code === 0 || json.exit_code == null;
+      const approvalStatus = json.ask_user?.kind === 'tool_approval' ? 'awaiting approval' : '';
       const command = String(json.command || json.args || '');
       const output = String(json.output || '');
       const label = String(json.label || json.tool || 'Tool');
       const icon = renderToolIcon(json.tool || '', command, json) || '';
       currentToolBubble.className = 'agent-thread-node' + (ok ? '' : ' error');
       currentToolBubble.innerHTML = '<div class="agent-thread-dot"></div><div class="agent-thread-header">' +
-        '<span class="agent-thread-icon">' + (ok ? '✓' : '✗') + '</span>' + icon +
+        '<span class="agent-thread-icon">' + (approvalStatus ? '…' : ok ? '✓' : '✗') + '</span>' + icon +
         '<span class="agent-thread-tool">' + uiModule.esc(label) + '</span>' +
-        '<span class="agent-thread-status">' + (ok ? 'done' : 'failed') + '</span>' +
+        '<span class="agent-thread-status">' + (approvalStatus || (ok ? 'done' : 'failed')) + '</span>' +
         '<span class="agent-thread-chevron" aria-hidden="true"></span></div>' +
         '<div class="agent-thread-content">' +
         (command ? '<pre class="agent-thread-cmd">' + uiModule.esc(command) + '</pre>' : '') +

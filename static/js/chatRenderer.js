@@ -3388,6 +3388,11 @@ export function addMessage(role, content, modelName, metadata) {
           for (const ev of roundTools) {
             if (ev.ask_user && !ev.ask_user.resolved) pendingAskUser = ev.ask_user;
             const ok = (ev.exit_code === 0 || ev.exit_code == null);
+            const approvalStatus = ev.ask_user?.kind === 'tool_approval'
+              ? (ev.ask_user.resolved === 'deny' ? 'denied'
+                : ['approve', 'approve_task'].includes(ev.ask_user.resolved) ? 'approved'
+                : ev.ask_user.resolved ? 'resolved' : 'awaiting approval')
+              : '';
             let outHtml = '';
             if (!_suppressRawToolOutput(ev.tool, ok) && ev.output && ev.output.trim()) {
               outHtml = `<details class="agent-tool-output"><summary>Output</summary><pre>${esc(ev.output)}</pre></details>`;
@@ -3431,7 +3436,7 @@ export function addMessage(role, content, modelName, metadata) {
             const evHeaderAction = evToolInfo.headerActionHtml || '';
             const evToolIcon = renderToolIcon(ev.tool, ev.command, ev);
             const evCmdHtml = browserTool ? '' : (evToolInfo.commandHtml || ((ev.command && !(ev.diff && ev.diff.text)) ? `<pre class="agent-thread-cmd">${esc(ev.command)}</pre>` : ''));
-            node.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${ok ? '\u2713' : '\u2717'}</span>${evToolIcon}<span class="agent-thread-tool">${esc(evToolInfo.label || ev.tool)}</span>${evHeaderAction}<span class="agent-thread-status">${ok ? 'done' : 'failed'}</span><span class="agent-thread-chevron" aria-hidden="true"></span></div><div class="agent-thread-content">${evCmdHtml}${outHtml}${evDiffHtml}</div>`;
+            node.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${approvalStatus ? '\u2026' : ok ? '\u2713' : '\u2717'}</span>${evToolIcon}<span class="agent-thread-tool">${esc(evToolInfo.label || ev.tool)}</span>${evHeaderAction}<span class="agent-thread-status">${approvalStatus || (ok ? 'done' : 'failed')}</span><span class="agent-thread-chevron" aria-hidden="true"></span></div><div class="agent-thread-content">${evCmdHtml}${outHtml}${evDiffHtml}</div>`;
             // Click handling is delegated globally \u2014 see chat.js init.
             threadWrap.appendChild(node);
           }

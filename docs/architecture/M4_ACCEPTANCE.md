@@ -202,3 +202,22 @@ against the LIVE private Gateway, not fixtures:
   and did not reproduce on identical subsequent turns; pre-existing
   duplicate assistant rows (resume-time writes, 2026-11-04/06) remain in
   old session history and are not part of this milestone's data.
+
+## Post-M4 approval continuation validation (November 2026)
+
+The private preview at `6f4d6343e56a` was exercised with an existing
+authenticated owner session and Mistral Small. In a new disposable workspace,
+the UI displayed a real approval for `ls -1`; the authorized decision led to
+an actual zero-exit shell result containing an unpredictable test filename,
+then the model received that result and continued. The saved transcript's
+tool metadata agrees with execution and contains one user message and two
+distinct assistant messages (the approval prompt and the continuation).
+The Web stream returned no HTTP 500. A separate real denial did not run the
+shell and its approval could not be replayed (HTTP 409). During this denial
+test, a persisted-card resolution defect and a tool-status rendering defect
+were found; their fixes require a subsequent preview promotion and retest.
+
+The ordinary Web stream currently uses process-local replay and does not
+create Gateway v1 durable turn/event records. The transcript persists, but
+restart-safe Web turn/event recovery is not established by this acceptance.
+Full CI on the new commits remains pending until the publication trigger.

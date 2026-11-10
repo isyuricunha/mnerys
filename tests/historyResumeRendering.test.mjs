@@ -37,6 +37,7 @@ async function setup() {
       displayMetrics: (node, metrics) => { node.dataset.metricsOwner = metrics.render_owner || ''; },
       _suppressRawToolOutput: () => false, safeToolScreenshotSrc: () => '', _isPrivateBrowserTool: () => false,
       _toolDisplayInfo: () => ({}), renderToolIcon: () => '',
+      renderAskUserCard: noop,
       buildSourcesBox: () => '<div class="sources-section">Sources</div>',
       buildFindingsBox: () => '<div class="sources-section">Findings</div>',
       buildRagSourcesBox: () => '<details class="rag-sources"><summary>Documents</summary></details>',
@@ -109,6 +110,40 @@ async function startReplay(page) {
   await page.evaluate(() => { window.running = resumeStream('s'); });
   await page.waitForSelector('.msg-ai');
 }
+
+test('an approval request is not rendered as an executed tool', async () => {
+  const page = await setup();
+  try {
+    for (const [resolved, expected] of [[null, 'awaiting approval'], ['approve_task', 'approved'], ['deny', 'denied']]) {
+      const status = await page.evaluate(({ resolved }) => {
+        document.querySelector('#chat-history').replaceChildren();
+        addMessage('assistant', 'Waiting', 'test', { _fromHistory: true, tool_events: [{
+          round: 1, tool: 'bash', command: 'ls -1', exit_code: null,
+          output: 'Waiting for an exact user approval.',
+          ask_user: {kind: 'tool_approval', approval_id: 'a'.repeat(43), resolved, question: 'Approve?', options: [{label: 'Allow'}, {label: 'Deny'}]},
+        }] });
+        return document.querySelector('.agent-thread-status')?.textContent;
+      }, { resolved });
+      assert.equal(status, expected);
+    }
+  } finally { await page.close(); }
+});
+
+test('replayed approval requests do not say the tool completed', async () => {
+  const page = await setup();
+  try {
+    await startReplay(page);
+    await page.evaluate(() => {
+      send({ type: 'tool_start', tool: 'bash', command: 'ls -1' });
+      send({ type: 'tool_output', tool: 'bash', command: 'ls -1', exit_code: null,
+        ask_user: { kind: 'tool_approval', approval_id: 'a'.repeat(43), question: 'Approve?', options: [{label: 'Allow'}, {label: 'Deny'}] } });
+    });
+    await page.waitForSelector('.agent-thread-node:not(.running)');
+    assert.equal(await page.locator('.agent-thread-status').first().textContent(), 'awaiting approval');
+    await page.evaluate(() => { send('[DONE]'); });
+    await page.evaluate(() => running);
+  } finally { await page.close(); }
+});
 
 test('resume tool-only final is visible, scoped, and keeps the open timeline at completion', async () => {
   const page = await setup();

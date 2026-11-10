@@ -238,6 +238,29 @@ async def test_cutover_approval_runs_exact_shell_and_continues(monkeypatch, tmp_
 
 
 @pytest.mark.asyncio
+async def test_cutover_denial_marks_original_card_before_return(monkeypatch):
+    from src.tool_approvals import ToolApprovalStore
+    from src.tool_capabilities import capabilities_for_action
+    store = ToolApprovalStore()
+    _, session, _, writes, routes = cutover_fixture(monkeypatch, store)
+    monkeypatch.setattr("src.gateway_turns.tool_approval_store", store)
+    pending = store.create(owner="alice", session_id=session.id, origin_run_id="test-run",
+        tool_name="bash", content="ls -1", workspace=None,
+        external_untrusted_context_seen=True, capabilities=capabilities_for_action("bash", "ls -1"))
+    marked = []
+    monkeypatch.setattr(chat_routes, "_mark_tool_approval_resolved",
+        lambda sess, approval_id, decision: marked.append((sess, approval_id, decision)) or True)
+    response = await routes["/api/chat_stream"](chat_request({
+        "message": "", "mode": "chat", "tool_approval_id": pending.approval_id,
+        "tool_approval_decision": "deny",
+    }))
+    text = "".join([chunk async for chunk in response.body_iterator])
+    assert marked == [(session, pending.approval_id, "deny")]
+    assert '"decision": "deny"' in text
+    assert store.peek(pending.approval_id) is None and not writes
+
+
+@pytest.mark.asyncio
 async def test_cutover_disabled_by_default_keeps_legacy_chain(monkeypatch):
     _admission, session, ports, writes, routes = cutover_fixture(monkeypatch)
     monkeypatch.setenv("MNERYS_M21_WEB_CORE_CUTOVER", "0")
