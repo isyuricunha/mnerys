@@ -1,8 +1,9 @@
 # M5.2 — Canonical Tool Registry (Increment 1)
 
-Status: increments 1 (canonical registry), 2 (read-before-edit) and 3 (unified
-textual/native tool vocabulary) implemented and regression-covered. Remaining
-M5.2 work is listed at the end.
+Status: increments 1 (canonical registry), 2 (read-before-edit), 3 (unified
+textual/native tool vocabulary) and 4 (derived-artifact writer publication
+boundary) implemented and regression-covered. Remaining M5.2 work is listed
+at the end.
 
 ## What this is
 
@@ -157,8 +158,9 @@ Every advertised argument must be honored by the existing handler:
    Canonical names in explicit textual markup (`<invoke name="Read">`, JSON
    envelopes) already resolved through the registry in increment 1.
 2. **Read-before-edit enforcement** is increment 2 (implemented above);
-   the filesystem security redesign beyond it (streaming/large-file
-   contracts, derived-artifact writers) remains follow-up work.
+   the derived-artifact writers were its remaining gap and are now covered
+   by increment 4's publication boundary. The filesystem security redesign
+   beyond it (streaming/large-file contracts) remains follow-up work.
 
 ## Increment 3 — unified tool vocabulary across textual and native execution (implemented)
 
@@ -305,12 +307,12 @@ execution (the sandbox's writable `/workspace` surface can rewrite files with
 no tool call — mitigated by invalidating every session baseline after code
 execution, converting the bypass into a visible reread requirement, not
 hidden; a shell command running CONCURRENTLY with an edit remains a residual
-race that the digest check only narrows), derived-artifact writers
-(`inspect_media`/`generate_image` outputs — follow-up), background jobs
-launched by bash (invalidated at launch; later writes are the same residual
-class), and the TUI host bridge (client-side filesystem; server baselines do
-not apply there). No universal "no edit without read" claim is made beyond
-these boundaries.
+race that the digest check only narrows), background jobs launched by bash
+(invalidated at launch; later writes are the same residual class), and the
+TUI host bridge (client-side filesystem; server baselines do not apply
+there). The derived-artifact writers were the remaining gap and are now
+covered by increment 4's publication boundary below. No universal "no edit
+without read" claim is made beyond these boundaries.
 
 ## Tests
 
@@ -353,20 +355,109 @@ these boundaries.
   — confinement and effect bindings under the baseline contract (updated to
   the increment-2 read-before-edit flow; apply_patch universal-newline
   reading covered).
+- `tests/test_derived_artifact_safety.py` — the increment-4 publication
+  contract: exclusive new-artifact publication and appeared-destination
+  refusal (including the deterministic link race), symlink and directory
+  destinations refused with targets untouched, replace-after-read with
+  re-baselining, stale/foreign/forged/opaque/oversized refusals, permission
+  preservation, held-flock serialization, staged-file cleanup, ImageMagick
+  SVG render publication, real-ffmpeg still/batch/sidecar exports, and the
+  transcribe_media user-file versus internal-cache classes (fake Whisper
+  decoder, real publication path).
 
-## Remaining M5.2 work (after increment 3)
+## Increment 4 — derived-artifact writer publication boundary (implemented)
+
+`src/agent_tools/artifact_publication.py` extends the increment-2 contract to
+the derived-artifact writers. Generators no longer write destination paths
+directly (ffmpeg `-y`, `Path.write_text`); they write a staged file beside the
+destination and publication is one authorized, atomic step.
+
+**Audited writers and their classifications.**
+
+| Writer | Destination | Class |
+| --- | --- | --- |
+| `inspect_media` SVG render (`output_path`) | workspace PNG | `user_file` |
+| `inspect_media` still export (`output_path` + `timestamp`) | workspace image | `user_file` |
+| `inspect_media` batch stills (`exports[…]`) | workspace images | `user_file` |
+| `inspect_media` clip export (`output_path` + start/end) | workspace video | `user_file` |
+| `inspect_media` timestamp sidecar (`timestamp_path`) | workspace text | `user_file` |
+| `inspect_media` preview frames | `TemporaryDirectory` | internal, never published |
+| `transcribe_media` explicit `output_path` | workspace text/subtitle | `user_file` |
+| `transcribe_media` automatic transcript | `.odysseus/transcripts/…` | `internal_cache` |
+| `generate_image` / `edit_image` | `GENERATED_IMAGES_DIR/<uuid>.png` | server-managed new artifact (exclusive creation; collision refused) |
+| `todowrite` | `DATA_DIR/agent_todos/<session>.json` | internal state, not a workspace file |
+| email `download_attachment` | hash-scoped extraction dirs | server-managed new artifacts |
+| upload media ingress, background-job logs | server temp/data dirs | server-managed |
+
+**Existing-file versus new-artifact semantics.** Replacing an existing
+user-visible file requires a real, server-recorded read (same owner and
+session) with unchanged identity and content digest — validated through the
+same `read_baselines` store, so TTL expiry, eviction, code-execution
+invalidation, and restart clearing apply identically. Because the new content
+is generated rather than derived from the old bytes, line-scope anchoring does
+not apply; what is refused is any absence of awareness: no baseline,
+`opaque` (structured-document) observations, files above the baseline size
+bound (fail-closed), and stale/foreign/forged baselines all refuse with an
+actionable `read_before_edit` result before any byte changes. Creating a NEW
+artifact needs no prior read; publication is exclusive (`os.link` with
+`EEXIST` refusal), so a destination that appears while the generator runs is
+never overwritten.
+
+**Exact enforcement boundary.** The destination's parent directory is opened
+with `O_NOFOLLOW` on its final component; the destination is always addressed
+through that directory fd and refused when it is a symlink or non-regular
+file — a symlink is never followed or written through. The existing
+destination is validated on a descriptor holding an exclusive `flock`
+(cooperating writers of this server are mutually excluded), the staged file
+inherits the existing file's permissions, the path is re-opened immediately
+before publication and must still resolve to the validated inode, and the
+publication itself is an atomic `os.replace` within the same directory.
+After a successful user-file publication the server re-baselines the exact
+bytes it published. Byte-identical recreate (inode reused, same digest) is
+content-safe by the same definition the text tools document.
+
+**Concurrency, cancellation, and partial failure.** Batch exports pre-check
+every destination (and the sidecar) before any generator runs, so an
+avoidable refusal never strands partial output; a mid-batch ffmpeg failure
+reports the already-created files and the failed destination honestly.
+Staged files live in the destination directory under `.odysseus-publish-`
+(hidden, disposable) and are removed on refusal, failure, and context exit.
+A hard process kill can leak a staged file — the same documented class as
+the text tools' staging — and it is never a user-visible artifact name.
+
+**Residual limitations (unchanged classes, now narrower).** Non-cooperating
+writers (a running shell command, a background job writing later) can still
+mutate files outside any tool call; the digest re-verification narrows but
+cannot eliminate that race, and the bash/python invalidation boundary (every
+owner/session baseline dropped after code execution) remains the honest
+guarantee — a derived overwrite after shell execution requires a fresh read.
+The TUI host bridge executes on the client host; server baselines do not
+apply there. `flock` excludes cooperating writers only; the atomic rename
+does not make compare-and-write universal.
+
+**generate_image / edit_image.** These never accept model-chosen
+destinations: they write server-generated UUID names into the gallery
+directory, so overwrite is impossible by construction; creation is now
+exclusive (`O_CREAT | O_EXCL`) so even a UUID collision refuses instead of
+clobbering. Ownership registration and gallery records, retrieval routes,
+and client preview behavior are unchanged.
+
+## Remaining M5.2 work (after increment 4)
 
 1. **`ToolSearch`/`Skill` implementations** — discovery and activation of
    installed skills/MCP tools; reserved names stay refused until then.
-2. **Derived-artifact writer contracts** (`inspect_media`/`generate_image`
-   outputs) for the read-before-edit baseline.
-3. **The qwen3.8 fine-tuned router compatibility carve-out** — the route keeps
+2. **The qwen3.8 fine-tuned router compatibility carve-out** — the route keeps
    `legacy_compat=True` until its trained weights are refreshed to the
    canonical vocabulary; migration is a fine-tune-cycle task, not a code
    alias (the carve-out is one parameter at one parse site and cannot widen
-   permissions).
-4. **Real-provider exit-gate matrix** — read/search/edit/patch/shell on at
+   permissions). Increment 4 verified the route: derived-writer enforcement
+   lives in the handlers, not parsing, so the carve-out behavior is
+   unchanged; a future canonical-vocabulary fine-tune needs no code change
+   beyond dropping the one `legacy_compat` flag.
+3. **Real-provider exit-gate matrix** — read/search/edit/patch/shell on at
    least two provider API protocols (the exit gate below), which has not run
    against live providers yet.
-5. **Filesystem security redesign follow-ups** — streaming/large-file
-   contracts for the baseline, concurrent-shell residual race narrowing.
+4. **Filesystem security redesign follow-ups** — streaming/large-file
+   contracts for the baseline (oversized existing destinations are refused
+   fail-closed today), concurrent-shell residual race narrowing, and
+   background-job write windows after launch invalidation.

@@ -282,6 +282,17 @@ unavailable with no restored executable authority.
   Do **not** run all four pytest shards locally for every increment.
   Hosted GitHub CI retains the authoritative full test matrix and
   security jobs after publication; inspect and fix every failing job.
+- **Selection-size discipline (increment-4 policy, binding):** inspect the
+  affected-test selection size BEFORE executing it. When the selector
+  expands toward the whole suite (it selected 1,052 files / 14,619 tests
+  for one tool-module change), do not start or restart that run as routine
+  validation — select the directly affected focused suites instead and let
+  hosted CI run the broad matrix after publication. Reuse an existing
+  successful full-local-run as evidence for code that has not changed
+  since; run focused tests only for the delta. A full local regression run
+  requires a demonstrated need (an architectural change the selector
+  cannot scope, a release gate, or a failing broad run being fixed), not
+  routine repetition.
 - Build and validate a conservative affected-test selector using
   dependency and contract mapping, with an explicit full-suite escape
   hatch. Never weaken assertions or silently skip directly affected
@@ -404,6 +415,27 @@ M5.2: `ToolSearch`/`Skill` implementations, derived-artifact writer
 contracts, the qwen3.8 fine-tune-cycle vocabulary refresh, and the
 real-provider exit-gate matrix (read/search/edit/patch/shell on at least two
 provider API protocols).
+
+**Increment 4 status (verified):** the remaining read-before-edit gap —
+derived-artifact writers — is closed by a shared publication boundary
+(`src/agent_tools/artifact_publication.py`). `inspect_media` SVG/still/batch/
+clip/sidecar exports and `transcribe_media` transcripts no longer write
+destination paths directly: generators produce a staged file beside the
+destination and publication is one atomic, authorized step. Replacing an
+EXISTING user file now requires the same server-verified read baseline as the
+text tools (identity + digest, same owner/session, `opaque` observations and
+oversized files refuse fail-closed); new artifacts publish exclusively so a
+destination that appears mid-generation is never overwritten; symlink and
+non-regular destinations are refused, never followed. Internal disposable
+caches (the automatic transcript path) publish without a baseline but remain
+symlink-safe. `generate_image`/`edit_image` keep server-generated UUID
+destinations, now with exclusive creation. Bash/python execution still
+invalidates every owner/session baseline, and the derived writers validate
+against that same store. The qwen3.8 textual carve-out is verified
+unaffected (enforcement is handler-side, not parsing-side). Remaining for
+M5.2: `ToolSearch`/`Skill` implementations, the qwen3.8 fine-tune-cycle
+vocabulary refresh, and the real-provider exit-gate matrix (read/search/
+edit/patch/shell on at least two provider API protocols).
 
 **Exit gate:** real provider-backed read/search/edit/patch/shell tests;
 unread/stale file edits rejected; exact tool calls, permissions and
