@@ -1636,12 +1636,37 @@ def _strip_delimited(text: str, open_re, close_re, replacement: str = "") -> str
     """Replace every ``open_re ... close_re`` span (forward-only; see
     _iter_delimited). Equivalent to ``open_re([\\s\\S]*?)close_re`` substitution
     for these delimiters, without the O(n^2) rescan on unclosed openers."""
-    spans = list(_iter_delimited(text, open_re, close_re))
-    if not spans:
+    return _strip_spans(
+        text,
+        _iter_delimited(text, open_re, close_re),
+    )
+
+
+def _strip_spans(
+    text: str,
+    spans: Iterable[tuple[int, int, int, int]],
+    replacement: str = "",
+) -> str:
+    """Remove pre-collected ``(match_start, _, _, match_end)`` spans.
+
+    The span-based generalization of :func:`_strip_delimited`: identical
+    forward-only assembly, but the spans were already found by a parser in
+    one pass. Overlapping or unordered spans are tolerated defensively so a
+    parser bug can never reassemble corrupted text.
+    """
+    ordered: list[tuple[int, int, int, int]] = []
+    previous_end = -1
+    for span in spans:
+        match_start, _inner_start, _inner_end, match_end = span
+        if match_start < previous_end or match_end <= match_start:
+            continue
+        ordered.append(span)
+        previous_end = match_end
+    if not ordered:
         return text
     out = []
     last = 0
-    for match_start, _inner_start, _inner_end, match_end in spans:
+    for match_start, _inner_start, _inner_end, match_end in ordered:
         out.append(text[last:match_start])
         out.append(replacement)
         last = match_end
