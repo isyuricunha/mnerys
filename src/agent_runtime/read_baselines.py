@@ -82,6 +82,7 @@ __all__ = [
     "observed_line_span_covers",
     "read_baseline_store",
     "record_file_read",
+    "require_baseline_for_derived_mutation",
     "require_baseline_for_mutation",
 ]
 
@@ -253,7 +254,7 @@ def record_file_read(
     return baseline
 
 
-def require_baseline_for_mutation(
+def _validated_baseline(
     owner,
     session_id,
     path: str,
@@ -262,13 +263,11 @@ def require_baseline_for_mutation(
     current_bytes: Optional[bytes] = None,
     current_identity: Optional[FileObjectIdentity] = None,
 ) -> ReadBaseline:
-    """Validate the read-before-edit contract for one mutating tool call.
-
-    ``current_bytes`` / ``current_identity`` come from the descriptor the
-    caller will mutate through, so the check and the mutation observe the
-    same file object. Raises a :class:`ReadBaselineError` subclass with an
-    actionable message on every violation.
-    """
+    """Shared core of every baseline check: the recorded read must exist for
+    this owner/session/path, and the file object being mutated (identity +
+    content digest, observed on the descriptor the caller will write through)
+    must still be the exact one that was read. Single enforcement point for
+    the registry's text tools and the derived-artifact writers alike."""
     baseline = _store.get(owner, session_id, path)
     if baseline is None:
         raise BaselineRequired(
@@ -287,21 +286,88 @@ def require_baseline_for_mutation(
                 f"{path} changed since it was read (content digest mismatch). "
                 f"Read it again to see the current content, then retry {tool}."
             )
+    return baseline
+
+
+def _observation_span_label(baseline: ReadBaseline) -> str:
+    kind, start, end = baseline.observation
+    if kind == OBSERVATION_LINES:
+        return f"lines {start}-{end}"
+    return "derived document text"
+
+
+def require_baseline_for_mutation(
+    owner,
+    session_id,
+    path: str,
+    *,
+    tool: str,
+    current_bytes: Optional[bytes] = None,
+    current_identity: Optional[FileObjectIdentity] = None,
+) -> ReadBaseline:
+    """Validate the read-before-edit contract for one mutating tool call.
+
+    ``current_bytes`` / ``current_identity`` come from the descriptor the
+    caller will mutate through, so the check and the mutation observe the
+    same file object. Raises a :class:`ReadBaselineError` subclass with an
+    actionable message on every violation.
+    """
+    baseline = _validated_baseline(
+        owner, session_id, path,
+        tool=tool,
+        current_bytes=current_bytes,
+        current_identity=current_identity,
+    )
     if tool == "write_file" and not baseline.full_read:
-        kind, start, end = baseline.observation
-        span = f"lines {start}-{end}" if kind == OBSERVATION_LINES else "derived document text"
         raise PartialReadInsufficient(
-            f"{path} was only partially read ({span}); replacing unread content "
-            f"is not allowed. Read the whole file with Read, then retry write_file."
+            f"{path} was only partially read ({_observation_span_label(baseline)}); "
+            f"replacing unread content is not allowed. Read the whole file with "
+            f"Read, then retry write_file."
         )
     if tool == "apply_patch" and not baseline.full_read:
         # A patch's context lines must match the whole current file; patching
         # from a partial observation would silently trust unread content.
-        kind, start, end = baseline.observation
-        span = f"lines {start}-{end}" if kind == OBSERVATION_LINES else "derived document text"
         raise PartialReadInsufficient(
-            f"{path} was only partially read ({span}); applying a patch to unread "
-            f"content is not allowed. Read the whole file with Read, then retry apply_patch."
+            f"{path} was only partially read ({_observation_span_label(baseline)}); "
+            f"applying a patch to unread content is not allowed. Read the whole "
+            f"file with Read, then retry apply_patch."
+        )
+    return baseline
+
+
+def require_baseline_for_derived_mutation(
+    owner,
+    session_id,
+    path: str,
+    *,
+    tool: str,
+    current_bytes: Optional[bytes] = None,
+    current_identity: Optional[FileObjectIdentity] = None,
+) -> ReadBaseline:
+    """Validate the read-before-edit contract for a DERIVED-artifact writer
+    (``inspect_media`` exports, ``transcribe_media`` transcripts, …) that
+    replaces an existing file with freshly generated content.
+
+    The rule differs from the text tools by construction: the new content is
+    not derived from the old bytes, so line-scope anchoring does not apply.
+    What is still required is real awareness of the file being replaced — a
+    successful server-recorded read (FULL or LINES) of this exact file by the
+    same owner and session, with identity and content digest unchanged. An
+    OPAQUE observation (structured document extraction) never authorizes a
+    raw-byte replacement, and a file above the baseline size bound has no
+    baseline at all, so such destinations are refused (choose a new name).
+    """
+    baseline = _validated_baseline(
+        owner, session_id, path,
+        tool=tool,
+        current_bytes=current_bytes,
+        current_identity=current_identity,
+    )
+    if baseline.observation[0] == OBSERVATION_OPAQUE:
+        raise PartialReadInsufficient(
+            f"{path} was only observed as derived document text, not as the "
+            f"file itself; {tool} may not replace it. Read the file with Read, "
+            f"then retry {tool}."
         )
     return baseline
 

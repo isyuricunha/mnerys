@@ -1371,7 +1371,8 @@ async def do_generate_image(content: str, session_id: Optional[str] = None, owne
                 img_dir.mkdir(parents=True, exist_ok=True)
                 filename = f"{uuid.uuid4().hex[:12]}.png"
                 img_path = img_dir / filename
-                img_path.write_bytes(base64.b64decode(img.get("b64_json")))
+                from src.agent_tools.artifact_publication import create_exclusive_file
+                create_exclusive_file(img_path, base64.b64decode(img.get("b64_json")))
                 if owner:
                     from src.generated_images import register_generated_image
                     register_generated_image(filename, owner)
@@ -1394,7 +1395,8 @@ async def do_generate_image(content: str, session_id: Optional[str] = None, owne
                         img_dir.mkdir(parents=True, exist_ok=True)
                         filename = f"{uuid.uuid4().hex[:12]}.png"
                         img_path = img_dir / filename
-                        img_path.write_bytes(dl_resp.content)
+                        from src.agent_tools.artifact_publication import create_exclusive_file
+                        create_exclusive_file(img_path, dl_resp.content)
                         if owner:
                             from src.generated_images import register_generated_image
                             register_generated_image(filename, owner)
@@ -1542,7 +1544,8 @@ async def do_edit_image(
         img_dir = Path(GENERATED_IMAGES_DIR)
         img_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{uuid.uuid4().hex[:12]}{suffix}"
-        (img_dir / filename).write_bytes(image_bytes)
+        from src.agent_tools.artifact_publication import create_exclusive_file
+        create_exclusive_file(img_dir / filename, image_bytes)
         if owner:
             from src.generated_images import register_generated_image
             register_generated_image(filename, owner)

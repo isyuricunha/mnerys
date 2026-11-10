@@ -924,11 +924,20 @@ def test_inspect_media_falls_back_to_imagemagick_for_svg(tmp_path: Path, monkeyp
         _active_workspace.reset(token)
 
     assert result["exit_code"] == 0
-    assert commands == [[
-        "/usr/bin/convert", str(tmp_path / "source.svg"),
-        str(tmp_path / "rendered.png"),
-    ]]
+    # M5.2 increment 4: the renderer writes a staged file beside the
+    # destination; publication is the step that places content at the
+    # requested path.
+    assert len(commands) == 1
+    command = commands[0]
+    assert command[:1] == ["/usr/bin/convert"]
+    assert command[1] == str(tmp_path / "source.svg")
+    staged_argument = Path(command[2])
+    assert staged_argument.parent == tmp_path
+    assert staged_argument.name.startswith(".odysseus-publish-")
+    assert staged_argument.suffix == ".png"
+    assert not staged_argument.exists()
     assert (tmp_path / "rendered.png").read_bytes().startswith(b"\x89PNG")
+    assert not list(tmp_path.glob(".odysseus-publish-*"))
 
 
 @pytest.mark.skipif(not shutil.which("rsvg-convert"), reason="rsvg-convert required")

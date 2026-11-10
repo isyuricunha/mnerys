@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import contextlib
 import hashlib
 import io
 import json
@@ -16,6 +15,57 @@ import re
 import shutil
 import subprocess
 import tempfile
+
+from src.agent_tools import artifact_publication
+from src.agent_tools.artifact_publication import (
+    ArtifactPublicationError,
+    ensure_destination_publishable,
+    publish_staged_artifact,
+    staged_artifact_path,
+)
+from src.agent_runtime.read_baselines import ReadBaselineError
+
+
+def _publication_owner_session(_ctx: dict) -> tuple:
+    """Owner/session pair the publication boundary records and validates."""
+    ctx = _ctx if isinstance(_ctx, dict) else {}
+    return ctx.get("owner"), ctx.get("session_id")
+
+
+def _artifact_publication_refusal(exc: Exception) -> dict:
+    """Uniform actionable result for a refused derived-artifact publication.
+
+    Read-baseline refusals carry ``read_before_edit`` so callers can react
+    exactly as they do for the registry's text-mutation tools; the message
+    always names the recovery (Read the destination, or choose a new name).
+    """
+    refused = isinstance(exc, ReadBaselineError)
+    return {
+        "error": str(exc),
+        "exit_code": 1,
+        **({"read_before_edit": True} if refused else {}),
+    }
+
+
+def _publish_transcript_artifact(_ctx: dict, destination: Path, text: str, classification: str) -> None:
+    """Publish a transcribe_media artifact through the shared boundary.
+
+    An explicitly requested destination is a user file: replacing an existing
+    file requires the recorded read baseline, new files publish exclusively.
+    The automatic cache path under ``.odysseus/transcripts/`` is an internal
+    disposable artifact — no baseline, but still symlink-safe and atomic.
+    """
+    owner, session_id = _publication_owner_session(_ctx)
+    with staged_artifact_path(destination) as staged:
+        staged.write_text(text, encoding="utf-8")
+        publish_staged_artifact(
+            owner,
+            session_id,
+            destination,
+            staged,
+            tool="transcribe_media",
+            classification=classification,
+        )
 
 
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
@@ -803,23 +853,60 @@ class InspectMediaTool:
                             "exit_code": 1,
                         }
                     output.parent.mkdir(parents=True, exist_ok=True)
+                    publication_owner, publication_session = _publication_owner_session(_ctx)
+                    try:
+                        ensure_destination_publishable(
+                            publication_owner,
+                            publication_session,
+                            output,
+                            tool="inspect_media",
+                        )
+                    except (ReadBaselineError, ArtifactPublicationError) as exc:
+                        return _artifact_publication_refusal(exc)
                 else:
                     temporary = tempfile.NamedTemporaryFile(suffix=".png")
                     output = Path(temporary.name)
-                rendered = await asyncio.to_thread(
-                    _run,
-                    (
-                        [renderer, "--output", str(output), str(path)]
-                        if renderer_kind == "rsvg"
-                        else [renderer, str(path), str(output)]
-                    ),
-                    60,
-                )
-                if rendered.returncode != 0 or not output.is_file() or output.stat().st_size == 0:
-                    return {
-                        "error": "SVG rendering failed: " + rendered.stderr[-2000:],
-                        "exit_code": 1,
-                    }
+                if raw_output:
+                    with staged_artifact_path(output) as staged:
+                        rendered = await asyncio.to_thread(
+                            _run,
+                            (
+                                [renderer, "--output", str(staged), str(path)]
+                                if renderer_kind == "rsvg"
+                                else [renderer, str(path), str(staged)]
+                            ),
+                            60,
+                        )
+                        if rendered.returncode != 0 or not staged.is_file() or staged.stat().st_size == 0:
+                            return {
+                                "error": "SVG rendering failed: " + rendered.stderr[-2000:],
+                                "exit_code": 1,
+                            }
+                        try:
+                            publish_staged_artifact(
+                                publication_owner,
+                                publication_session,
+                                output,
+                                staged,
+                                tool="inspect_media",
+                            )
+                        except (ReadBaselineError, ArtifactPublicationError) as exc:
+                            return _artifact_publication_refusal(exc)
+                else:
+                    rendered = await asyncio.to_thread(
+                        _run,
+                        (
+                            [renderer, "--output", str(output), str(path)]
+                            if renderer_kind == "rsvg"
+                            else [renderer, str(path), str(output)]
+                        ),
+                        60,
+                    )
+                    if rendered.returncode != 0 or not output.is_file() or output.stat().st_size == 0:
+                        return {
+                            "error": "SVG rendering failed: " + rendered.stderr[-2000:],
+                            "exit_code": 1,
+                        }
                 result = {
                     "output": (
                         f"Rendered SVG {args.get('path')}"
@@ -1467,65 +1554,114 @@ class InspectMediaTool:
                     }
                 seen_outputs.add(output)
                 validated_exports.append((item, raw_output, output, timestamp))
+            publication_owner, publication_session = _publication_owner_session(_ctx)
+            # Refuse every unpublishable destination BEFORE any generator runs
+            # or any sibling file is created, so a batch cannot strand partial
+            # output behind an avoidable authorization refusal.
+            for _item, raw_output, output, _timestamp in validated_exports:
+                try:
+                    output.parent.mkdir(parents=True, exist_ok=True)
+                    ensure_destination_publishable(
+                        publication_owner,
+                        publication_session,
+                        output,
+                        tool="inspect_media",
+                    )
+                except (ReadBaselineError, ArtifactPublicationError) as exc:
+                    return _artifact_publication_refusal(exc)
             created: list[str] = []
             preview_images: list[dict[str, str]] = []
             for item, raw_output, output, timestamp in validated_exports:
-                output.parent.mkdir(parents=True, exist_ok=True)
-                still_command = [
-                    ffmpeg, "-hide_banner", "-loglevel", "error",
-                    "-ss", f"{timestamp:.3f}", "-i", str(path),
-                    "-frames:v", "1", "-q:v", "3",
-                ]
-                if output.suffix.lower() in {".jpg", ".jpeg"}:
-                    # MJPEG's implicit limited/full-range conversion can fail
-                    # intermittently when several encoder instances start at
-                    # once. Make the required JPEG range explicit and keep
-                    # each tiny still encoder single-threaded.
-                    still_command.extend([
-                        "-pix_fmt", "yuvj420p", "-threads", "1",
-                    ])
-                still_command.extend(["-y", str(output)])
-                still = await asyncio.to_thread(
-                    _run,
-                    still_command,
-                    60,
-                )
-                if still.returncode != 0 or not output.is_file():
-                    return {
-                        "error": "ffmpeg batch still extraction failed: " + still.stderr[-2000:],
-                        "exit_code": 1,
-                    }
-                crop = item.get("crop")
-                caption = str(item.get("caption") or "").strip()
-                if isinstance(crop, dict) or caption:
-                    try:
-                        from PIL import Image, ImageDraw, ImageFont
+                with staged_artifact_path(output) as staged:
+                    still_command = [
+                        ffmpeg, "-hide_banner", "-loglevel", "error",
+                        "-ss", f"{timestamp:.3f}", "-i", str(path),
+                        "-frames:v", "1", "-q:v", "3",
+                    ]
+                    if output.suffix.lower() in {".jpg", ".jpeg"}:
+                        # MJPEG's implicit limited/full-range conversion can fail
+                        # intermittently when several encoder instances start at
+                        # once. Make the required JPEG range explicit and keep
+                        # each tiny still encoder single-threaded.
+                        still_command.extend([
+                            "-pix_fmt", "yuvj420p", "-threads", "1",
+                        ])
+                    still_command.extend(["-y", str(staged)])
+                    still = await asyncio.to_thread(
+                        _run,
+                        still_command,
+                        60,
+                    )
+                    if still.returncode != 0 or not staged.is_file():
+                        error_result = {
+                            "error": "ffmpeg batch still extraction failed: " + still.stderr[-2000:],
+                            "exit_code": 1,
+                        }
+                        if created:
+                            # Truthful partial-failure record: the stills that
+                            # WERE created stay on disk and are reported; the
+                            # failing destination was never touched.
+                            error_result["created"] = [
+                                entry.split(" at ", 1)[0] for entry in created
+                            ]
+                            error_result["failed_destination"] = raw_output
+                        return error_result
+                    crop = item.get("crop")
+                    caption = str(item.get("caption") or "").strip()
+                    if isinstance(crop, dict) or caption:
+                        try:
+                            from PIL import Image, ImageDraw, ImageFont
 
-                        image = Image.open(output).convert("RGB")
-                        if isinstance(crop, dict):
-                            x = max(0, int(crop.get("x", 0)))
-                            y = max(0, int(crop.get("y", 0)))
-                            width = int(crop.get("width", image.width - x))
-                            height = int(crop.get("height", image.height - y))
-                            if width <= 0 or height <= 0:
-                                raise ValueError("crop width and height must be positive")
-                            image = image.crop(
-                                (x, y, min(image.width, x + width), min(image.height, y + height))
-                            )
-                        if caption:
-                            draw = ImageDraw.Draw(image)
-                            font = ImageFont.load_default(size=max(18, image.width // 14))
-                            draw.text(
-                                (16, max(0, image.height - 48)),
-                                caption,
-                                fill="white",
-                                font=font,
-                                stroke_width=3,
-                                stroke_fill="black",
-                            )
-                        image.save(output)
-                    except (ImportError, OSError, TypeError, ValueError) as exc:
-                        return {"error": f"batch still image edit failed: {exc}", "exit_code": 1}
+                            image = Image.open(staged).convert("RGB")
+                            if isinstance(crop, dict):
+                                x = max(0, int(crop.get("x", 0)))
+                                y = max(0, int(crop.get("y", 0)))
+                                width = int(crop.get("width", image.width - x))
+                                height = int(crop.get("height", image.height - y))
+                                if width <= 0 or height <= 0:
+                                    raise ValueError("crop width and height must be positive")
+                                image = image.crop(
+                                    (x, y, min(image.width, x + width), min(image.height, y + height))
+                                )
+                            if caption:
+                                draw = ImageDraw.Draw(image)
+                                font = ImageFont.load_default(size=max(18, image.width // 14))
+                                draw.text(
+                                    (16, max(0, image.height - 48)),
+                                    caption,
+                                    fill="white",
+                                    font=font,
+                                    stroke_width=3,
+                                    stroke_fill="black",
+                                )
+                            image.save(staged)
+                        except (ImportError, OSError, TypeError, ValueError) as exc:
+                            edit_failure = {
+                                "error": f"batch still image edit failed: {exc}",
+                                "exit_code": 1,
+                            }
+                            if created:
+                                edit_failure["created"] = [
+                                    entry.split(" at ", 1)[0] for entry in created
+                                ]
+                                edit_failure["failed_destination"] = raw_output
+                            return edit_failure
+                    try:
+                        publish_staged_artifact(
+                            publication_owner,
+                            publication_session,
+                            output,
+                            staged,
+                            tool="inspect_media",
+                        )
+                    except (ReadBaselineError, ArtifactPublicationError) as exc:
+                        refusal = _artifact_publication_refusal(exc)
+                        if created:
+                            refusal["created"] = [
+                                entry.split(" at ", 1)[0] for entry in created
+                            ]
+                            refusal["failed_destination"] = raw_output
+                        return refusal
                 created.append(f"{raw_output} at {_format_seconds(timestamp)}")
                 try:
                     from PIL import Image
@@ -1668,6 +1804,34 @@ class InspectMediaTool:
                 }
             if output_path is not None:
                 output_path.parent.mkdir(parents=True, exist_ok=True)
+                publication_owner, publication_session = _publication_owner_session(_ctx)
+                try:
+                    ensure_destination_publishable(
+                        publication_owner,
+                        publication_session,
+                        output_path,
+                        tool="inspect_media",
+                    )
+                    # A timestamp sidecar is a second output of the same
+                    # call; refuse it before generation so a missing sidecar
+                    # baseline cannot strand a half-published call.
+                    if timestamp_raw:
+                        sidecar_destination = _resolve_workspace_path(
+                            timestamp_raw,
+                            must_exist=False,
+                            field_name="timestamp_path",
+                        )
+                        sidecar_destination.parent.mkdir(parents=True, exist_ok=True)
+                        ensure_destination_publishable(
+                            publication_owner,
+                            publication_session,
+                            sidecar_destination,
+                            tool="inspect_media",
+                        )
+                except (ReadBaselineError, ArtifactPublicationError) as exc:
+                    return _artifact_publication_refusal(exc)
+                except ValueError as exc:
+                    return {"error": str(exc), "exit_code": 1}
             if output_path is not None and output_suffix in _IMAGE_SUFFIXES:
                 try:
                     requested_timestamp = _parse_video_position(
@@ -1689,55 +1853,64 @@ class InspectMediaTool:
                         for offset in (0.5, 1.0, 2.0)
                     )
                 still = None
-                for timestamp in dict.fromkeys(candidate_timestamps):
-                    still = await asyncio.to_thread(
-                        _run,
-                        [
-                            ffmpeg, "-hide_banner", "-loglevel", "error",
-                            "-ss", f"{timestamp:.3f}", "-i", str(path),
-                            "-frames:v", "1", "-q:v", "2", "-y", str(output_path),
-                        ],
-                        60,
-                    )
-                    if still.returncode == 0 and output_path.is_file() and output_path.stat().st_size:
-                        break
-                    with contextlib.suppress(OSError):
-                        output_path.unlink()
-                assert still is not None
-                if still.returncode != 0 or not output_path.is_file():
-                    return {"error": "ffmpeg still extraction failed: " + still.stderr[-2000:], "exit_code": 1}
                 caption = str(args.get("caption") or "").strip()
                 crop = args.get("crop")
-                if caption or isinstance(crop, dict):
-                    try:
-                        from PIL import Image, ImageDraw, ImageFont
+                with staged_artifact_path(output_path) as staged:
+                    for timestamp in dict.fromkeys(candidate_timestamps):
+                        still = await asyncio.to_thread(
+                            _run,
+                            [
+                                ffmpeg, "-hide_banner", "-loglevel", "error",
+                                "-ss", f"{timestamp:.3f}", "-i", str(path),
+                                "-frames:v", "1", "-q:v", "2", "-y", str(staged),
+                            ],
+                            60,
+                        )
+                        if still.returncode == 0 and staged.is_file() and staged.stat().st_size:
+                            break
+                    assert still is not None
+                    if still.returncode != 0 or not staged.is_file():
+                        return {"error": "ffmpeg still extraction failed: " + still.stderr[-2000:], "exit_code": 1}
+                    if caption or isinstance(crop, dict):
+                        try:
+                            from PIL import Image, ImageDraw, ImageFont
 
-                        image = Image.open(output_path).convert("RGB")
-                        if isinstance(crop, dict):
-                            x = max(0, int(crop.get("x", 0)))
-                            y = max(0, int(crop.get("y", 0)))
-                            width = int(crop.get("width", image.width - x))
-                            height = int(crop.get("height", image.height - y))
-                            if width <= 0 or height <= 0:
-                                raise ValueError("crop width and height must be positive")
-                            image = image.crop((x, y, min(image.width, x + width), min(image.height, y + height)))
-                        if caption:
-                            draw = ImageDraw.Draw(image)
-                            font = ImageFont.load_default(size=max(18, image.width // 14))
-                            box = draw.textbbox((0, 0), caption, font=font, stroke_width=2)
-                            text_width = box[2] - box[0]
-                            text_height = box[3] - box[1]
-                            draw.text(
-                                ((image.width - text_width) / 2, image.height - text_height - 16),
-                                caption,
-                                fill="white",
-                                font=font,
-                                stroke_width=3,
-                                stroke_fill="black",
-                            )
-                        image.save(output_path)
-                    except (ImportError, OSError, TypeError, ValueError) as exc:
-                        return {"error": f"still image edit failed: {exc}", "exit_code": 1}
+                            image = Image.open(staged).convert("RGB")
+                            if isinstance(crop, dict):
+                                x = max(0, int(crop.get("x", 0)))
+                                y = max(0, int(crop.get("y", 0)))
+                                width = int(crop.get("width", image.width - x))
+                                height = int(crop.get("height", image.height - y))
+                                if width <= 0 or height <= 0:
+                                    raise ValueError("crop width and height must be positive")
+                                image = image.crop((x, y, min(image.width, x + width), min(image.height, y + height)))
+                            if caption:
+                                draw = ImageDraw.Draw(image)
+                                font = ImageFont.load_default(size=max(18, image.width // 14))
+                                box = draw.textbbox((0, 0), caption, font=font, stroke_width=2)
+                                text_width = box[2] - box[0]
+                                text_height = box[3] - box[1]
+                                draw.text(
+                                    ((image.width - text_width) / 2, image.height - text_height - 16),
+                                    caption,
+                                    fill="white",
+                                    font=font,
+                                    stroke_width=3,
+                                    stroke_fill="black",
+                                )
+                            image.save(staged)
+                        except (ImportError, OSError, TypeError, ValueError) as exc:
+                            return {"error": f"still image edit failed: {exc}", "exit_code": 1}
+                    try:
+                        publish_staged_artifact(
+                            publication_owner,
+                            publication_session,
+                            output_path,
+                            staged,
+                            tool="inspect_media",
+                        )
+                    except (ReadBaselineError, ArtifactPublicationError) as exc:
+                        return _artifact_publication_refusal(exc)
             elif output_path is not None:
                 segments = requested_segments
                 try:
@@ -1804,14 +1977,25 @@ class InspectMediaTool:
                             "-filter:a",
                             ",".join(f"atempo={factor:g}" for factor in factors),
                         ])
-                clip_command.extend(["-movflags", "+faststart", "-y", str(output_path)])
-                clip = await asyncio.to_thread(
-                    _run,
-                    clip_command,
-                    120,
-                )
-                if clip.returncode != 0 or not output_path.is_file():
-                    return {"error": "ffmpeg clip creation failed: " + clip.stderr[-2000:], "exit_code": 1}
+                with staged_artifact_path(output_path) as staged:
+                    clip_command.extend(["-movflags", "+faststart", "-y", str(staged)])
+                    clip = await asyncio.to_thread(
+                        _run,
+                        clip_command,
+                        120,
+                    )
+                    if clip.returncode != 0 or not staged.is_file():
+                        return {"error": "ffmpeg clip creation failed: " + clip.stderr[-2000:], "exit_code": 1}
+                    try:
+                        publish_staged_artifact(
+                            publication_owner,
+                            publication_session,
+                            output_path,
+                            staged,
+                            tool="inspect_media",
+                        )
+                    except (ReadBaselineError, ArtifactPublicationError) as exc:
+                        return _artifact_publication_refusal(exc)
             if timestamp_raw:
                 try:
                     timestamp_path = _resolve_workspace_path(
@@ -1824,17 +2008,35 @@ class InspectMediaTool:
                 timestamp_path.parent.mkdir(parents=True, exist_ok=True)
                 whole_start = _format_seconds(start).split(".", 1)[0]
                 whole_end = _format_seconds(end).split(".", 1)[0]
-                timestamp_path.write_text(
-                    ("".join(
+                sidecar_text = (
+                    "".join(
                         f"{_format_seconds(segment_start).split('.', 1)[0]} - "
                         f"{_format_seconds(segment_end).split('.', 1)[0]}\n"
                         for segment_start, segment_end in segments
                     ) if output_suffix in _VIDEO_SUFFIXES and segments else
-                     f"{_format_seconds(timestamp).split('.', 1)[0]}\n"
-                     if output_suffix in _IMAGE_SUFFIXES
-                     else f"{whole_start} - {whole_end}\n"),
-                    encoding="utf-8",
+                    f"{_format_seconds(timestamp).split('.', 1)[0]}\n"
+                    if output_suffix in _IMAGE_SUFFIXES
+                    else f"{whole_start} - {whole_end}\n"
                 )
+                sidecar_owner, sidecar_session = _publication_owner_session(_ctx)
+                try:
+                    ensure_destination_publishable(
+                        sidecar_owner,
+                        sidecar_session,
+                        timestamp_path,
+                        tool="inspect_media",
+                    )
+                    with staged_artifact_path(timestamp_path) as sidecar_staged:
+                        sidecar_staged.write_text(sidecar_text, encoding="utf-8")
+                        publish_staged_artifact(
+                            sidecar_owner,
+                            sidecar_session,
+                            timestamp_path,
+                            sidecar_staged,
+                            tool="inspect_media",
+                        )
+                except (ReadBaselineError, ArtifactPublicationError) as exc:
+                    return _artifact_publication_refusal(exc)
 
         if output_path is not None and output_path.suffix.lower() in _IMAGE_SUFFIXES:
             try:
@@ -2161,6 +2363,18 @@ class TranscribeMediaTool:
                     "exit_code": 1,
                 }
             output_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                ensure_destination_publishable(
+                    (_ctx or {}).get("owner"),
+                    (_ctx or {}).get("session_id"),
+                    output_path,
+                    tool="transcribe_media",
+                )
+            except (ReadBaselineError, ArtifactPublicationError) as exc:
+                return _artifact_publication_refusal(exc)
+        publication_class = (
+            artifact_publication.USER_FILE if output_raw else artifact_publication.INTERNAL_CACHE
+        )
 
         try:
             timestamp_precision = int(args.get("timestamp_precision", 3))
@@ -2233,7 +2447,12 @@ class TranscribeMediaTool:
                 except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
                     has_audio = True
                 if not has_audio:
-                    output_path.write_text("", encoding="utf-8")
+                    try:
+                        _publish_transcript_artifact(
+                            _ctx, output_path, "", publication_class
+                        )
+                    except (ReadBaselineError, ArtifactPublicationError) as exc:
+                        return _artifact_publication_refusal(exc)
                     return {
                         "output": (
                             "No audio stream detected in the local media. "
@@ -2323,7 +2542,12 @@ class TranscribeMediaTool:
                 artifact = "WEBVTT\n\n" + artifact
         else:
             artifact = transcript
-        output_path.write_text(artifact + ("\n" if artifact else ""), encoding="utf-8")
+        try:
+            _publish_transcript_artifact(
+                _ctx, output_path, artifact + ("\n" if artifact else ""), publication_class
+            )
+        except (ReadBaselineError, ArtifactPublicationError) as exc:
+            return _artifact_publication_refusal(exc)
         inline_artifact = artifact
         if len(inline_artifact) > _MAX_INLINE_TRANSCRIPT_CHARS:
             inline_artifact = (

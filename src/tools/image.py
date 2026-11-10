@@ -113,7 +113,8 @@ async def do_edit_image(content: str, owner: Optional[str] = None) -> Dict:
 
         root.mkdir(parents=True, exist_ok=True)
         filename = f"{uuid.uuid4().hex[:12]}.png"
-        (root / filename).write_bytes(output_bytes)
+        from src.agent_tools.artifact_publication import create_exclusive_file
+        create_exclusive_file(root / filename, output_bytes)
         new_id = str(uuid.uuid4())
         derived = GalleryImage(
             id=new_id,
