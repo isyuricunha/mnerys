@@ -286,7 +286,22 @@ async def cancel_turn(turn_id: str, body: CancelBody, request: Request) -> dict:
         return {"turn_id": turn_id, "status": "cancelled"}
     if not run and not turn:
         raise HTTPException(status_code=404, detail="Turn not found")
-    if (turn and turn["status"] != "running") or not run or not agent_runs.stop(body.session_id, turn_id):
+    if turn and turn["status"] != "running":
+        raise HTTPException(status_code=409, detail="Turn is no longer cancellable")
+    outcome_state = getattr(run.outcome, "state", None) if run is not None else None
+    if outcome_state == "completed":
+        raise HTTPException(status_code=409, detail="Turn is no longer cancellable")
+    if outcome_state == "cancelled":
+        return {"turn_id": turn_id, "status": "cancelled"}
+    stopped = False
+    if run is not None:
+        stopped = agent_runs.stop(body.session_id, turn_id)
+        if not stopped and outcome_state in {"pending", "running", None}:
+            if run.outcome is not None:
+                run.outcome.state = "cancelled"
+            run.status = "stopped"
+            stopped = True
+    if not stopped and not turn:
         raise HTTPException(status_code=409, detail="Turn is no longer cancellable")
     if turn:
         records.finalize_with_event(turn_id=turn_id, owner=owner, status="cancelled",
