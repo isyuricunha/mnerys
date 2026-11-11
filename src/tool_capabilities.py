@@ -845,6 +845,41 @@ class ToolRunSecurityContext:
                     "It requires an interactive session."
                 ),
             )
+        if TOOL_APPROVAL_GATE_ENABLED and (
+            not (isinstance(tool_name, str) and tool_name in self.unattended_tools)
+        ):
+            # M5.3 increment 3: the deterministic command-risk classifier runs
+            # at the shared gate immediately before the approval flow and
+            # process launch. It is independent of the external-context state
+            # and of the task/session scope bypasses: a dangerous operation
+            # always prompts (through the existing four-decision flow) unless
+            # an exact scoped rule covers it — the scoped-rule consult happens
+            # in the agent loop right here, before any pending approval is
+            # created. Classification never grants authority: LOW_RISK only
+            # means no additional risk-triggered prompt; every other gate
+            # still applies.
+            from src.command_risk import (
+                DENIED as RISK_DENIED,
+                REQUIRES_APPROVAL as RISK_REQUIRES_APPROVAL,
+                classify_python_code,
+                classify_shell_command,
+            )
+
+            tool = tool_name.strip() if isinstance(tool_name, str) else tool_name
+            if tool in {"bash", "host_shell"}:
+                risk = classify_shell_command(content if isinstance(content, str) else "")
+            elif tool == "python":
+                risk = classify_python_code(content if isinstance(content, str) else "")
+            else:
+                risk = None
+            if risk is not None:
+                if risk.category == RISK_DENIED:
+                    return ToolGateDecision(False, risk.reason)
+                if risk.category == RISK_REQUIRES_APPROVAL:
+                    return ToolGateDecision(
+                        False,
+                        f"Dangerous operation requires approval: {risk.reason}",
+                    )
         if not TOOL_APPROVAL_GATE_ENABLED:
             return ToolGateDecision(True)
         if self.approval_gate_bypassed:
