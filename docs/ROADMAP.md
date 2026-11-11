@@ -565,6 +565,24 @@ synchronized from server state; CLI/TUI: the same API/semantics. Evidence:
 `tests/test_yolo_mode.py` (13 deterministic tests) plus the session/gate/
 approval suites.
 
+**Increment 5 status (verified): Agent-first experience and Chat/Agent
+unification.** One interactive execution path: the legacy `mode` wire value is
+accepted for compatibility and normalized once
+(`resolve_unified_chat_mode` in src/gateway_execution_policy.py) — an
+agent-permitted caller always runs the agent-first loop; a demoted caller
+(`can_use_agent=false`) keeps the text-only ceiling (the plain-chat
+compatibility adapter with `tools=None`, documented and audited in the route
+source). The composer's visible Chat/Agent toggle, the tool-error mode
+auto-switch, and the set_mode tool-hiding are removed (server authorization —
+policy, privileges, request authority — governs tools, never a label); all
+other composer/session features retained. The strict text-profile cutover
+route is evaluated against the RAW legacy value and keeps its guarantees.
+Historical sessions/transcripts stay readable without migration; the
+`turn_mode` event contract remains. Evidence:
+`tests/test_agent_first_unification.py` (12 deterministic tests) plus the
+strict-cutover (71), policy, TUI/Gateway-execution, and frontend Node suites.
+Contract: `docs/architecture/AGENT_FIRST_CONTRACT.md`.
+
 - No mandatory per-chat workspace. Local CLI/TUI begin in the invoking
   shell's current directory; local Web and Telegram begin in the
   configured execution account's home. Remote CLI/TUI use the server's
