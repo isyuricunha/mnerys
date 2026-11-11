@@ -627,6 +627,20 @@ decisions tested, plus explicit YOLO/deny/owner-boundary negative tests.
 
 #### M5.4 — Model providers, metadata, reasoning and credentials
 
+**Increment 1 status (verified): provider contracts, protocol compatibility
+and credential isolation.** The provider-contract foundation is documented and
+audit-verified in `docs/architecture/M5_4_PROVIDER_CONTRACTS.md`: one
+provider-independent contract inside the Agent Core/Gateway (14 detected
+provider identities; Chat Completions / Anthropic Messages / Ollama native /
+Responses / Copilot adapters; the explicit `/v1/messages` path declaration
+selects wire format only); truthful capability negotiation
+(`model_tool_modes` per model; unknown stays unknown); server-owned
+credentials with fingerprint-only exposure (audited: no key material in logs,
+exceptions, SSE frames or API responses); credential changes cannot redirect
+sealed operations. Live two-protocol acceptance carries over from M5.2's
+harness; a second INDEPENDENT provider remains gated on authorized
+credentials.
+
 - Support validated provider adapters and account configurations:
   authorized Codex/ChatGPT subscription OAuth when terms allow,
   official Claude Code CLI/login integration only through permitted
