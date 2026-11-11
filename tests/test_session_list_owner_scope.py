@@ -208,6 +208,27 @@ def test_patch_session_updates_persisted_cwd(monkeypatch):
         and "PATCH" in getattr(r, "methods", set())
     ][-1]
 
+    # M5.3 increment 1: the selection is validated server-side — a
+    # nonexistent directory is refused (HTTP 400) and nothing is stored.
+    import tempfile as _tempfile
+
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as rejected:
+        endpoint(
+            request=MagicMock(),
+            sid=sid,
+            name=None,
+            folder=None,
+            model=None,
+            endpoint_url=None,
+            endpoint_id=None,
+            cwd="/home/pewds/odysseus-tui",
+        )
+    assert rejected.value.status_code == 400
+    assert "does not exist" in str(rejected.value.detail).lower()
+
+    real_dir = _tempfile.mkdtemp(prefix="mnerys-cwd-")
     result = endpoint(
         request=MagicMock(),
         sid=sid,
@@ -216,14 +237,14 @@ def test_patch_session_updates_persisted_cwd(monkeypatch):
         model=None,
         endpoint_url=None,
         endpoint_id=None,
-        cwd="/home/pewds/odysseus-tui",
+        cwd=real_dir,
     )
 
-    assert result["cwd"] == "/home/pewds/odysseus-tui"
+    assert result["cwd"] == real_dir
     db = _TS()
     try:
         row = db.query(DbSession).filter(DbSession.id == sid).first()
-        assert row.cwd == "/home/pewds/odysseus-tui"
+        assert row.cwd == real_dir
     finally:
         db.close()
 

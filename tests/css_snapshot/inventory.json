@@ -487,14 +487,6 @@
      "selector": "#model-picker-list"
     },
     {
-     "key": "mode-toggle-active",
-     "selector": "#mode-agent-btn"
-    },
-    {
-     "key": "mode-toggle-idle",
-     "selector": "#mode-chat-btn"
-    },
-    {
      "key": "input-icon-btn",
      "selector": "#web-toggle-btn"
     },
@@ -660,7 +652,9 @@
     {
      "key": "custom-system-prompt",
      "selector": "#custom-system-prompt",
-     "lineRelativeProperties": ["max-height"],
+     "lineRelativeProperties": [
+      "max-height"
+     ],
      "unhide": true
     },
     {

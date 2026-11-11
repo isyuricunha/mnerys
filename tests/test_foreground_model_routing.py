@@ -332,10 +332,9 @@ async def test_chat_stream_route_keeps_selected_model_strict_with_legacy_data(mo
         "selected-model",
         {"Authorization": "Bearer selected"},
     )
-    if mode == "chat":
-        assert captured == {"chat": [selected]}
-    else:
-        assert captured == {"agent": {"primary": selected, "fallbacks": [], "thinking_mode": "off"}}
+    # M5.3 increment 5: the mode value no longer selects an engine — every
+    # mode runs the unified agent-first path with the same fallback policy.
+    assert captured == {"agent": {"primary": selected, "fallbacks": [], "thinking_mode": "off"}}
 
 
 @pytest.mark.asyncio
@@ -587,10 +586,9 @@ async def test_chat_stream_route_uses_only_new_explicit_fallback_policy(monkeypa
         "backup-model",
         {"Authorization": "Bearer backup"},
     )
-    if mode == "chat":
-        assert captured == {"chat": [selected, backup]}
-    else:
-        assert captured == {"agent": {"primary": selected, "fallbacks": [backup], "thinking_mode": "off"}}
+    # M5.3 increment 5: the unified agent-first path applies the same
+    # explicit fallback policy for every legacy mode value.
+    assert captured == {"agent": {"primary": selected, "fallbacks": [backup], "thinking_mode": "off"}}
 
 
 @pytest.mark.asyncio
@@ -651,7 +649,7 @@ async def test_streaming_chat_shapes_each_candidate_from_route_neutral_history(
 
     monkeypatch.setattr(chat_routes, "stream_llm_with_fallback", fake_stream)
 
-    response = await endpoint(_RouteRequest("chat"))
+    response = await endpoint(_RouteRequest("chat", privileges={"can_use_agent": False}))
     async for _chunk in response.body_iterator:
         pass
 
@@ -702,7 +700,7 @@ async def test_streaming_chat_persists_only_answering_route_compaction(monkeypat
     monkeypatch.setattr(chat_routes, "apply_compaction_state", fake_apply)
     monkeypatch.setattr(chat_routes, "stream_llm_with_fallback", fake_stream)
 
-    response = await endpoint(_RouteRequest("chat"))
+    response = await endpoint(_RouteRequest("chat", privileges={"can_use_agent": False}))
     chunks = [chunk async for chunk in response.body_iterator]
 
     assert applied == ["backup-model"]
@@ -766,7 +764,7 @@ async def test_streaming_chat_cost_uses_answering_route_classification(
         },
     )
 
-    response = await endpoint(_RouteRequest("chat"))
+    response = await endpoint(_RouteRequest("chat", privileges={"can_use_agent": False}))
     emitted = [chunk async for chunk in response.body_iterator]
 
     metrics = json.loads(next(
@@ -806,7 +804,7 @@ async def test_streaming_chat_persists_selected_route_cost_classification(
         },
     )
 
-    response = await endpoint(_RouteRequest("chat"))
+    response = await endpoint(_RouteRequest("chat", privileges={"can_use_agent": False}))
     emitted = [chunk async for chunk in response.body_iterator]
 
     metrics = json.loads(next(
@@ -952,7 +950,7 @@ async def test_chat_stream_persists_partial_terminal_error_with_route_provenance
         },
     )
 
-    response = await endpoint(_RouteRequest("chat"))
+    response = await endpoint(_RouteRequest("chat", privileges={"can_use_agent": False}))
     emitted = [chunk async for chunk in response.body_iterator]
 
     assert any(chunk.startswith("event: error") for chunk in emitted)
@@ -1010,7 +1008,7 @@ async def test_chat_terminal_preserves_real_usage_and_accumulates_once(monkeypat
         },
     )
 
-    response = await endpoint(_RouteRequest("chat"))
+    response = await endpoint(_RouteRequest("chat", privileges={"can_use_agent": False}))
     emitted = [chunk async for chunk in response.body_iterator]
 
     saved_metrics = captured["saved"][0][0][4]
@@ -1050,7 +1048,10 @@ async def test_completed_stream_never_resaves_on_late_done_or_cancel(
         agent_chunks=chunks if mode == "agent" else None,
         capture_completion=True,
     )
-    response = await endpoint(_RouteRequest(mode))
+    response = await endpoint(_RouteRequest(
+        mode,
+        privileges=None if mode == "agent" else {"can_use_agent": False},
+    ))
     if late_event == "cancel_after_done":
         with pytest.raises(asyncio.CancelledError):
             async for _ in response.body_iterator:
@@ -1085,7 +1086,10 @@ async def test_cancelled_partial_writer_failure_preserves_cancel_and_cleans_up(
         chat_routes, "append_interrupted_assistant_response",
         broken_partial_writer,
     )
-    response = await endpoint(_RouteRequest(mode))
+    response = await endpoint(_RouteRequest(
+        mode,
+        privileges=None if mode == "agent" else {"can_use_agent": False},
+    ))
     with pytest.raises(asyncio.CancelledError):
         async for _ in response.body_iterator:
             pass
@@ -1189,7 +1193,7 @@ async def test_cancelled_chat_fallback_saves_same_model_endpoint_provenance(monk
         },
     )
 
-    response = await endpoint(_RouteRequest("chat"))
+    response = await endpoint(_RouteRequest("chat", privileges={"can_use_agent": False}))
     with pytest.raises(asyncio.CancelledError):
         async for _chunk in response.body_iterator:
             pass
@@ -1229,11 +1233,17 @@ async def test_chat_stream_route_excludes_fallback_outside_non_admin_allowlist(m
     async for _ in response.body_iterator:
         pass
 
-    assert captured == {"chat": [(
-        "https://selected.example/v1",
-        "selected-model",
-        {"Authorization": "Bearer selected"},
-    )]}
+    # M5.3 increment 5: the unified agent-first path honors the non-admin
+    # model allowlist (no fallback resolution, primary only).
+    assert captured == {"agent": {
+        "primary": (
+            "https://selected.example/v1",
+            "selected-model",
+            {"Authorization": "Bearer selected"},
+        ),
+        "fallbacks": [],
+        "thinking_mode": "off",
+    }}
 
 
 class _NonStreamChatHandler:
@@ -1323,7 +1333,7 @@ async def test_nonstream_chat_is_strict_by_default_and_reports_selected_route(mo
     endpoint, saved = _chat_endpoint(monkeypatch)
 
     response = await endpoint(
-        _RouteRequest("chat"),
+        _RouteRequest("chat", privileges={"can_use_agent": False}),
         ChatRequest(message="hello", session="session-1"),
     )
 
@@ -1363,7 +1373,7 @@ async def test_nonstream_chat_rejects_missing_selected_endpoint_before_fallback(
 
     with pytest.raises(HTTPException) as exc:
         await endpoint(
-            _RouteRequest("chat"),
+            _RouteRequest("chat", privileges={"can_use_agent": False}),
             ChatRequest(message="hello", session="session-1"),
         )
 
@@ -1399,7 +1409,7 @@ async def test_nonstream_chat_opt_in_advances_only_on_eligible_failure(monkeypat
     endpoint, saved = _chat_endpoint(monkeypatch)
 
     response = await endpoint(
-        _RouteRequest("chat"),
+        _RouteRequest("chat", privileges={"can_use_agent": False}),
         ChatRequest(message="hello", session="session-1"),
     )
 
@@ -1477,7 +1487,7 @@ async def test_nonstream_chat_shapes_each_candidate_from_route_neutral_history(
     endpoint, _saved = _chat_endpoint(monkeypatch)
 
     response = await endpoint(
-        _RouteRequest("chat"),
+        _RouteRequest("chat", privileges={"can_use_agent": False}),
         ChatRequest(message="hello", session="session-1"),
     )
 
@@ -1512,7 +1522,7 @@ async def test_nonstream_same_model_fallback_persists_endpoint_identity(monkeypa
     endpoint, saved = _chat_endpoint(monkeypatch)
 
     response = await endpoint(
-        _RouteRequest("chat"),
+        _RouteRequest("chat", privileges={"can_use_agent": False}),
         ChatRequest(message="hello", session="session-1"),
     )
 
@@ -1547,7 +1557,7 @@ async def test_nonstream_chat_does_not_fallback_on_ineligible_failure(monkeypatc
 
     with pytest.raises(HTTPException) as exc:
         await endpoint(
-            _RouteRequest("chat"),
+            _RouteRequest("chat", privileges={"can_use_agent": False}),
             ChatRequest(message="hello", session="session-1"),
         )
 
@@ -1582,7 +1592,7 @@ async def test_nonstream_chat_does_not_fallback_on_endpoint_configuration_error(
 
     with pytest.raises(HTTPException) as exc:
         await endpoint(
-            _RouteRequest("chat"),
+            _RouteRequest("chat", privileges={"can_use_agent": False}),
             ChatRequest(message="hello", session="session-1"),
         )
 
@@ -1646,7 +1656,7 @@ async def test_nonstream_chat_real_parser_never_falls_back_on_provider_or_schema
 
     with pytest.raises(HTTPException) as exc:
         await endpoint(
-            _RouteRequest("chat"),
+            _RouteRequest("chat", privileges={"can_use_agent": False}),
             ChatRequest(message="hello", session="session-1"),
         )
 
@@ -1718,7 +1728,7 @@ async def test_nonstream_chat_real_parser_persists_provider_model_alias(
     endpoint, saved = _chat_endpoint(monkeypatch)
 
     response = await endpoint(
-        _RouteRequest("chat"),
+        _RouteRequest("chat", privileges={"can_use_agent": False}),
         ChatRequest(message="hello", session="session-1"),
     )
 
@@ -1757,7 +1767,7 @@ async def test_nonstream_chat_does_not_treat_empty_response_as_unavailability(mo
     endpoint, _saved = _chat_endpoint(monkeypatch)
 
     response = await endpoint(
-        _RouteRequest("chat"),
+        _RouteRequest("chat", privileges={"can_use_agent": False}),
         ChatRequest(message="hello", session="session-1"),
     )
 
@@ -1789,7 +1799,7 @@ async def test_nonstream_named_owner_does_not_inherit_flat_opt_in(monkeypatch):
 
     with pytest.raises(HTTPException) as exc:
         await endpoint(
-            _RouteRequest("chat"),
+            _RouteRequest("chat", privileges={"can_use_agent": False}),
             ChatRequest(message="hello", session="session-1"),
         )
 
@@ -1952,7 +1962,7 @@ async def test_nonstream_chat_threads_request_endpoint_id_to_descriptor_builder(
     endpoint, _saved = _chat_endpoint(monkeypatch)
 
     await endpoint(
-        _RouteRequest("chat"),
+        _RouteRequest("chat", privileges={"can_use_agent": False}),
         ChatRequest(
             message="hello",
             session="session-1",

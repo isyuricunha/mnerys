@@ -95,8 +95,10 @@ async def test_attachment_failure_after_execution_does_not_claim_no_execution(wo
     def failure(*args):
         raise OSError("attachment publication failed")
     monkeypatch.setattr(resources, "attach_containment_processes", failure)
-    _, result = await dispatch(authority(workspace), "bash", "printf occurred > effect")
-    assert (workspace / "effect").read_text() == "occurred"
+    # M5.3 increment 3: a file-writing REDIRECTION is risk-gated; the test's
+    # real-execution evidence uses a low-risk pipeline writer instead.
+    _, result = await dispatch(authority(workspace), "bash", "echo occurred | tee effect")
+    assert (workspace / "effect").read_text().strip() == "occurred"
     assert result["exit_code"] == 1 and result["failure_kind"] == "resource_linkage_unavailable"
     assert result["containment"]["executed"] is True and result["teardown"]["dead"] is True
 

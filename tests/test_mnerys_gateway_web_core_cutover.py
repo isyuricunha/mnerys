@@ -130,9 +130,22 @@ def cutover_fixture(monkeypatch, store=None):
     return admission, cutover_session(), ports, writes, routes
 
 
-def chat_request(form):
-    req = _RouteRequest("chat")
+def chat_request(form, *, privileged=False):
+    # M5.3 increment 5: this suite's chat-engine tests run against the
+    # PRESERVED plain-chat adapter via the demotion ceiling
+    # (can_use_agent=False) — the unified agent-first path never selects a
+    # separate engine from a mode label for an agent-permitted caller.
+    # Approval-resume tests pass privileged=True: an approval resumes through
+    # the agent loop (shell execution is an agent capability).
+    privileges = None if privileged else {"can_use_agent": False}
+    req = _RouteRequest("chat", privileges=privileges)
     req._form = dict(BASE_CHAT) | form
+    return req
+
+
+def agent_request(form):
+    req = _RouteRequest("agent")
+    req._form = dict(BASE_CHAT) | {"mode": "agent"} | form
     return req
 
 
@@ -172,9 +185,9 @@ async def test_cutover_agent_turn_executes_the_offered_tool(monkeypatch):
         yield "data: [DONE]\n\n"
 
     monkeypatch.setattr(runtime, "stream_agent_loop", fake_loop)
-    response = await routes["/api/chat_stream"](chat_request({
-        "message": "List my notes", "mode": "agent",
-    }))
+    response = await routes["/api/chat_stream"](chat_request(
+        {"message": "List my notes", "mode": "agent"}, privileged=True,
+    ))
     frames = [chunk async for chunk in response.body_iterator]
     text = "".join(frames)
     assert '"tool_start"' in text
@@ -224,8 +237,8 @@ async def test_cutover_approval_runs_exact_shell_and_continues(monkeypatch, tmp_
         yield 'data: [DONE]\n\n'
 
     monkeypatch.setattr(agent_loop, "stream_llm_with_fallback", model)
-    response = await routes["/api/chat_stream"](chat_request({
-        "message": "", "mode": "chat", "tool_approval_id": pending.approval_id,
+    response = await routes["/api/chat_stream"](agent_request({
+        "message": "", "tool_approval_id": pending.approval_id,
         "tool_approval_decision": "approve_task",
     }))
     text = "".join([chunk async for chunk in response.body_iterator])
@@ -250,8 +263,8 @@ async def test_cutover_denial_marks_original_card_before_return(monkeypatch):
     marked = []
     monkeypatch.setattr(chat_routes, "_mark_tool_approval_resolved",
         lambda sess, approval_id, decision: marked.append((sess, approval_id, decision)) or True)
-    response = await routes["/api/chat_stream"](chat_request({
-        "message": "", "mode": "chat", "tool_approval_id": pending.approval_id,
+    response = await routes["/api/chat_stream"](agent_request({
+        "message": "", "tool_approval_id": pending.approval_id,
         "tool_approval_decision": "deny",
     }))
     text = "".join([chunk async for chunk in response.body_iterator])

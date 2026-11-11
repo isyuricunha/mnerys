@@ -242,7 +242,7 @@ async def test_web_pending_approval_is_metadata_only_and_cannot_replay(records_e
         yield "data: [DONE]\n\n"
 
     monkeypatch.setattr(runtime, "stream_agent_loop", loop)
-    request = chat_request({"message": "List my notes", "mode": "agent"})
+    request = chat_request({"message": "List my notes", "mode": "agent"}, privileged=True)
     request.app.state.gateway_turn_records = records
     response = await routes["/api/chat_stream"](request)
     run_id = response.headers["X-Odysseus-Run-Id"]
@@ -254,7 +254,7 @@ async def test_web_pending_approval_is_metadata_only_and_cannot_replay(records_e
     assert command not in str(events)
     card = {"role": "assistant", "metadata": {"tool_events": [{"ask_user": seal.public_payload()}]}}
     if decision == "deny":
-        deny = chat_request({"message": "", "tool_approval_id": seal.approval_id, "tool_approval_decision": "deny"})
+        deny = chat_request({"message": "", "tool_approval_id": seal.approval_id, "tool_approval_decision": "deny"}, privileged=True)
         deny.app.state.gateway_turn_records = records
         denied = await routes["/api/chat_stream"](deny)
         assert '"decision": "deny"' in "".join([frame async for frame in denied.body_iterator])
@@ -275,7 +275,7 @@ async def test_web_pending_approval_is_metadata_only_and_cannot_replay(records_e
         "kind": "tool_approval", "resolved": "unavailable",
     }
     replay = chat_request({"message": "", "tool_approval_id": seal.approval_id,
-                           "tool_approval_decision": "approve_task"})
+                           "tool_approval_decision": "approve_task"}, privileged=True)
     replay.app.state.gateway_turn_records = records
     with pytest.raises(HTTPException) as denied:
         await routes["/api/chat_stream"](replay)
