@@ -25470,6 +25470,9 @@ async def stream_agent_loop(
         approved = exact_approval.pending
         approved_block = ToolBlock(approved.tool_name, approved.content)
         approved_display = approved.content.strip()
+        # A resumed approval is a distinct call whose streamed start, progress
+        # and output must all carry the same correlation identity.
+        approved_call_id = f"mnerys-approved-{approved.digest[:24]}"
         approval_matches = exact_approval.matches(
             owner=owner,
             session_id=session_id,
@@ -25486,6 +25489,8 @@ async def stream_agent_loop(
                         "full_command": approved_display,
                         "round": 0,
                         "approved": True,
+                        "call_id": approved_call_id,
+                        "tool_call_id": approved_call_id,
                     })
             )
         approved_progress_q: asyncio.Queue = asyncio.Queue()
@@ -25523,6 +25528,8 @@ async def stream_agent_loop(
                             "round": 0,
                             "approved": True,
                             **progress_event,
+                            "call_id": approved_call_id,
+                            "tool_call_id": approved_call_id,
                         })
                 )
             desc, approved_result = await approved_tool_task
@@ -25766,6 +25773,8 @@ async def stream_agent_loop(
             "output": _truncate(approved_output),
             "exit_code": approved_result.get("exit_code"),
             "approved": True,
+            "call_id": approved_call_id,
+            "tool_call_id": approved_call_id,
         }
         for key in (
             "image_url",
@@ -25889,6 +25898,8 @@ async def stream_agent_loop(
             "exit_code": approved_result.get("exit_code"),
             "approved": True,
             "approval_digest": approved.digest[:16],
+            "call_id": approved_call_id,
+            "tool_call_id": approved_call_id,
         }
         for key in (
             "image_url",
@@ -33870,7 +33881,7 @@ async def stream_agent_loop(
                         if evt is None:
                             break
                         yield (
-                            tool_event_frame({"type": "tool_progress", "tool": block.tool_type, "round": round_num, **evt})
+                            tool_event_frame({"type": "tool_progress", "tool": block.tool_type, "round": round_num, **evt, "call_id": tool_call_id, "tool_call_id": tool_call_id})
                         )
                     desc, result = await _tool_task
                 finally:

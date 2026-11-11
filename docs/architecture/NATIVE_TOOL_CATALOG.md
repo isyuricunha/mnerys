@@ -82,5 +82,31 @@ absolute destinations and any effectful command in the same chain still
 require review under the normal approval policy. YOLO remains separately
 opt-in and never overrides underlying authorization.
 
+## Scoped CWD, safe shell redirects and result correlation
+
+The shell runs inside the sandbox at the stable `/workspace` alias. The
+approval and session APIs retain the real, server-validated CWD. These are
+**two representations of the same workspace**, not two selectable roots.
+An ordinary chat bound to a folder without `.git` or `README.md` must
+report those absent resources truthfully; it must never silently switch to
+an unrelated repository or scan outside its assigned root.
+
+The shell-risk parser recognizes file-descriptor duplication, such as
+`2>&1`, without mistaking the ampersand for background execution. It still
+classifies every command and every file-write redirection independently,
+using the strongest risk result: a safe `git status 2>&1` needs no ordinary
+risk approval, but `git push`, `rm`, `>output.txt`, and sensitive-path
+writes remain subject to review. Low risk is not execution authority.
+
+Browser-facing Web tool events carry the same model/harness call ID across
+start, progress and result. A resumed sealed approval gets a distinct
+correlation ID as well. Live and replayed Web tool cards use these IDs;
+unknown IDs must not overwrite an unrelated card. The separately typed
+CoreToolEvent contract deliberately strips tool arguments, results and
+provider correlation IDs. Trusted client-rendering frames preserve the Web
+identities; typed Core metadata is not silently widened. Legacy browser
+events without IDs retain their single-action compatibility path. Structured
+tool receipts and nonzero exit codes remain authoritative over model prose.
+
 No secrets, private endpoints, server identifiers or real user transcripts
 should be added to published documentation.

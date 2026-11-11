@@ -36,6 +36,7 @@ import {
   inheritModelRouteState,
 } from './chatModelProvenance.js';
 import { createTerminalStreamError, isRecoverableStreamError } from './chatStreamErrors.js';
+import { toolEventCallId, toolNodeForEvent } from './toolEventIdentity.mjs';
 import { loadPanel } from './panels.js?v=20260909movepicklayer1';
 import { invalidateSettings } from './appConfig.js';
 
@@ -3017,6 +3018,7 @@ import { invalidateSettings } from './appConfig.js';
       let roundText = '';             // Text accumulated for current round
       let roundReplyText = null;      // Reply-only text after a thinking transition
       let currentToolBubble = null;   // Current tool execution bubble
+      const toolNodesById = new Map(); // Exact native call-ID -> visible tool card
       let lastToolThread = null;      // Visible tool timeline for tool-only turns
       let finishEditorButton = null;
       const clearFinishEditorButton = () => {
@@ -4896,6 +4898,8 @@ import { invalidateSettings } from './appConfig.js';
                 // Expand/collapse via delegated click handler (init at module bottom).
                 threadWrap.appendChild(node);
                 currentToolBubble = node;
+                const startedCallId = toolEventCallId(json);
+                if (startedCallId) toolNodesById.set(startedCallId, node);
                 if (_isPrivateBrowserTool(json.tool)) {
                   _showPrivateBrowserPreview(json.command || '', node.querySelector('.agent-thread-content'));
                 }
@@ -4942,12 +4946,13 @@ import { invalidateSettings } from './appConfig.js';
                 // elapsed-time + tail of its stdout/stderr so the
                 // user doesn't stare at a blind "Running…" spinner.
                 if (_isBg) continue;
-                if (!currentToolBubble) continue;
+                const progressToolBubble = toolNodeForEvent(json, toolNodesById, currentToolBubble);
+                if (!progressToolBubble) continue;
                 const isImageProgress = /image/i.test(String(json.tool || '')) || /image/i.test(String(json.message || ''));
                 if (json.total || json.percent != null || isImageProgress) {
-                  const content = currentToolBubble.querySelector('.agent-thread-content');
+                  const content = progressToolBubble.querySelector('.agent-thread-content');
                   if (content) {
-                    let progressEl = currentToolBubble.querySelector('.agent-image-progress');
+                    let progressEl = progressToolBubble.querySelector('.agent-image-progress');
 	                    if (!progressEl) {
 	                      progressEl = document.createElement('div');
 	                      progressEl.className = 'agent-image-progress';
@@ -4970,12 +4975,12 @@ import { invalidateSettings } from './appConfig.js';
                 // elapsed display; here we just surface the live output tail.
                 const tailStr = (json.tail || '').trim();
                 if (tailStr) {
-                  let tailEl = currentToolBubble.querySelector('.agent-thread-tail');
+                  let tailEl = progressToolBubble.querySelector('.agent-thread-tail');
                   if (!tailEl) {
                     tailEl = document.createElement('pre');
                     tailEl.className = 'agent-thread-tail';
                     tailEl.style.cssText = 'margin:4px 0 0;padding:6px 8px;font-size:11px;background:rgba(0,0,0,0.18);border-radius:4px;max-height:140px;overflow:auto;white-space:pre-wrap;opacity:0.85;';
-                    const content = currentToolBubble.querySelector('.agent-thread-content');
+                    const content = progressToolBubble.querySelector('.agent-thread-content');
                     if (content) content.appendChild(tailEl);
                   }
                   tailEl.textContent = tailStr;
@@ -4992,16 +4997,17 @@ import { invalidateSettings } from './appConfig.js';
                   window.dispatchEvent(new CustomEvent('odysseus:agent-tool-output', { detail: json }));
                 } catch (_) {}
                 if (_isBg) continue;
-                // --- Update the current thread node ---
-                if (currentToolBubble) {
+                // --- Update the exact tool call node, never the last unrelated one ---
+                const outputToolBubble = toolNodeForEvent(json, toolNodesById, currentToolBubble);
+                if (outputToolBubble) {
                   // Stop wave animation + the per-second cooking ticker
-                  if (currentToolBubble._waveInterval) {
-                    clearInterval(currentToolBubble._waveInterval);
-                    currentToolBubble._waveInterval = null;
+                  if (outputToolBubble._waveInterval) {
+                    clearInterval(outputToolBubble._waveInterval);
+                    outputToolBubble._waveInterval = null;
                   }
-                  if (currentToolBubble._elapsedTicker) {
-                    clearInterval(currentToolBubble._elapsedTicker);
-                    currentToolBubble._elapsedTicker = null;
+                  if (outputToolBubble._elapsedTicker) {
+                    clearInterval(outputToolBubble._elapsedTicker);
+                    outputToolBubble._elapsedTicker = null;
                   }
                   const ok = (json.exit_code === 0 || json.exit_code == null);
                   const approvalStatus = json.ask_user?.kind === 'tool_approval' ? 'awaiting approval' : '';
@@ -5049,9 +5055,9 @@ import { invalidateSettings } from './appConfig.js';
 	                  if (browserTool) {
                     outHtml = _privateBrowserPreviewHtml(cmd, json.screenshot) + outHtml;
                   }
-	                  const _wasOpen = currentToolBubble.classList.contains('open') || browserTool;
-                  currentToolBubble.className = 'agent-thread-node' + (ok ? '' : ' error') + (_wasOpen ? ' open' : '') + (browserTool ? ' browser-preview-node' : '');
-                  currentToolBubble.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${approvalStatus ? '\u2026' : ok ? '\u2713' : '\u2717'}</span>${toolIcon2}<span class="agent-thread-tool">${esc(toolInfo2.label || json.tool)}</span>${toolHeaderAction2}<span class="agent-thread-status">${approvalStatus || (ok ? 'done' : 'failed')}</span><span class="agent-thread-chevron" aria-hidden="true"></span></div><div class="agent-thread-content">${cmdHtml2}${outHtml}${diffHtml}</div>`;
+	                  const _wasOpen = outputToolBubble.classList.contains('open') || browserTool;
+                  outputToolBubble.className = 'agent-thread-node' + (ok ? '' : ' error') + (_wasOpen ? ' open' : '') + (browserTool ? ' browser-preview-node' : '');
+                  outputToolBubble.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${approvalStatus ? '\u2026' : ok ? '\u2713' : '\u2717'}</span>${toolIcon2}<span class="agent-thread-tool">${esc(toolInfo2.label || json.tool)}</span>${toolHeaderAction2}<span class="agent-thread-status">${approvalStatus || (ok ? 'done' : 'failed')}</span><span class="agent-thread-chevron" aria-hidden="true"></span></div><div class="agent-thread-content">${cmdHtml2}${outHtml}${diffHtml}</div>`;
                   // Reset so thinking spinner between tools says "Thinking" not the old tool's label
                   _lastToolName = '';
                   uiModule.scrollHistory();
@@ -5062,8 +5068,8 @@ import { invalidateSettings } from './appConfig.js';
                   _appendGeneratedImageBubble(json, streamSessionId);
                 }
                 // --- Render browser screenshots in tool output ---
-                if (json.screenshot && currentToolBubble) {
-                  const contentEl = currentToolBubble.querySelector('.agent-thread-content');
+                if (json.screenshot && outputToolBubble) {
+                  const contentEl = outputToolBubble.querySelector('.agent-thread-content');
                   if (contentEl) {
                     _updatePrivateBrowserPreview(json, contentEl);
                     const screenshotSrc = chatRenderer.safeToolScreenshotSrc(json.screenshot);
@@ -6484,6 +6490,7 @@ import { invalidateSettings } from './appConfig.js';
     let replayError = null;
     let canonicalTerminalSeen = false;
     let currentToolBubble = null;
+    const replayToolNodesById = new Map();
     let currentToolThread = null;
     // "Rich" responses (tool calls, sources, doc streaming, multi-round) need the
     // full canonical render, which is rebuilt from the saved DB record on reload.
@@ -6567,19 +6574,22 @@ import { invalidateSettings } from './appConfig.js';
       replayNodes.push(thread);
       currentToolThread = thread;
       currentToolBubble = node;
+      const startedCallId = toolEventCallId(json);
+      if (startedCallId) replayToolNodesById.set(startedCallId, node);
       uiModule.scrollHistory();
     };
 
     const finishReplayTool = (json) => {
-      if (!currentToolBubble) return;
+      const outputToolBubble = toolNodeForEvent(json, replayToolNodesById, currentToolBubble);
+      if (!outputToolBubble) return;
       const ok = json.exit_code === 0 || json.exit_code == null;
       const approvalStatus = json.ask_user?.kind === 'tool_approval' ? 'awaiting approval' : '';
       const command = String(json.command || json.args || '');
       const output = String(json.output || '');
       const label = String(json.label || json.tool || 'Tool');
       const icon = renderToolIcon(json.tool || '', command, json) || '';
-      currentToolBubble.className = 'agent-thread-node' + (ok ? '' : ' error');
-      currentToolBubble.innerHTML = '<div class="agent-thread-dot"></div><div class="agent-thread-header">' +
+      outputToolBubble.className = 'agent-thread-node' + (ok ? '' : ' error');
+      outputToolBubble.innerHTML = '<div class="agent-thread-dot"></div><div class="agent-thread-header">' +
         '<span class="agent-thread-icon">' + (approvalStatus ? '…' : ok ? '✓' : '✗') + '</span>' + icon +
         '<span class="agent-thread-tool">' + uiModule.esc(label) + '</span>' +
         '<span class="agent-thread-status">' + (approvalStatus || (ok ? 'done' : 'failed')) + '</span>' +
@@ -6588,7 +6598,7 @@ import { invalidateSettings } from './appConfig.js';
         (command ? '<pre class="agent-thread-cmd">' + uiModule.esc(command) + '</pre>' : '') +
         (output ? '<details class="agent-tool-output"><summary>Output</summary><pre>' + uiModule.esc(output) + '</pre></details>' : '') +
         '</div>';
-      if (currentToolThread) currentToolThread.classList.remove('streaming');
+      outputToolBubble.parentElement?.classList.remove('streaming');
     };
 
     try {
@@ -6735,8 +6745,9 @@ import { invalidateSettings } from './appConfig.js';
               startReplayTool(json);
             } else if (json.type === 'tool_output') {
               finishReplayTool(json);
-            } else if (json.type === 'tool_progress' && currentToolBubble) {
-              const target = currentToolBubble.querySelector('.agent-thread-content');
+            } else if (json.type === 'tool_progress' && toolNodeForEvent(json, replayToolNodesById, currentToolBubble)) {
+              const progressReplayBubble = toolNodeForEvent(json, replayToolNodesById, currentToolBubble);
+              const target = progressReplayBubble.querySelector('.agent-thread-content');
               if (target && (json.tail || json.message)) {
                 let progress = target.querySelector('.agent-thread-tail');
                 if (!progress) {

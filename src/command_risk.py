@@ -30,6 +30,7 @@ determine its risk.
 """
 from __future__ import annotations
 
+import re
 import shlex
 from dataclasses import dataclass
 from typing import Optional
@@ -128,6 +129,22 @@ def _split_top_level(command: str, separators: tuple[str, ...]):
             index = close + 1
             continue
         two = command[index:index + 2]
+        # File-descriptor duplication (2>&1, >&2) and Bash combined output
+        # redirects (&>file, &>>file) are not background separators. Breaking
+        # them at '&' fabricates a command named '1' and triggers an approval
+        # for otherwise harmless read-only inspections. File writes remain
+        # subject to _redirect_target and the strongest-command risk verdict.
+        if char == "&" and "&" in separators and (
+            command[index + 1:index + 2] == ">"
+            or (
+                current and current[-1] == ">"
+                and index + 1 < length
+                and (command[index + 1].isalnum() or command[index + 1] in "-_$")
+            )
+        ):
+            current.append(char)
+            index += 1
+            continue
         if "&&" in separators and two == "&&":
             segments.append("".join(current))
             current = []
@@ -564,19 +581,21 @@ def _strip_single_quotes(segment: str) -> str:
 def _classify_stage(stage_text: str) -> CommandRiskClassification:
     """Classify one pipeline stage: redirect, substitution, then argv rules."""
     redirect = _redirect_target(stage_text)
+    redirect_risk = None
     if redirect is not None:
         target, op = redirect
         if _mentions_sensitive_path(target):
-            return _approval(
+            redirect_risk = _approval(
                 "critical",
                 f"Redirection writes to a sensitive path ({target}).",
                 matched=stage_text[:200], scope=target,
             )
-        return _approval(
-            "moderate",
-            f"File {('append' if op == '>>' else 'write')} via redirection.",
-            matched=stage_text[:200], scope=target,
-        )
+        else:
+            redirect_risk = _approval(
+                "moderate",
+                f"File {('append' if op in {'>>', '&>>'} else 'write')} via redirection.",
+                matched=stage_text[:200], scope=target,
+            )
     substitution = None
     if _contains_substitution(stage_text):
         substitution_payload = _substitution_payloads(stage_text)
@@ -601,10 +620,11 @@ def _classify_stage(stage_text: str) -> CommandRiskClassification:
             matched=stage_text[:200], complete=False,
         )
     result = _classify_simple_command(argv, stage_text)
-    if substitution is not None:
-        # The substitution executes before the command; the STRONGER verdict
-        # of the two wins.
-        return result if _rank(result) >= _rank(substitution) else substitution
+    # A file redirect never masks a destructive command or an executable
+    # substitution. Keep the strongest verdict from all three surfaces.
+    for candidate in (redirect_risk, substitution):
+        if candidate is not None and _rank(candidate) > _rank(result):
+            result = candidate
     return result
 
 
@@ -718,14 +738,21 @@ def _contains_heredoc(segment: str) -> bool:
 def _redirect_target(segment: str) -> Optional[tuple[str, str]]:
     """The redirection target of a stage, when it writes to a file."""
     stripped = _strip_quoted_parts(segment)
-    for op in (">>", ">", "&>", "&>>"):
-        position = stripped.rfind(op)
-        if position >= 0:
-            target = stripped[position + len(op):].strip().split()[0] if (
-                stripped[position + len(op):].strip()
-            ) else ""
-            if target and not target.startswith(("&", "/dev/null")):
-                return target, op
+    # Inspect every redirect, not just the last: `echo >secret 2>&1`
+    # still writes a file even though the final redirect duplicates an fd.
+    for match in re.finditer(r"(?:[0-9]+)?(&>>|&>|>>|>)", stripped):
+        op = match.group(1)
+        remainder = stripped[match.end():].lstrip()
+        target = remainder.split()[0] if remainder else ""
+        if not target:
+            return "<missing-redirection-target>", op
+        if op == ">" and target.startswith("&") and (
+            target[1:].isdigit() or target == "&-"
+        ):
+            continue  # 2>&1, >&2 and 2>&- do not write to files.
+        if target == "/dev/null":
+            continue
+        return target, op
     return None
 
 

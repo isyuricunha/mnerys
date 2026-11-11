@@ -74,6 +74,44 @@ def test_read_only_navigation_stays_unattended_after_untrusted_web_context():
     ).allowed
 
 
+@pytest.mark.parametrize("command", [
+    "git status 2>&1",
+    "cat README.md 2>&1; echo \"---exit:$?\"",
+    "cat /workspace/docs/README.md 2>&1; echo \"---exit:$?\"",
+    "printf 'CMD_GIT\\\\n'; git status 2>&1; echo \"exit:$?\"",
+    "echo hello >&1",
+    "echo hello 2>&-",
+    "echo hello >/dev/null",
+])
+def test_file_descriptor_duplication_does_not_prompt_for_read_only_commands(command):
+    classification = classify_shell_command(command)
+    assert classification.is_low_risk, (command, classification.reason)
+    assert ToolRunSecurityContext(
+        external_untrusted_context_seen=True,
+    ).decision_for("bash", command).allowed
+
+
+@pytest.mark.parametrize("command,level", [
+    ("git status 2>&1; rm -rf /", "critical"),
+    ("git status 2>&1 && rm -rf build/", "high"),
+    ("git status 2>&1; git push --force origin main", "high"),
+    ("printf hello &> report.txt", "moderate"),
+    ("printf hello &>> report.txt", "moderate"),
+    ("printf hello >&report.txt", "moderate"),
+    ("printf hello 2>&1 > report.txt", "moderate"),
+    ("printf hello > report.txt 2>&1", "moderate"),
+    ("printf hello 2>&1 > .ssh/authorized_keys", "critical"),
+    ("rm -rf / > report.txt", "critical"),
+    ("rm -rf build/ > report.txt", "high"),
+    ("echo hello >", "moderate"),
+])
+def test_fd_duplication_never_masks_writes_or_dangerous_commands(command, level):
+    classification = classify_shell_command(command)
+    assert classification.requires_approval, (command, classification.reason)
+    assert classification.level == level, (command, classification.level)
+    assert not ToolRunSecurityContext().decision_for("bash", command).allowed
+
+
 def test_quoted_dangerous_text_is_not_an_operation():
     result = classify_shell_command("echo 'rm -rf everything quoted is text'")
     assert result.is_low_risk
