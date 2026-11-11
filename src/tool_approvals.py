@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
 from src.tool_approval_scopes import (
+    ALLOW_ONCE_APPROVAL_DECISION,
+    ALWAYS_ALLOW_APPROVAL_DECISION,
     CHAT_SESSION_APPROVAL_DECISION,
     DENY_APPROVAL_DECISION,
     TASK_APPROVAL_DECISION,
@@ -233,6 +235,15 @@ class PendingToolApproval:
             ),
             "options": [
                 {
+                    "label": "Allow once",
+                    "value": ALLOW_ONCE_APPROVAL_DECISION,
+                    "description": (
+                        "Execute exactly this sealed action once and ask again "
+                        "for the next gated action. Current tool, account, "
+                        "workspace, and sandbox restrictions still apply."
+                    ),
+                },
+                {
                     "label": "Allow for this task",
                     "value": TASK_APPROVAL_DECISION,
                     "description": (
@@ -248,6 +259,17 @@ class PendingToolApproval:
                         "Execute the sealed action and stop asking at this gate for "
                         "later requests in this chat. Current tool, account, workspace, "
                         "and sandbox restrictions still apply."
+                    ),
+                },
+                {
+                    "label": "Always allow this specific rule",
+                    "value": ALWAYS_ALLOW_APPROVAL_DECISION,
+                    "description": (
+                        "Execute the sealed action now and save a narrow, revocable "
+                        "rule that matches EXACTLY this reviewed operation (same tool, "
+                        "same input, same directory) for your future sessions. Nothing "
+                        "else is allowed by it; manage saved rules any time. Current "
+                        "tool, account, workspace, and sandbox restrictions still apply."
                     ),
                 },
                 {
@@ -627,10 +649,12 @@ class ToolApprovalStore:
                 scope=ToolApprovalScope.SINGLE_ACTION,
                 allow_remaining_actions=False,
             )
+        # "Allow once" never widens into a run-long bypass (M5.3 increment 2):
+        # the sealed action executes and the gate re-arms for the next round.
         return ExactToolApproval(
             pending,
             scope=scope,
-            allow_remaining_actions=True,
+            allow_remaining_actions=scope is not ToolApprovalScope.SINGLE_ACTION,
         )
 
     def peek(self, approval_id: Any) -> PendingToolApproval | None:

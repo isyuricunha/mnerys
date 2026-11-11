@@ -33636,6 +33636,26 @@ async def stream_agent_loop(
                     block.tool_type,
                 )
             elif not security_decision.allowed:
+                # M5.3 increment 2: a matching scoped rule ("Always allow this
+                # specific rule") suppresses the automatic PROMPT for the EXACT
+                # reviewed operation only. It bypasses no other gate:
+                # admission, policy, authority grants, resource/CWD binding,
+                # sealed validation, read-before-edit and artifact publication
+                # all still apply to the dispatched tool.
+                from src.tool_approval_rules import find_matching_scoped_rule
+                from src.tool_capabilities import capabilities_for_action
+
+                scoped_rule_approved = find_matching_scoped_rule(
+                    owner=owner, session_id=session_id,
+                    tool_name=block.tool_type, content=block.content,
+                    workspace=workspace,
+                    capabilities=capabilities_for_action(block.tool_type, block.content),
+                ) is not None
+                if scoped_rule_approved:
+                    logger.info(
+                        "Tool approved by scoped rule without prompt: %s",
+                        block.tool_type,
+                    )
                 approval_document = (
                     active_document
                     if block.tool_type
@@ -33661,7 +33681,7 @@ async def stream_agent_loop(
                         "blocked": True,
                         "policy": "exact_tool_approval_target",
                     }
-                else:
+                elif not scoped_rule_approved:
                     # The approval click becomes a synthetic user turn. Seal the
                     # actual server-selected candidates now so that continuation
                     # does not lose memory, skills, MCP, documents, or other

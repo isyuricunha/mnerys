@@ -12,10 +12,15 @@ logger = logging.getLogger(__name__)
 
 # Keep the existing wire values so the current route and no-build frontend do
 # not need a second protocol migration. ``approve`` no longer means one action;
-# it now selects chat-session scope.
+# it now selects chat-session scope. M5.3 increment 2 adds the four Hermes-style
+# decisions: allow_once (the sealed action executes exactly once), approve
+# (allow for session), always_allow (persist a narrowly scoped rule) and deny
+# (default). ``approve_task`` remains a valid wire value for in-flight cards.
 TASK_APPROVAL_DECISION = "approve_task"
 CHAT_SESSION_APPROVAL_DECISION = "approve"
 DENY_APPROVAL_DECISION = "deny"
+ALLOW_ONCE_APPROVAL_DECISION = "allow_once"
+ALWAYS_ALLOW_APPROVAL_DECISION = "always_allow"
 
 # Session.get_context_messages() adds this server-owned marker only when the
 # session history contains a matching, resolved chat-session approval.
@@ -153,8 +158,13 @@ class ToolApprovalScope(str, Enum):
 
 def scope_for_decision(decision: object) -> ToolApprovalScope | None:
     normalized = str(decision or "").strip().lower()
-    if normalized == TASK_APPROVAL_DECISION:
+    if normalized in (TASK_APPROVAL_DECISION, ALWAYS_ALLOW_APPROVAL_DECISION):
+        # ``always_allow`` executes the immediate sealed action under the task
+        # scope; the persistent scoped rule it creates is a separate artifact
+        # (src/tool_approval_rules.py), never an authority widening.
         return ToolApprovalScope.TASK
     if normalized == CHAT_SESSION_APPROVAL_DECISION:
         return ToolApprovalScope.CHAT_SESSION
+    if normalized == ALLOW_ONCE_APPROVAL_DECISION:
+        return ToolApprovalScope.SINGLE_ACTION
     return None

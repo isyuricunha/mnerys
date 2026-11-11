@@ -1183,7 +1183,9 @@ def _mark_tool_approval_resolved(sess, approval_id: Any, decision: Any) -> bool:
 
     approval_key = str(approval_id or "")
     normalized_decision = str(decision or "").strip().lower()
-    if not approval_key or normalized_decision not in {"approve", "approve_task", "deny"}:
+    if not approval_key or normalized_decision not in {
+        "approve", "approve_task", "deny", "allow_once", "always_allow",
+    }:
         return False
 
     message_id = None

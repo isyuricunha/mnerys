@@ -250,7 +250,10 @@ import { invalidateSettings } from './appConfig.js';
   document.addEventListener('odysseus:tool-approval', (event) => {
     const detail = event && event.detail ? event.detail : {};
     const decision = String(detail.decision || '').toLowerCase();
-    if (!detail.approval_id || !['approve', 'approve_task', 'deny'].includes(decision)) return;
+    // The four M5.3 decisions plus the legacy task scope for in-flight cards;
+    // the option buttons themselves are server-rendered from the approval
+    // payload, so labels and scope descriptions always match the Gateway.
+    if (!detail.approval_id || !['approve', 'approve_task', 'deny', 'allow_once', 'always_allow'].includes(decision)) return;
     _pendingToolApproval = {
       approval_id: String(detail.approval_id),
       decision,

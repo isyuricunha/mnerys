@@ -63,7 +63,9 @@ class CoreApprovalEvent:
 
     type: Literal["approval.requested", "approval.decided"]
     approval_id: str
-    decision: Literal["approve", "approve_task", "deny"] | None = None
+    decision: (
+        Literal["approve", "approve_task", "deny", "allow_once", "always_allow"] | None
+    ) = None
 
 
 @dataclass(frozen=True, slots=True)

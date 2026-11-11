@@ -539,6 +539,26 @@ async def update_session(
     }
 
 
+@router.get("/approval-rules")
+async def list_approval_rules(request: Request) -> dict:
+    """Owner-scoped saved approval rules (inspectable, revocable)."""
+    owner = _require_owner(request)
+    from src.tool_approval_rules import list_scoped_rules
+
+    return {"rules": list_scoped_rules(owner)}
+
+
+@router.delete("/approval-rules/{rule_id}")
+async def revoke_approval_rule(rule_id: str, request: Request) -> dict:
+    """Revoke one saved approval rule (owner-checked)."""
+    owner = _require_owner(request)
+    from src.tool_approval_rules import revoke_scoped_rule
+
+    if not revoke_scoped_rule(owner, rule_id):
+        raise HTTPException(status_code=404, detail="Saved rule not found")
+    return {"revoked": rule_id}
+
+
 @router.get("/models")
 async def discovery_models(request: Request) -> dict:
     """Capability discovery: model ids and names, never credentials."""

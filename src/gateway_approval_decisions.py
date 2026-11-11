@@ -11,6 +11,10 @@ from dataclasses import dataclass
 from typing import Any
 from src.agent_core_events import CoreApprovalEvent
 from src.gateway_admission import AdmittedSession, AdmissionDenied, require_admitted_session
+from src.tool_approval_scopes import (
+    ALLOW_ONCE_APPROVAL_DECISION,
+    ALWAYS_ALLOW_APPROVAL_DECISION,
+)
 from src.tool_approvals import ExactToolApproval, PendingToolApproval, ToolApprovalStore
 
 logger = logging.getLogger(__name__)
@@ -23,6 +27,7 @@ class ToolApprovalDecision:
     decision: str
     pending: PendingToolApproval
     exact: ExactToolApproval | None
+    saved_rule: Any | None = None
 
     @property
     def event(self) -> CoreApprovalEvent:
@@ -71,7 +76,7 @@ def consume_admitted_tool_approval(
         owner=owner,
         session_id=session_id,
     )
-    if normalized_decision in {"approve", "approve_task"} and exact is None:
+    if normalized_decision != "deny" and exact is None:
         raise AdmissionDenied(409, "This tool approval could not be consumed.")
 
     settle = getattr(records, "settle_web_approval", None)
@@ -125,7 +130,45 @@ def consume_admitted_tool_approval(
                 "Durable approval recording failed for %s", approval_id,
                 exc_info=True,
             )
-    return ToolApprovalDecision(normalized_decision, pending, exact)
+
+    saved_rule = None
+    if normalized_decision == ALWAYS_ALLOW_APPROVAL_DECISION and exact is not None:
+        # "Always allow this specific rule": persist the narrow, revocable
+        # rule for the exact reviewed operation (same tool identity, same
+        # input, same effective directory, same capability fingerprint).
+        # This never widens request authority or tool policy; it only
+        # suppresses the automatic PROMPT for that exact operation, and every
+        # other security gate still applies to future executions.
+        from src.tool_registry import canonical_name_for_handler
+        from src.tool_approval_rules import persist_scoped_rule
+
+        exact_pending = exact.pending
+        try:
+            saved_rule = persist_scoped_rule(
+                owner=owner,
+                session_id="",
+                tool_name=exact_pending.tool_name,
+                canonical_name=(
+                    canonical_name_for_handler(exact_pending.tool_name)
+                    or exact_pending.tool_name
+                ),
+                content=exact_pending.content,
+                workspace=exact_pending.workspace or "",
+                effects=tuple(exact_pending.effects),
+                result_integrity=exact_pending.result_integrity,
+                origin_approval_id=str(approval_id),
+                session_scoped=False,
+            )
+            logger.info(
+                "Saved always-allow rule %s for %s (owner=%s)",
+                saved_rule.rule_id, exact_pending.tool_name, owner,
+            )
+        except ValueError as exc:
+            # Persisting the rule failed: the immediate sealed action already
+            # ran under the task scope, but nothing was saved. Truthful log;
+            # never silently widen or fabricate a saved rule.
+            logger.warning("Always-allow rule persistence refused: %s", exc)
+    return ToolApprovalDecision(normalized_decision, pending, exact, saved_rule)
 
 
 def inspect_admitted_tool_approval(
@@ -161,7 +204,10 @@ def inspect_admitted_tool_approval(
         )
 
     normalized_decision = str(decision or "").strip().lower()
-    if normalized_decision not in {"approve", "approve_task", "deny"}:
+    if normalized_decision not in {
+        "approve", "approve_task", "deny",
+        ALLOW_ONCE_APPROVAL_DECISION, ALWAYS_ALLOW_APPROVAL_DECISION,
+    }:
         raise AdmissionDenied(400, "Invalid tool approval decision.")
     if plan_mode:
         raise AdmissionDenied(
