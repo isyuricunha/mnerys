@@ -165,42 +165,108 @@ def _native_runtime_requires_local_browser(client_runtime_context):
 
 
 class _AgentRenderState:
-    """Track replacement snapshots versus resumed synthesis at the SSE boundary."""
+    """Keep model narration in its actual round, before following tool cards.
+
+    The agent streams round-specific prose, but its final_response may contain
+    concatenated text from every round. Persisting that cumulative snapshot as
+    the *last* bubble replays progress commentary after all the tools.
+    """
 
     def __init__(self):
         self.owner = "streamed"
         self.content = ""
         self.replaced_turn = False
+        self.round = 1
+        self.last_tool_round = 0
+        self.round_content = ""
+        self.chronological_round = False
+
+    def _last_round_answer(self, full_text):
+        """Return only the post-tool synthesis when the stream proves it."""
+        current = self.round_content.strip()
+        if (
+            self.owner == "streamed"
+            and self.last_tool_round > 0
+            and self.round > self.last_tool_round
+            and current
+            and str(full_text or "").strip().endswith(current)
+        ):
+            return current
+        return None
+
+    def finish(self, full_text):
+        """Select the canonical answer at DONE, without altering tool chronology."""
+        answer = self._last_round_answer(full_text)
+        if answer is not None:
+            self.content = answer
+            self.replaced_turn = False
+            self.chronological_round = True
+            return answer
+        return full_text
 
     def consume(self, event):
         event = dict(event)
-        if event.get("type") == "final_response":
+        kind = event.get("type")
+        if kind == "agent_step":
+            next_round = event.get("round")
+            if type(next_round) is int and next_round > self.round:
+                self.round = next_round
+                self.round_content = ""
+        elif kind == "tool_start":
+            tool_round = event.get("round")
+            self.last_tool_round = max(
+                self.last_tool_round,
+                tool_round if type(tool_round) is int and tool_round > 0 else self.round,
+            )
+        elif kind == "final_response":
             from routes.chat_helpers import clean_thinking_for_save as _clean_thinking
             content = str(event.get("content") or event.get("delta") or "")
             visible, _ = _clean_thinking(content)
-            self.content = visible or content
-            if self.content != content:
-                event["content"] = self.content
-                event.pop("delta", None)
-            self.owner = "streamed" if event.get("render_owner") == "streamed" else "structured"
-            self.replaced_turn = True
-            event["replacement_scope"] = "turn"
+            content = visible or content
+            # Preserve the existing structured-replacement contract unless
+            # there is actual post-tool synthesis evidence. In that case a
+            # cumulative final_response belongs to the last streamed round.
+            incoming = event.get("render_owner")
+            if incoming is None:
+                incoming = "streamed" if self._last_round_answer(content) is not None else "structured"
+            self.owner = incoming if incoming in {"streamed", "structured"} else "structured"
+            self.content = content
+            last_round = (
+                self._last_round_answer(content)
+                if self.owner == "streamed" else None
+            )
+            if last_round is not None:
+                self.content = last_round
+                self.replaced_turn = False
+                self.chronological_round = True
+                event["replacement_scope"] = "round"
+            else:
+                self.replaced_turn = True
+                self.chronological_round = False
+                event["replacement_scope"] = "turn"
+            event["content"] = self.content
+            event.pop("delta", None)
         elif event.get("delta") and not event.get("thinking"):
             if self.owner == "structured":
-                # final_response can be intermediate. A later model synthesis
-                # replaces it instead of being dropped or concatenated with it.
+                # A subsequent model synthesis replaces an intermediate
+                # structured snapshot, without borrowing its old content.
                 self.content = ""
                 self.owner = "streamed"
+                self.replaced_turn = True
+                self.chronological_round = False
                 event["replacement_scope"] = "turn"
             self.content += event["delta"]
-        if "delta" in event or event.get("type") == "final_response":
+            self.round_content += event["delta"]
+        if "delta" in event or kind == "final_response":
             event["render_owner"] = self.owner
         return event
 
     def metadata(self, metadata=None):
         result = dict(metadata or {})
         result["render_owner"] = self.owner
-        if self.replaced_turn:
+        if self.chronological_round:
+            result["replacement_scope"] = "round"
+        elif self.replaced_turn:
             result["replacement_scope"] = "turn"
         return result
 
@@ -4743,7 +4809,7 @@ def setup_chat_routes(
                                     web_sources = data.get("data", [])
                                     yield chunk
                                 elif data.get("type") in (
-                                    "tool_start", "tool_output", "agent_step",
+                                    "tool_start", "tool_progress", "tool_output", "agent_step",
                                     "doc_stream_open", "doc_stream_delta",
                                     "doc_update", "doc_suggestions", "editor_progress", "ui_control", "email_open",
                                     "rounds_exhausted", "budget_exceeded",
@@ -4921,6 +4987,11 @@ def setup_chat_routes(
                         elif chunk == "data: [DONE]\n\n":
                             _has_tool_events = bool((last_metrics or {}).get("tool_events"))
                             if not _terminal_saved and (full_response or _has_tool_events):
+                                # Completed agent rounds may contain earlier
+                                # progress prose before tool calls. Keep that
+                                # prose in its original round; save only the
+                                # last, evidenced post-tool answer.
+                                full_response = _render_state.finish(full_response)
                                 _metrics_to_save = _render_state.metadata(last_metrics)
                                 _round_texts = _metrics_to_save.get("round_texts") or []
                                 _final_round_text = next(

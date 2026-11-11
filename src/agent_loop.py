@@ -8100,7 +8100,7 @@ Maintain a structured task list for multi-step coding work. Use it when the task
     "get_workspace": """\
 ```get_workspace
 ```
-Return the absolute path of the active workspace folder. File tools are CONFINED to it (paths can be RELATIVE to it); the shell starts there (cwd) but is NOT sandboxed. Call this first when the user says "the project"/"the code"/"this folder" without a path, instead of asking them. No arguments.""",
+Return the absolute path of the active workspace folder. File tools are scoped to it (paths can be RELATIVE to it); /workspace is the sandbox-visible path for the selected CWD, and shell commands start there under required filesystem/process containment. Call this first when the user says "the project"/"the code"/"this folder" without a path, instead of asking them. No arguments.""",
 
     "create_document": """\
 ```create_document

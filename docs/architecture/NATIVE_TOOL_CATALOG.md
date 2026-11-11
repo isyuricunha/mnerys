@@ -125,5 +125,27 @@ widen authority, change the session's CWD or retry effectful commands. All
 later tool calls remain independently authorized and audited. The Agent
 instructions ask for separate calls when results are independently requested.
 
+## Web Agent streaming chronology
+
+The Web adapter forwards the SSE `tool_start`, `tool_progress` and
+`tool_output` families in the order emitted by the single Agent Core.
+Progress observations are not discarded at the Gateway boundary. Model
+narration from a preceding tool round is preserved in its original position
+instead of being concatenated into a final assistant bubble.
+
+Agent rounds carry a cumulative model text accumulator for compatibility.
+A final plain-text snapshot is reduced to the **last verified post-tool round**
+only if that round exists and is a suffix of the cumulative text. The previous
+rounds and their tool receipts remain in `round_texts` / `tool_events` for
+history replay, and the final content uses `replacement_scope=round`. Explicit
+structured `final_response` snapshots keep the original whole-turn
+replacement semantics, and ambiguous or absent final rounds are not trimmed.
+This makes live rendering and history reconciliation consistent.
+
+The workspace tool description and browser picker must reflect the actual
+enforcing containment backend: the selected directory is a CWD, not a grant to
+escape required process/filesystem isolation. Missing filesystem entries are
+reported as missing; they are never synthesized.
+
 No secrets, private endpoints, server identifiers or real user transcripts
 should be added to published documentation.

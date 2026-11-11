@@ -83,6 +83,77 @@ class AgentRenderOwnershipTests(unittest.TestCase):
         self.assertEqual(state.content, "Replacement")
         self.assertEqual(state.metadata()["render_owner"], "streamed")
 
+    def test_multi_round_shell_narration_stays_before_tools_and_final_is_last_round(self):
+        state = State()
+        first = state.consume({"delta": "Checking the folder."})
+        state.consume({"type": "tool_start", "tool": "bash", "round": 1})
+        state.consume({"type": "tool_output", "tool": "bash", "round": 1, "exit_code": 0})
+        state.consume({"type": "agent_step", "round": 2})
+        state.consume({"delta": "Checking Git."})
+        state.consume({"type": "tool_start", "tool": "bash", "round": 2})
+        state.consume({"type": "tool_output", "tool": "bash", "round": 2, "exit_code": 128})
+        state.consume({"type": "agent_step", "round": 3})
+        state.consume({"delta": "Git failed; README is missing."})
+        final = state.consume({
+            "type": "final_response",
+            "content": "Checking the folder.Checking Git.Git failed; README is missing.",
+        })
+        self.assertEqual(first["render_owner"], "streamed")
+        self.assertEqual(final["content"], "Git failed; README is missing.")
+        self.assertEqual(final["render_owner"], "streamed")
+        self.assertEqual(final["replacement_scope"], "round")
+        self.assertEqual(state.content, "Git failed; README is missing.")
+        self.assertEqual(state.metadata()["replacement_scope"], "round")
+        self.assertEqual(state.message_saved(12)["replacement_scope"], "round")
+
+    def test_done_without_cumulative_snapshot_preserves_last_round_only(self):
+        state = State()
+        state.consume({"delta": "Running pwd..."})
+        state.consume({"type": "tool_start", "round": 1})
+        state.consume({"type": "agent_step", "round": 2})
+        state.consume({"delta": "Final results."})
+        answer = state.finish("Running pwd...Final results.")
+        self.assertEqual(answer, "Final results.")
+        self.assertEqual(state.metadata()["replacement_scope"], "round")
+
+    def test_no_post_tool_synthesis_never_discards_partial_result(self):
+        state = State()
+        state.consume({"delta": "Inspection started."})
+        state.consume({"type": "tool_start", "round": 1})
+        state.consume({"type": "tool_output", "round": 1, "exit_code": 1})
+        self.assertEqual(state.finish("Inspection started."), "Inspection started.")
+        self.assertNotIn("replacement_scope", state.metadata())
+
+    def test_canonical_override_not_matching_last_round_keeps_existing_semantics(self):
+        state = State()
+        state.consume({"delta": "Before."})
+        state.consume({"type": "tool_start", "round": 1})
+        state.consume({"type": "agent_step", "round": 2})
+        state.consume({"delta": "Draft."})
+        event = state.consume({
+            "type": "final_response",
+            "content": "Corrected independent canonical answer.",
+            "render_owner": "structured",
+        })
+        self.assertEqual(event["replacement_scope"], "turn")
+        self.assertEqual(event["render_owner"], "structured")
+        self.assertEqual(state.content, "Corrected independent canonical answer.")
+
+    def test_web_agent_loop_passes_through_progress_between_start_and_output(self):
+        """Inspect the production event-family tuple, not a duplicated test list."""
+        event_tuples = []
+        for item in ast.walk(tree):
+            if not isinstance(item, ast.Tuple):
+                continue
+            names = {
+                child.value for child in item.elts
+                if isinstance(child, ast.Constant) and type(child.value) is str
+            }
+            if {"tool_start", "tool_output", "agent_step"} <= names:
+                event_tuples.append(names)
+        self.assertTrue(event_tuples, "Expected the Web Agent SSE dispatch family")
+        self.assertTrue(all("tool_progress" in names for names in event_tuples))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -315,6 +315,35 @@ test('structured stable render removes hidden drafts and streaming markers even 
   assert.deepEqual(result, { rendered: { changed: false, accepted: true }, same: true, markers: 0, text: 'ReasoningToolsCanonical' });
 });
 
+test('streamed final round preserves narration before each tool in chronological order', async () => {
+  const result = await run(
+    '<div class="msg-ai" id="first"><div class="body">Checking the folder.</div></div>' +
+    '<div class="agent-thread" id="tool1">pwd result</div>' +
+    '<div class="msg-ai" id="middle"><div class="body">Checking Git.</div></div>' +
+    '<div class="agent-thread" id="tool2">git status result</div>' +
+    '<div class="msg-ai" id="final"><div class="body">Draft answer</div></div>',
+    () => {
+      const answer = document.querySelector('#final .body');
+      const rendered = owner.render({
+        body: answer,
+        html: '<p>Git failed; README is missing.</p>',
+        raw: 'Git failed; README is missing.',
+        render_owner: 'streamed',
+        replacement_scope: 'round',
+      });
+      const sequence = [...document.querySelectorAll('#history > .msg-ai, #history > .agent-thread')]
+        .map(node => node.innerText);
+      return { rendered, sequence, count: document.querySelectorAll('.msg-ai').length };
+    },
+  );
+  assert.equal(result.rendered.accepted, true);
+  assert.equal(result.count, 3);
+  assert.deepEqual(result.sequence, [
+    'Checking the folder.', 'pwd result', 'Checking Git.',
+    'git status result', 'Git failed; README is missing.',
+  ]);
+});
+
 test('terminal cleanup removes transient rounds introduced after a structured snapshot', async () => {
   const result = await run('<div class="msg-ai"><div class="body">Draft</div></div>', () => {
     const body = document.querySelector('.body');

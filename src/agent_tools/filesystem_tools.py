@@ -1620,15 +1620,15 @@ class GrepTool:
         return {"output": _truncate(out), "exit_code": 0}
 
 class GetWorkspaceTool:
-    """Report the active workspace folder (no args). File tools are confined to
-    it; the shell starts there (cwd) but is NOT sandboxed."""
+    """Report the active workspace folder (no args). File tools are scoped to
+    it; shell commands use required filesystem/process containment."""
     async def execute(self, content: str, ctx: dict) -> dict:
         from src.tool_execution import get_active_workspace
         ws = get_active_workspace()
         if ws:
             return {
-                "output": "/workspace\n(File tools are confined to this folder; the shell starts "
-                          f"here but is not sandboxed and can reach outside it.)",
+                "output": "/workspace\n(File tools are scoped to this folder; "
+                          "shell commands start here under required filesystem/process containment.)",
                 "exit_code": 0,
             }
         return {
