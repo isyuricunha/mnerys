@@ -41,11 +41,37 @@ SESSION = "risk-session"
     "docker compose ps",
     "date",
     "du -sh .",
+    "cd /workspace && echo === ls -la === && ls -la",
+    "cd ./src && git status",
+    "cd project && pwd",
 ])
 def test_read_only_operations_are_low_risk(command):
     result = classify_shell_command(command)
     assert result.is_low_risk, (command, result.reason)
     assert not result.requires_approval
+
+
+@pytest.mark.parametrize("command", [
+    "cd .. && ls",
+    "cd /workspace/../etc && cat passwd",
+    "cd /etc && cat passwd",
+    "cd - && ls",
+    "cd ${HOME} && ls",
+    "cd /workspace/* && ls",
+    "cd /workspace && rm -rf build/",
+])
+def test_navigation_cannot_approve_unknown_or_effectful_commands(command):
+    assert classify_shell_command(command).requires_approval, command
+
+
+def test_read_only_navigation_stays_unattended_after_untrusted_web_context():
+    gate = ToolRunSecurityContext(external_untrusted_context_seen=True)
+    assert gate.decision_for(
+        "bash", "cd /workspace && echo === ls -la === && ls -la",
+    ).allowed
+    assert not gate.decision_for(
+        "bash", "cd /workspace && rm -rf build/",
+    ).allowed
 
 
 def test_quoted_dangerous_text_is_not_an_operation():

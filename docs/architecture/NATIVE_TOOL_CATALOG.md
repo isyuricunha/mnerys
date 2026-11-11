@@ -70,5 +70,17 @@ Official guidance:
 - Model Context Protocol: tools/list discovery and authorization requirements.
 - Mnerys M5.3 permission and tool-approval architecture.
 
+## Read-only shell navigation
+
+Literal `cd` into the mounted `/workspace` directory or a static relative
+subdirectory is classified as low-risk navigation. This fixes harmless
+inspection chains such as `cd /workspace && ls -la` that previously prompted
+for an unknown executable. It does not widen filesystem access: the real
+session CWD, tool authority, process confinement and sensitive-path checks
+remain mandatory at execution. Dynamic targets, parent traversal, unknown
+absolute destinations and any effectful command in the same chain still
+require review under the normal approval policy. YOLO remains separately
+opt-in and never overrides underlying authorization.
+
 No secrets, private endpoints, server identifiers or real user transcripts
 should be added to published documentation.

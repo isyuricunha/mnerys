@@ -319,6 +319,30 @@ def _classify_simple_command(argv: list[str], segment: str) -> CommandRiskClassi
         )
     if executable in {"env", "command", "nohup", "stdbuf", "timeout", "nice", "setsid"} and len(argv) > 1:
         return _classify_simple_command(argv[1:], segment)
+    if executable == "cd":
+        # A literal directory change only affects the current shell's CWD.
+        # This is a risk hint, never a workspace grant: the existing runner
+        # must still enforce session CWD, resource authority and confinement.
+        # Fail closed for dynamic targets, parent traversal, shell expansion,
+        # option flags, and absolute paths outside the mounted workspace.
+        if len(argv) != 2:
+            return _approval("moderate", "Directory change has no single explicit target.", matched=segment)
+        target = argv[1]
+        if (
+            not target or target.startswith(("-", "~"))
+            or _contains_variable_expansion(segment) or dynamic
+            or any(char in target for char in "*?[]{}!\\`")
+            or ".." in target.split("/")
+            or any(ord(char) < 32 for char in target)
+        ):
+            return _approval("moderate", "Dynamic or escaping directory change.", matched=segment)
+        if target.startswith("/") and not (
+            target == "/workspace" or target.startswith("/workspace/")
+        ):
+            return _approval("moderate", "Absolute directory change outside the workspace mount.", matched=segment)
+        if sensitive:
+            return _approval("high", f"Directory change targets a sensitive path ({sensitive}).", matched=segment)
+        return _low("Literal directory navigation within the workspace.", matched=segment)
     if executable == "xargs" and len(argv) > 1:
         return _approval(
             "moderate",
