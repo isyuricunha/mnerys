@@ -453,6 +453,22 @@ as untrusted instructions — no permission changes, no automatic execution.
 Focused tests cover discovery, activation, isolation, refusals, traversal,
 protocol conversion and an end-to-end discovered-tool dispatch.
 
+**Increment 6 status (verified):** real-provider acceptance ran the canonical
+tool matrix through the actual Agent Core against TWO distinct wire protocols
+(OpenAI Chat Completions and path-declared Anthropic Messages): `Write`
+created real files on both, `Read` threaded real results into round-2
+continuation, `ToolSearch` executed real inventory discovery on both, and the
+designed negative paths (strict argument validation, request-authority
+confinement, exact-approval after tool-result context) refused without
+executing. Live acceptance found and fixed four integration defects (canonical
+Write fence line-form, silently-dropped prompt sections, discovery-control
+authority grants, RAG index coverage) and closed the advertised-but-unenforced
+argument-bound gap. The denylist normalization now has ONE documented boundary
+(`policy_spellings`): handler-id and canonical spellings deny identically at
+every gate; MCP names never translate. Full redacted matrix:
+`docs/architecture/M5_2_REAL_PROVIDER_ACCEPTANCE.md`. The exit gate remains
+BLOCKED on independent second-provider credentials.
+
 **Exit gate:** real provider-backed read/search/edit/patch/shell tests;
 unread/stale file edits rejected; exact tool calls, permissions and
 results agree between the model trace, Gateway and client UI. Verify

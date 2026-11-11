@@ -2,8 +2,10 @@
 
 Status: increments 1 (canonical registry), 2 (read-before-edit), 3 (unified
 textual/native tool vocabulary), 4 (derived-artifact writer publication
-boundary) and 5 (ToolSearch and Skill) implemented and regression-covered.
-Remaining M5.2 work is listed at the end.
+boundary), 5 (ToolSearch and Skill) and 6 (real-provider acceptance and
+canonical policy security) implemented and regression-covered. The formal
+exit gate remains BLOCKED on one condition: independent second-provider
+credentials — see the acceptance report.
 
 ## What this is
 
@@ -523,7 +525,50 @@ admission time (M5.5 owns refresh notifications and versioned catalog
 snapshots); regex search cost is bounded by the ≤200-char pattern and the
 admitted inventory size.
 
-## Remaining M5.2 work (after increment 5)
+## Increment 6 — real-provider acceptance and canonical policy security (implemented)
+
+**Path-declared wire protocols.** A base URL whose path explicitly ends in
+``/v1/messages`` now declares the Anthropic Messages wire protocol regardless
+of host (aggregators and self-hosted gateways serve Anthropic-compatible
+routes). The declaration selects ONLY the wire format — execution,
+authorization and auditing stay Mnerys-owned; real anthropic.com hosts keep
+matching as before, and OpenAI-compatible and Ollama-native detection is
+unchanged. Model listing for path-declared endpoints networks-lists via
+``/v1/models`` instead of assuming Anthropic's static catalog.
+
+**Canonical denylist normalization (one boundary).**
+``src.tool_registry.policy_spellings`` is THE single normalization boundary
+for policy interpretation: a registry built-in may be denied by its internal
+handler id (``bash``, ``read_file``) or its canonical model-visible name
+(``Bash``, ``Read``) and every gate treats both spellings identically.
+``ToolPolicy.blocks`` and ``ToolPolicy.all_disabled_names`` expand through it,
+so turn contracts, request authorities, compact surfaces, ToolSearch
+filtering, native calls and textual fenced calls all obey the same effective
+rules. MCP server-defined names are never translated (case-sensitive, alias
+only to themselves); inherited non-registry tools keep their explicit
+existing semantics; unknown names alias only to themselves and can never
+mint access. Historical transcripts cannot mint current authority; session/
+owner scope cannot be crossed by renaming; exact-operation approval identity
+remains internal and stable.
+
+**Live acceptance evidence.** The canonical tool matrix ran through the real
+Agent Core against two distinct wire protocols (OpenAI Chat Completions and
+path-declared Anthropic Messages) with filesystem execution evidence:
+`Write` created real files on both protocols, `Read` threaded real results
+into round-2 continuation, `ToolSearch` executed real inventory discovery on
+both protocols, and the designed negative paths (strict argument validation,
+request-authority confinement, exact-approval after tool-result context)
+refused correctly without executing. Full matrix and defect list:
+`docs/architecture/M5_2_REAL_PROVIDER_ACCEPTANCE.md`.
+
+**Defects found live and fixed.** Canonical `Write` fences now accept the
+textual line-form grammar models naturally emit (converted to the registry's
+JSON contract — same protections); the textual prompt can no longer silently
+drop a registry tool that lacks a hand-maintained section (registry-derived
+fallback rendering); request authority grants the neutral discovery controls;
+the tool-RAG index advertises the new tools.
+
+## Remaining M5.2 work (after increment 6)
 
 1. **The qwen3.8 fine-tuned router compatibility carve-out** — the route keeps
    `legacy_compat=True` until its trained weights are refreshed to the
