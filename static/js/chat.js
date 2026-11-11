@@ -321,36 +321,6 @@ import { invalidateSettings } from './appConfig.js';
     });
   }
 
-  window.addEventListener('odysseus:notes-context-selected', (event) => {
-    const noteIds = event.detail?.noteIds;
-    if (!Array.isArray(noteIds) || noteIds.length === 0) return;
-
-    const sessionId = sessionModule.getCurrentSessionId?.();
-    if (!sessionId && !sessionModule.hasPendingChat?.()) {
-      console.warn('Cannot attach Notes context: no active or pending chat');
-      return;
-    }
-
-    if (sessionId) {
-      _selectedNoteIdsBySession.set(sessionId, [...noteIds]);
-    } else {
-      _pendingSelectedNoteIds = [...noteIds];
-    }
-    if (event.detail) event.detail.accepted = true;
-    _renderSelectedNotesIndicator(noteIds);
-  });
-
-  window.addEventListener('odysseus:session-changed', (event) => {
-    const sessionId = event.detail?.sessionId;
-    if (sessionId && event.detail?.materialized && _pendingSelectedNoteIds.length) {
-      _selectedNoteIdsBySession.set(sessionId, _pendingSelectedNoteIds);
-    }
-    _pendingSelectedNoteIds = [];
-    _renderSelectedNotesIndicator(
-      sessionId ? (_selectedNoteIdsBySession.get(sessionId) || []) : []
-    );
-  });
-
   // ── YOLO indicator (M5.3 increment 4): persistent, visible warning that
   // mirrors the SERVER-owned session state — never a local-only toggle.
   function _renderYoloIndicator(enabled) {
@@ -396,6 +366,36 @@ import { invalidateSettings } from './appConfig.js';
       })();
       _renderYoloIndicator(!!state.yolo_enabled);
     } catch (_) { /* state unavailable: leave the banner as-is */ }
+  });
+
+  window.addEventListener('odysseus:notes-context-selected', (event) => {
+    const noteIds = event.detail?.noteIds;
+    if (!Array.isArray(noteIds) || noteIds.length === 0) return;
+
+    const sessionId = sessionModule.getCurrentSessionId?.();
+    if (!sessionId && !sessionModule.hasPendingChat?.()) {
+      console.warn('Cannot attach Notes context: no active or pending chat');
+      return;
+    }
+
+    if (sessionId) {
+      _selectedNoteIdsBySession.set(sessionId, [...noteIds]);
+    } else {
+      _pendingSelectedNoteIds = [...noteIds];
+    }
+    if (event.detail) event.detail.accepted = true;
+    _renderSelectedNotesIndicator(noteIds);
+  });
+
+  window.addEventListener('odysseus:session-changed', (event) => {
+    const sessionId = event.detail?.sessionId;
+    if (sessionId && event.detail?.materialized && _pendingSelectedNoteIds.length) {
+      _selectedNoteIdsBySession.set(sessionId, _pendingSelectedNoteIds);
+    }
+    _pendingSelectedNoteIds = [];
+    _renderSelectedNotesIndicator(
+      sessionId ? (_selectedNoteIdsBySession.get(sessionId) || []) : []
+    );
   });
 
   document.getElementById('selected-notes-context-btn')?.addEventListener('click', () => {

@@ -129,7 +129,7 @@ async def test_original_pending_store_mints_complete_browser_card_without_claim(
     assert card["action"]["content"] == INPUT
     assert card["session_id"] == session.id
     assert [option["value"] for option in card["options"]] == [
-        "approve_task", "approve", "deny",
+        "allow_once", "approve_task", "approve", "always_allow", "deny",
     ]
     assert store.peek(pending.approval_id) is pending
     assert not session.messages
