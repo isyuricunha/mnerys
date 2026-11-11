@@ -127,9 +127,9 @@ def test_composer_html_no_longer_renders_the_mode_toggle():
     html = Path("static/index.html").read_text(encoding="utf-8")
     assert 'id="mode-agent-btn"' not in html
     assert 'id="mode-chat-btn"' not in html
-    # The unified composer keeps its real controls.
-    assert 'id="web-toggle-btn"' in html
-    assert 'id="bash-toggle-btn"' in html
+    # Native Web and Shell capabilities are no longer composer opt-ins.
+    assert 'id="web-toggle-btn"' not in html
+    assert 'id="bash-toggle-btn"' not in html
 
 
 def test_frontend_sources_no_longer_drive_the_toggle():

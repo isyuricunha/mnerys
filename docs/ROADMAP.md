@@ -628,6 +628,18 @@ a safe action without request authority is still refused. Contract:
 `docs/architecture/M5_3_PERMISSION_MODES.md`. Local tests and commits are not
 hosted publication or production acceptance.
 
+**M5.3 follow-up — native tools / approval continuation (local corrective increment):**
+Web Search and Shell are core Agent catalog capabilities, not chat composer
+opt-ins. The admitted Gateway owns availability and exact grants, preserves
+server denials, prevents unsolicited public pre-search, and retains the
+approved tool inventory across a sealed approval continuation. The Agent Loop
+no longer replaces a native catalog route with a Web-only schema surface;
+ToolSearch provides on-demand authorized discovery without stuffing every
+schema into every model request. Legacy text-only and external callers retain
+their restricted compatibility ceilings. Contract:
+`docs/architecture/NATIVE_TOOL_CATALOG.md`. Hosted CI, semantic-release,
+production deployment and live authenticated acceptance remain separate gates.
+
 - No mandatory per-chat workspace. Local CLI/TUI begin in the invoking
   shell's current directory; local Web and Telegram begin in the
   configured execution account's home. Remote CLI/TUI use the server's

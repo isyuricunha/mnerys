@@ -54,6 +54,7 @@ def reconcile_admitted_web_intent(
     contextual_web_followup_lookup: Callable[[], bool],
     recent_web_event_lookup: Callable[[], bool],
     message_denies_lookup: Callable[[], bool],
+    native_agent_catalog: bool = False,
 ) -> AdmittedWebIntent:
     """Apply inherited Web precedence with issued session/owner binding.
 
@@ -78,6 +79,7 @@ def reconcile_admitted_web_intent(
         clean_route_requested, search_enabled, explicit_browser_intent,
         local_browser_render_intent, exact_url_fetch_intent,
         use_turn_contract, full_schema_route, workspace_bound,
+        native_agent_catalog,
     ):
         if type(flag) is not bool:
             raise AdmissionDenied(403, "Invalid trusted Web intent flag")
@@ -93,6 +95,23 @@ def reconcile_admitted_web_intent(
         if type(denied) is not bool:
             raise AdmissionDenied(403, "Invalid trusted Web denial evidence")
         return denied
+
+    if native_agent_catalog:
+        # Unified Agent: search/fetch are available as authorized tools, not
+        # enabled by an untrusted composer checkbox. No lexical pre-search.
+        # Keep explicit user no-Web requests binding and preserve *all* server
+        # policy/owner disabled tools. This is NOT executable tool authority.
+        denied = denied_lookup()
+        disabled = set(base_disabled_tools)
+        if denied:
+            disabled.update(WEB_TOOL_NAMES)
+        return AdmittedWebIntent(
+            explicit_web_intent=bool(explicit_web_intent and not denied),
+            contextual_web_turn_followup=False,
+            search_enabled=False,
+            allow_web_search=None,
+            disabled_tools=frozenset(disabled),
+        )
 
     # Keep the exact legacy ordering: past-chat search is personal, but a
     # later explicit classified Web request can still be handled separately.

@@ -21284,6 +21284,7 @@ async def stream_agent_loop(
     context_resolution=None,
     native_terminal_events: bool = False,
     native_route_events: bool = False,
+    native_tool_catalog: bool = False,
 ) -> AsyncGenerator[str | CoreNativeEvent, None]:
     """Streaming agent loop generator.
 
@@ -21300,6 +21301,8 @@ async def stream_agent_loop(
         raise TypeError("Invalid trusted Agent Core terminal event flag")
     if type(native_route_events) is not bool:
         raise TypeError("Invalid trusted Agent Core model route event flag")
+    if type(native_tool_catalog) is not bool:
+        raise TypeError("Invalid server-native catalog flag")
 
     # Caller and credential denials remain absolute across contract routing.
     disabled_tools = set(disabled_tools or ())
@@ -21365,6 +21368,9 @@ async def stream_agent_loop(
     # Preserve the caller's explicit tool surface before intent/domain
     # enrichment adds fallback tools.  Preemptive shortcuts must not execute a
     # different high-level capability than the surface the caller selected.
+    # Server-issued RequestAuthority enables the native catalog route;
+    # model text or client-side toggles cannot enable it.
+    _native_catalog_routing = native_tool_catalog and request_authority is not None
     _caller_relevant_tools = (
         None if relevant_tools is None else set(relevant_tools)
     )
@@ -21585,7 +21591,15 @@ async def stream_agent_loop(
         disabled_tools.add("update_plan")
     _contextual_weather_status_followup = _looks_like_contextual_weather_status_followup(messages, _last_user)
     _contextual_web_resource_followup = _looks_like_contextual_web_resource_followup(_last_user)
-    _contextual_web_tool_followup = _looks_like_contextual_web_tool_followup(messages, _last_user)
+    from src.native_tool_catalog import (
+        is_local_tool_request,
+        retry_local_task_after_irrelevant_tool_failures,
+    )
+    _native_local_tool_request = _native_catalog_routing and is_local_tool_request(_last_user)
+    _contextual_web_tool_followup = (
+        not _native_local_tool_request
+        and _looks_like_contextual_web_tool_followup(messages, _last_user)
+    )
     _recent_private_browser_context = _has_recent_private_browser_context(messages)
     _public_context_topic_text = _contextual_public_web_topic_text(
         messages,
@@ -21604,10 +21618,15 @@ async def stream_agent_loop(
         and not turn_contract.permits("web_fetch")
     ):
         _explicit_no_web_lookup = True
-    _contextual_public_web_followup = _looks_like_contextual_public_web_followup(
-        _last_user,
-        _web_search_user_text,
-    ) or bool(_public_context_topic_text) or _contextual_weather_status_followup or _contextual_web_tool_followup
+    _contextual_public_web_followup = (
+        not _native_local_tool_request
+        and (
+            _looks_like_contextual_public_web_followup(_last_user, _web_search_user_text)
+            or bool(_public_context_topic_text)
+            or _contextual_weather_status_followup
+            or _contextual_web_tool_followup
+        )
+    )
     if _explicit_no_web_lookup:
         disabled_tools.update(WEB_TOOL_NAMES)
         disabled_tools.add("youtube_tool")
@@ -23068,7 +23087,7 @@ async def stream_agent_loop(
             _relevant_tools = set(ALWAYS_AVAILABLE)
         _relevant_tools.update(_web_turn_tools)
         _non_web_domains = _intent_domains - {"web"}
-        if not _non_web_domains and not _explicit_delegation_tools:
+        if not _native_catalog_routing and not _non_web_domains and not _explicit_delegation_tools:
             _relevant_tools = _web_only_route_tools(_retrieval_query or _last_user, disabled_tools)
             logger.info("[agent-intent] web-only request pruned unrelated tools")
         logger.info("[agent-intent] explicit web domain enabled private web tools")
@@ -23305,6 +23324,7 @@ async def stream_agent_loop(
                     route_tools.add("private_browser")
             if (
                 _contextual_public_web_followup
+                and not _native_catalog_routing
                 and not _explicit_no_web_lookup
                 and not _explicit_delegation_tools
             ):
@@ -23388,6 +23408,7 @@ async def stream_agent_loop(
             )
         if (
             _contextual_public_web_followup
+            and not _native_catalog_routing
             and not _explicit_no_web_lookup
             and not _explicit_delegation_tools
         ):
@@ -23526,7 +23547,8 @@ async def stream_agent_loop(
         workspace and _native_local_media_inputs(_last_user, client_runtime_context)
     )
     _pure_web_turn = (
-        _intent_domains == {"web"}
+        not _native_catalog_routing
+        and _intent_domains == {"web"}
         and not _explicit_no_web_lookup
         and not _contextual_public_web_followup
         and not _explicit_delegation_tools
@@ -24928,6 +24950,7 @@ async def stream_agent_loop(
     # repaired after several syntax/import errors and must not be forced into
     # a final answer while their required artifacts are absent.
     _artifact_failed_batch_repairs = 0
+    _native_local_failure_recovery_used = False
     _artifact_failed_mutation_batches = 0
     _artifact_failed_mutation_attempts = 0
     _artifact_observation_only_rounds = 0
@@ -26170,6 +26193,22 @@ async def stream_agent_loop(
                 for schema in normalized_external_tool_schemas
                 if schema["function"]["name"] not in disabled_tools
             )
+
+        if _native_catalog_routing and not guide_only and not plan_mode:
+            # Warm only authorized canonical tools. ToolSearch can discover
+            # additional admissible tools without flooding small-model context.
+            from src.native_tool_catalog import admitted_agent_tool_surface
+            _relevant_tools = set(admitted_agent_tool_surface(
+                relevant=_relevant_tools,
+                forced=forced_tools,
+                approval_selected=_caller_relevant_tools,
+                approval_tool=(
+                    exact_approval.pending.tool_name
+                    if exact_approval is not None else None
+                ),
+                permitted=(grant.tool for grant in request_authority.grants),
+                disabled=disabled_tools,
+            ))
 
         _workspace_read_floor = _native_unattended_workspace_read_floor(
             client_runtime_context,
@@ -37378,6 +37417,39 @@ async def stream_agent_loop(
                         "or repeat a failed call."
                     ),
                 })
+            elif (
+                not _native_local_failure_recovery_used
+                and retry_local_task_after_irrelevant_tool_failures(
+                    native_catalog=_native_catalog_routing,
+                    request_text=_last_user,
+                    consecutive_failed_rounds=_failed_tool_rounds,
+                    used_recovery=_native_local_failure_recovery_used,
+                    tool_events=tool_events,
+                )
+            ):
+                # Repair only the Web-tool routing error, not the failed
+                # operation. No extra authority, no unbounded retry and no
+                # automatic re-execution of a state-changing action.
+                _native_local_failure_recovery_used = True
+                _failed_tool_rounds = 0
+                disabled_tools.update(WEB_TOOL_NAMES)
+                if _relevant_tools is not None:
+                    _relevant_tools.difference_update(WEB_TOOL_NAMES)
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "This is a local file/shell task. Previous Web tool "
+                        "calls failed and were unrelated to the request. "
+                        "Do not search the Web. Continue the original user's "
+                        "remaining LOCAL operations with the authorized tools. "
+                        "Do not repeat an effectful operation unless its "
+                        "receipt proves it did not run. Report only results "
+                        "actually observed; request clarification if needed."
+                    ),
+                })
+                logger.info(
+                    "[agent] bounded local-tool recovery after irrelevant Web failures"
+                )
             else:
                 logger.warning(
                     "[agent] failed tool batches on %d consecutive rounds; forcing final answer",

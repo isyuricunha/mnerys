@@ -43,10 +43,10 @@ This is a controlled compatibility migration — not a new engine.
 
 ## Web unification (what changed, what stayed)
 
-- **Removed**: the composer's `#mode-agent-btn`/`#mode-chat-btn` toggle; the
-  tool-error auto-switch that flipped modes and rewrote the error text; the
-  set_mode event's button toggling and `[data-mode-tool]` hiding (tool
-  toggles are always visible — they are per-turn opt-ins, not mode features).
+- **Removed**: the composer's `#mode-agent-btn`/`#mode-chat-btn` toggle,
+  tool-error auto-switch, `set_mode` button-driven tool hiding, and the
+  separate Search/Shell composer toggles. These are native Agent catalog
+  capabilities, discovered per turn and governed by Gateway policy.
 - **Kept**: session selection/creation/restoration, streaming + thinking
   indicators, message history, tool events, approval cards (all four
   decisions + the task scope), the YOLO indicator, workspace/CWD selection,

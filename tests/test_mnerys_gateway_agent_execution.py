@@ -111,6 +111,17 @@ async def test_gateway_directly_starts_existing_agent_loop_without_web_router(
     assert passed["tool_policy"] is kw["policy"]
     assert passed["turn_contract"] is None
     assert passed["max_rounds"] == 2
+    assert passed["native_tool_catalog"] is True
+
+
+@pytest.mark.asyncio
+async def test_client_cannot_override_server_native_catalog_flag():
+    admission, session, options = setup()
+    options["native_tool_catalog"] = False
+    with pytest.raises(AdmissionDenied, match="Protected agent execution field"):
+        await collect(GatewayTurns(TurnService()).stream_admitted_agent(
+            admission, session, **options,
+        ))
 
 
 @pytest.mark.asyncio

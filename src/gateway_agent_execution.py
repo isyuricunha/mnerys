@@ -38,6 +38,8 @@ _PROTECTED_AGENT_FIELDS = frozenset({
     # M5.3 increment 4: opt-in YOLO state is SERVER-OWNED session state read
     # from the admitted session; callers cannot set it through agent options.
     "yolo_enabled",
+    # Server-owned native catalog selection, never a client-supplied grant.
+    "native_tool_catalog",
 })
 
 
@@ -165,6 +167,7 @@ async def stream_admitted_agent_turn(
         # Server-owned opt-in YOLO state: read from the admitted session row,
         # never from caller options or model output.
         "yolo_enabled": bool(getattr(session, "yolo_enabled", False)),
+        "native_tool_catalog": True,
     })
     # M5.4 increment 4: the session's persisted reasoning preference fills the
     # gap when the caller sent none (server-owned like YOLO; translated

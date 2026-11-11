@@ -733,6 +733,7 @@ class GatewayTurns:
             contextual_web_followup_lookup=composition.contextual_web_followup_lookup,
             recent_web_event_lookup=composition.recent_web_event_lookup,
             message_denies_lookup=composition.message_denies_web_lookup,
+            native_agent_catalog=(chat_mode == "agent"),
         )
         _explicit_web_intent = web_intent.explicit_web_intent
         _contextual_web_turn_followup = web_intent.contextual_web_turn_followup
@@ -1861,6 +1862,7 @@ class GatewayTurns:
         contextual_web_followup_lookup: Callable[[], bool],
         recent_web_event_lookup: Callable[[], bool],
         message_denies_lookup: Callable[[], bool],
+        native_agent_catalog: bool = False,
     ) -> AdmittedWebIntent:
         """Resolve owner-bound Web intent, toggle gates and initial denials."""
         return reconcile_admitted_web_intent(
@@ -1885,6 +1887,7 @@ class GatewayTurns:
             contextual_web_followup_lookup=contextual_web_followup_lookup,
             recent_web_event_lookup=recent_web_event_lookup,
             message_denies_lookup=message_denies_lookup,
+            native_agent_catalog=native_agent_catalog,
         )
 
     def select_tool_intent(

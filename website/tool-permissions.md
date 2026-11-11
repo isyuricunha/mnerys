@@ -6,6 +6,12 @@ layout: default
 
 Mnerys uses one Gateway-owned permission system for the shared Agent Core.
 
+**Search and Shell are native Agent capabilities**, not composer switches.
+Authorized tools are available from the start through ToolSearch discovery;
+there is no separate checkbox to activate them. Public Web searching only
+happens when the agent actually requests it, not automatically for local
+commands. The same tool catalog remains available when an approval resumes.
+
 ## Normal mode
 
 Read-only inspection is automatic when both the operation and its resources are

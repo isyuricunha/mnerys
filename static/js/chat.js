@@ -2759,14 +2759,12 @@ import { invalidateSettings } from './appConfig.js';
 	        fd.append('approved_plan', _pendingApprovedPlan.slice(0, 8192));
 	        _pendingApprovedPlan = '';
 	      }
-	      if (el('web-toggle').checked) {
-	          fd.append('use_web', 'true');
-	      }
-	      fd.append('allow_web_search', el('web-toggle').checked ? 'true' : 'false');
+	      // Search is a native discoverable Agent tool, not a composer opt-in.
+	      // Do not request unsolicited Web prefetch or pass a client tool grant.
 	      if (!approvalForSend && el('research-toggle').checked) {
 	        fd.append('use_research', 'true');
 	      }
-      fd.append('allow_bash', el('bash-toggle').checked ? 'true' : 'false');
+      // Shell availability is resolved by the authenticated Gateway policy.
       const ragChk = el('rag-toggle');
       if (ragChk && !ragChk.checked) {
         fd.append('use_rag', 'false');

@@ -242,6 +242,34 @@ def test_credential_projections_share_same_gateway_service(credential):
     assert facade == direct
 
 
+
+def test_native_catalog_keeps_web_and_shell_eligible_without_composer_flags():
+    grant, sess, params = context(
+        message="experimente ls -la, cat e git status",
+        native_agent_catalog=True,
+        base_disabled_tools={"manage_memory"},
+        allow_web_search="false",  # legacy untrusted client preference ignored
+    )
+    state = reconcile_admitted_web_intent(grant, sess, **params)
+    assert not state.search_enabled  # Web lookup is an Agent tool, not prefetch
+    assert state.allow_web_search is None
+    assert "web_search" not in state.disabled_tools
+    assert "web_fetch" not in state.disabled_tools
+    assert "bash" not in state.disabled_tools
+    assert "manage_memory" in state.disabled_tools
+
+
+def test_native_catalog_respects_user_no_web_and_server_policy():
+    grant, sess, params = context(
+        native_agent_catalog=True,
+        base_disabled_tools={"bash", "web_fetch"},
+        message_denies_lookup=MagicMock(return_value=True),
+    )
+    state = reconcile_admitted_web_intent(grant, sess, **params)
+    assert {"bash", "web_fetch", "web_search"} <= set(state.disabled_tools)
+    assert state.search_enabled is False
+
+
 def test_past_chat_lookup_never_enables_public_search():
     grant, sess, params = context(
         message="Search my past chats", explicit_web_intent=True,

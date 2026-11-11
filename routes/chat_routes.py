@@ -2682,6 +2682,15 @@ def setup_chat_routes(
             # but BEFORE loading. Prevents cross-user session hijack.
             _admitted_session = _verify_session_owner(request, session)
             sess = session_manager.get_session(session)
+            if chat_mode == "agent":
+                # Search/Shell are native server-governed tool capabilities,
+                # not mutable Web composer opt-ins. Never auto-prefetch Web.
+                # Global policy, principal restrictions and exact request
+                # authority still decide what may actually execute.
+                allow_bash = None
+                allow_web_search = None
+                use_web = None
+                _search_enabled = False
             # Only after admitted session resolution may trusted history turn
             # a short confirmation into a local task continuation.
             if local_filesystem_intent(message, getattr(sess, "history", ()) or ()):
@@ -2837,8 +2846,10 @@ def setup_chat_routes(
                 if pending_tool_approval.tool_name == "bash":
                     allow_bash = "true"
                 if pending_tool_approval.tool_name in WEB_TOOL_NAMES:
-                    allow_web_search = "true"
-                    _search_enabled = True
+                    # Web approval resumes the sealed Web tool; it is not a
+                    # request to change the entire tool surface to Web-only.
+                    allow_web_search = None
+                    _search_enabled = False
                 chat_mode = "agent"
             elif not _web_cutover:
                 # A normal user message supersedes the card that was waiting
@@ -3597,6 +3608,7 @@ def setup_chat_routes(
                 ),
                 recent_web_event_lookup=lambda: _has_recent_web_tool_event(sess),
                 message_denies_lookup=lambda: _explicitly_denies_web_lookup(message),
+                native_agent_catalog=(chat_mode == "agent"),
             )
             _explicit_web_intent = _web_intent_result.explicit_web_intent
             _contextual_web_turn_followup = _web_intent_result.contextual_web_turn_followup
@@ -4583,7 +4595,7 @@ def setup_chat_routes(
                     )
 
                     _forced_tools = None
-                    if _search_enabled:
+                    if _search_enabled and chat_mode != "agent":
                         _forced_tools = set(WEB_TOOL_NAMES)
                         if _explicit_browser_intent:
                             _forced_tools |= set(_BROWSER_MCP_TOOLS) | {"private_browser"}
@@ -4630,6 +4642,30 @@ def setup_chat_routes(
                             _forced_tools = set(_explicit_selected_tools)
                     if _turn_contract is not None:
                         _forced_tools = set(_turn_contract.offered)
+                    if chat_mode == "agent" and (
+                        _forced_tools is not None or exact_tool_approval is not None
+                    ):
+                        # A sealed approval must retain its original admitted
+                        # tools and the native discovery surface. Neither a
+                        # stale Web toggle nor domain inference can replace it.
+                        from src.native_tool_catalog import admitted_agent_tool_surface
+                        _forced_tools = set(admitted_agent_tool_surface(
+                            relevant=_forced_tools,
+                            forced=(
+                                pending_tool_approval.selected_tools
+                                if pending_tool_approval is not None else ()
+                            ),
+                            approval_selected=(
+                                pending_tool_approval.selected_tools
+                                if pending_tool_approval is not None else ()
+                            ),
+                            approval_tool=(
+                                pending_tool_approval.tool_name
+                                if pending_tool_approval is not None else None
+                            ),
+                            permitted=(g.tool for g in _request_authority.grants),
+                            disabled=disabled_tools,
+                        ))
 
                     async for chunk in gateway_turns.stream_admitted_agent(
                         _admitted_session, sess,

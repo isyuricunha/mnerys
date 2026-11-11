@@ -919,6 +919,10 @@ function _syncToggleUI(name, state) {
 }
 
 async function _quickToggle(name) {
+  if (name === 'web' || name === 'bash') {
+    await typewriterReply('Web search and shell tools are native capabilities. Their permissions are managed by Mnerys, not composer toggles.');
+    return true;
+  }
   const toggleMap = { web: 'web-toggle', bash: 'bash-toggle', research: 'research-toggle' };
   const chk = document.getElementById(toggleMap[name]);
   if (!chk) return false;
@@ -930,6 +934,10 @@ async function _quickToggle(name) {
 }
 
 async function _applyToggle(name, val) {
+  if (name === 'web' || name === 'bash') {
+    await typewriterReply('Web search and shell tools are native capabilities controlled by Gateway permissions.');
+    return;
+  }
   const toggleMap = { web: 'web-toggle', bash: 'bash-toggle', research: 'research-toggle' };
   const chk = document.getElementById(toggleMap[name]);
   if (!chk) return;
@@ -2021,12 +2029,8 @@ async function _cmdRagRemove(args, ctx) {
 async function _cmdWebSearch(args, ctx) {
   const query = args.join(' ');
   if (!query) { slashReply('Usage: /search &lt;query&gt;'); return true; }
-  // Enable web toggle for this search, then fall through to normal chat
-  const chk = document.getElementById('web-toggle');
-  const btn = document.getElementById('web-toggle-btn');
-  if (chk) chk.checked = true;
-  if (btn) btn.classList.add('active');
-  uiModule.el('message').value = query;
+  // /search is an explicit search request, not an availability toggle.
+  uiModule.el('message').value = 'Search the web for: ' + query;
   return false; // fall through to normal chat submit
 }
 
@@ -2577,8 +2581,8 @@ async function _cmdDemo(args, ctx) {
     { sel: '#sidebar-new-chat-btn', text: 'Start a new chat here. <b>Click it.</b> You can do it!', mode: 'click',
       before() { if (sidebar?.classList.contains('hidden')) sidebar.classList.remove('hidden'); } },
     { sel: '#model-picker-btn',   text: 'Pick your LLM, Local or API.', advanceOnClick: true },
-    { sel: '#mode-agent-btn',     text: '<b>Agent mode</b> gives Mnerys more control of the app when your model supports tools: create a theme, download a model, make a daily task, organize things, and more.', mode: 'click' },
-    { sel: '#web-toggle-btn',     text: 'Toggle tools like <b>web search</b>. Mnerys comes with private built-in <b>SearXNG</b> search.', mode: 'click' },
+    // Agent is always on. ToolSearch discovers authorized capabilities; no
+    // separate Search/Shell/Agent switches are needed in the composer.
     { sel: '#overflow-plus-btn',  text: 'More tools can be found here, or in your sidebar. <b>Click to peek.</b>',
       advanceOnClick: true, pulseNext: true, afterDelay: 2200 },
     { sel: '#message',            text: 'Write your prompt here. Drag and drop files to attach them. <b>/prompt</b> for random prompt, <b>/help</b> for more.',
