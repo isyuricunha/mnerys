@@ -8,6 +8,7 @@ run-local integrity gates before dispatch.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import uuid
@@ -15,6 +16,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping
+
+logger = logging.getLogger(__name__)
 
 from src.tool_approval_scopes import CHAT_SESSION_APPROVAL_CONTEXT_MARKER
 from src.tool_security import BUILTIN_EMAIL_TOOLS, is_public_blocked_tool
@@ -797,6 +800,15 @@ class ToolRunSecurityContext:
     # The bypass affects only this automatic gate; current tool policy, ownership,
     # workspace confinement, and execution/sandbox restrictions still apply.
     approval_gate_bypassed: bool = False
+    # M5.3 increment 4: opt-in YOLO mode — server-owned SESSION state, enabled
+    # by an authenticated user through the session API (never model text, never
+    # an environment variable). It suppresses only DISCRETIONARY prompts:
+    # risk-classifier REQUIRES_APPROVAL and the external-untrusted-context
+    # gate. Delegated boundaries, tool policy denials, DENIED risk
+    # classifications, request authority, confinement, read-before-edit and
+    # publication protections are untouched; unknown/high-impact tools under
+    # external context stay refused (fail closed).
+    yolo_enabled: bool = False
     # Driven by a bearer API token, not a person at a browser. Privileged
     # tools are refused outright and no approval can lift that.
     delegated_credential: bool = False
@@ -875,10 +887,17 @@ class ToolRunSecurityContext:
             if risk is not None:
                 if risk.category == RISK_DENIED:
                     return ToolGateDecision(False, risk.reason)
-                if risk.category == RISK_REQUIRES_APPROVAL:
+                if risk.category == RISK_REQUIRES_APPROVAL and not self.yolo_enabled:
                     return ToolGateDecision(
                         False,
                         f"Dangerous operation requires approval: {risk.reason}",
+                    )
+                if risk.category == RISK_REQUIRES_APPROVAL and self.yolo_enabled:
+                    # Truthful audit of the suppressed discretionary prompt:
+                    # the classification was still performed and recorded.
+                    logger.info(
+                        "YOLO suppressed risk approval: run=%s tool=%s level=%s reason=%s",
+                        self.run_id, tool, risk.level, risk.reason,
                     )
         if not TOOL_APPROVAL_GATE_ENABLED:
             return ToolGateDecision(True)
@@ -919,6 +938,17 @@ class ToolRunSecurityContext:
                 False,
                 "external untrusted context blocks unknown/high-impact tool",
             )
+        if self.yolo_enabled:
+            # YOLO suppresses the remaining DISCRETIONARY external-context
+            # gate for understood tools. Deliberately conservative: unknown
+            # capabilities were refused above (fail closed), delegated
+            # boundaries and tool policy denials were already enforced, and
+            # the risk classifier's DENIED category refused earlier.
+            logger.info(
+                "YOLO suppressed the external-context approval gate: run=%s tool=%s",
+                self.run_id, tool_name,
+            )
+            return ToolGateDecision(True)
         blocked_effects = capabilities.effects & POST_EXTERNAL_BLOCKED_EFFECTS
         if blocked_effects:
             effects = ", ".join(sorted(effect.value for effect in blocked_effects))

@@ -213,6 +213,14 @@ class Session(TimestampMixin, Base):
     # Organization
     folder = Column(String, nullable=True, default=None)
     cwd = Column(String, nullable=True, default=None)
+    # M5.3 increment 4: opt-in YOLO mode for THIS session only. Server-owned,
+    # owner-scoped, revision-fenced session state — never a global flag and
+    # never derivable from model text. It suppresses only discretionary
+    # approval prompts (risk-classifier REQUIRES_APPROVAL and the
+    # external-untrusted-context gate); delegated boundaries, policy denials,
+    # DENIED risk classifications, request authority, confinement, and all
+    # other security gates remain fully enforced.
+    yolo_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
     # Registered ModelEndpoint this session is bound to. endpoint_url alone
     # cannot distinguish two endpoints that share a provider URL but use
     # different credentials (e.g. two ChatGPT Subscription accounts), so the
@@ -1546,6 +1554,22 @@ def _migrate_add_folder_column():
         except Exception:
             pass
 
+def _migrate_add_session_yolo_column():
+    """Add the opt-in YOLO flag to sessions (idempotent, default OFF)."""
+    with engine.begin() as connection:
+        schema = inspect(connection)
+        if not schema.has_table("sessions"):
+            return
+        columns = {column["name"] for column in schema.get_columns("sessions")}
+        if "yolo_enabled" not in columns:
+            connection.execute(
+                text("ALTER TABLE sessions ADD COLUMN yolo_enabled BOOLEAN DEFAULT 0")
+            )
+            logging.getLogger(__name__).info(
+                "Migrated: added 'yolo_enabled' column to sessions (default OFF)"
+            )
+
+
 def _migrate_add_session_cwd_column():
     """Add cwd column to sessions table if it doesn't exist."""
     import sqlite3
@@ -2552,6 +2576,7 @@ def init_db():
     _migrate_add_session_generation_settings_columns()
     _migrate_add_folder_column()
     _migrate_add_session_cwd_column()
+    _migrate_add_session_yolo_column()
     _migrate_add_session_endpoint_id_column()
     _migrate_add_token_columns()
     _migrate_add_total_cost_usd()

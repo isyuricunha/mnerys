@@ -35,6 +35,9 @@ _PROTECTED_AGENT_FIELDS = frozenset({
     "tool_policy",
     "turn_contract",
     "delegated_credential",
+    # M5.3 increment 4: opt-in YOLO state is SERVER-OWNED session state read
+    # from the admitted session; callers cannot set it through agent options.
+    "yolo_enabled",
 })
 
 
@@ -159,6 +162,9 @@ async def stream_admitted_agent_turn(
         "turn_contract": turn_contract,
         "disabled_tools": disabled if disabled else None,
         "delegated_credential": admission.principal.delegated,
+        # Server-owned opt-in YOLO state: read from the admitted session row,
+        # never from caller options or model output.
+        "yolo_enabled": bool(getattr(session, "yolo_enabled", False)),
     })
 
     # The inner generator must close before bridge/contract contextvars reset

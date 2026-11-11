@@ -397,6 +397,17 @@ class SessionUpdateBody(BaseModel):
     cwd: Optional[str] = Field(default=None, max_length=4096)
 
 
+class YoloToggleBody(BaseModel):
+    """Explicit opt-in YOLO toggle: deliberate user action + confirmation."""
+    enabled: bool
+    # Enabling REQUIRES confirmed=true in the same request (the user's
+    # explicit acknowledgment that ordinary approval prompts may be skipped).
+    confirmed: bool = False
+    # Optional optimistic-concurrency guard: the caller's last-known session
+    # revision; a mismatch is refused (stale concurrent updates).
+    expected_revision: Optional[int] = None
+
+
 @router.post("/sessions", status_code=201)
 async def create_session(body: SessionCreateBody, request: Request) -> dict:
     """Create one owner-scoped session from registered endpoints only."""
@@ -453,6 +464,9 @@ async def session_detail(
             # M5.3 increment 1: the effective working directory (authoritative,
             # persisted; the client's local state never overrides it).
             "cwd": getattr(session, "cwd", None),
+            # M5.3 increment 4: the effective opt-in YOLO state.
+            "yolo_enabled": bool(getattr(session, "yolo_enabled", False)),
+            "revision": getattr(session, "revision", None),
         },
         **page,
     }
@@ -536,6 +550,53 @@ async def update_session(
         "model": getattr(session, "model", None),
         "mode": getattr(session, "mode", "chat"),
         "cwd": getattr(session, "cwd", None),
+    }
+
+
+@router.post("/sessions/{session_id}/yolo")
+async def set_yolo_mode(session_id: str, body: YoloToggleBody, request: Request) -> dict:
+    """Explicitly enable or disable opt-in YOLO for ONE session.
+
+    Server-owned, owner-scoped session state: enabling requires an explicit
+    user confirmation that ordinary approval prompts may be skipped
+    (``confirmed: true`` in the same request) — selecting Agent mode, opening
+    a project, resuming a conversation, or any model-generated text never
+    activates it. State is persisted on the session row (survives reconnects
+    and restart recovery), revision-fenced against stale concurrent updates,
+    revocable immediately, and audited with the authenticated owner.
+    """
+    _admission, session = _admit(request, session_id)
+    owner = _require_owner(request)
+    if type(body.enabled) is not bool:
+        raise HTTPException(400, "enabled must be a boolean")
+    if body.enabled and not body.confirmed:
+        raise HTTPException(
+            400,
+            "Enabling YOLO requires explicit confirmation that ordinary "
+            "approval prompts may be skipped for this session.",
+        )
+    from src.gateway_session_store import SessionStoreError, set_session_yolo_state
+
+    try:
+        effective = set_session_yolo_state(
+            manager=_session_manager(request),
+            session=session,
+            owner=owner,
+            enabled=body.enabled,
+            expected_revision=body.expected_revision,
+        )
+    except SessionStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    try:
+        from src.event_bus import fire_event
+
+        fire_event("session_yolo_changed", owner, enabled=body.enabled)
+    except Exception:
+        logger.warning("session_yolo_changed event delivery failed", exc_info=True)
+    return {
+        "session_id": session_id,
+        "yolo_enabled": effective,
+        "revision": getattr(session, "revision", None),
     }
 
 

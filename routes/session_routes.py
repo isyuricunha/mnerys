@@ -363,6 +363,11 @@ def setup_session_routes(
     skills_manager=None,
 ):
     """Setup session routes with the provided manager and config"""
+    # The module-level APIRouter is reused by every harness/app that mounts
+    # these routes. Accumulated route functions from an earlier setup call
+    # would keep dispatching to the FIRST harness's captured manager — clear
+    # them so each setup produces a fresh, correct binding.
+    router.routes.clear()
 
     REQUEST_TIMEOUT = config.get("REQUEST_TIMEOUT", 20)
     SESSION_MODEL_VALIDATION_TIMEOUT = min(float(REQUEST_TIMEOUT or 20), 3.0)
@@ -485,6 +490,8 @@ def setup_session_routes(
                     "archived": s.archived,
                     "folder": s.folder,
                     "cwd": s.cwd,
+                    "yolo_enabled": bool(s.yolo_enabled),
+                    "revision": s.revision or 0,
                     "total_tokens": (s.total_input_tokens or 0) + (s.total_output_tokens or 0),
                     "total_cost_usd": s.total_cost_usd or 0.0,
                     "is_important": s.is_important or False,
@@ -679,7 +686,9 @@ def setup_session_routes(
         model: str = Form(None), endpoint_url: str = Form(None),
         endpoint_id: str = Form(None),
         cwd: str = Form(None),
+        yolo: str = Form(None), yolo_confirm: str = Form(None),
     ):
+        user = effective_user(request)
         _verify_session_owner(request, sid)
         try:
             session = session_manager.get_session(sid)
@@ -701,6 +710,33 @@ def setup_session_routes(
                     result["folder"] = folder if folder else None
             finally:
                 db.close()
+        if yolo is not None:
+            # M5.3 increment 4: the legacy session surface exposes the same
+            # YOLO state. Enabling requires an explicit confirmation flag in
+            # the same request; disabling is always allowed.
+            from src.tool_security import owner_is_admin_or_single_user as _owadmin_yolo
+
+            want_yolo = str(yolo).strip().lower() in {"true", "1", "on", "yes"}
+            if want_yolo and not _owadmin_yolo(user):
+                raise HTTPException(403, "YOLO mode requires an authorized account.")
+            if want_yolo and str(yolo_confirm or "").strip().lower() not in {"true", "1", "on", "yes"}:
+                raise HTTPException(
+                    400,
+                    "Enabling YOLO requires explicit confirmation that ordinary "
+                    "approval prompts may be skipped for this session.",
+                )
+            db = SessionLocal()
+            try:
+                db_session = db.query(DbSession).filter(DbSession.id == sid).first()
+                if db_session:
+                    db_session.yolo_enabled = want_yolo
+                    db_session.updated_at = utcnow_naive()
+                    db.commit()
+                    session.yolo_enabled = want_yolo
+                    result["yolo_enabled"] = want_yolo
+            finally:
+                db.close()
+
         if cwd is not None:
             # M5.3 increment 1: a selected working directory is validated
             # server-side before it becomes the session's authoritative CWD.

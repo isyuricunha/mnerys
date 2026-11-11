@@ -351,6 +351,53 @@ import { invalidateSettings } from './appConfig.js';
     );
   });
 
+  // ── YOLO indicator (M5.3 increment 4): persistent, visible warning that
+  // mirrors the SERVER-owned session state — never a local-only toggle.
+  function _renderYoloIndicator(enabled) {
+    let banner = document.getElementById('yolo-indicator');
+    if (!enabled) {
+      banner?.remove();
+      return;
+    }
+    if (banner) return;  // already visible; the server state is authoritative
+    banner = document.createElement('button');
+    banner.id = 'yolo-indicator';
+    banner.type = 'button';
+    banner.title = 'YOLO is ON for this session: ordinary approval prompts may be skipped. Click /yolo off to disable.';
+    banner.setAttribute('aria-label', 'YOLO mode is enabled for this session. Click to disable.');
+    banner.className = 'yolo-indicator-btn';
+    banner.textContent = '⚡ YOLO ON';
+    banner.style.cssText = [
+      'position:fixed', 'top:10px', 'right:10px', 'z-index:9999',
+      'padding:6px 12px', 'border-radius:8px', 'cursor:pointer',
+      'background:#8a3324', 'color:#fff', 'border:1px solid #ffb347',
+      'font-weight:600', 'font-size:12px', 'letter-spacing:0.4px',
+    ].join(';');
+    banner.addEventListener('click', () => {
+      slashCommands.handleSlashCommand('/yolo off');
+    });
+    document.body.appendChild(banner);
+  }
+
+  window.addEventListener('odysseus:yolo-changed', (event) => {
+    const sessionId = sessionModule.getCurrentSessionId?.();
+    if (!event.detail || (sessionId && event.detail.sessionId !== sessionId)) return;
+    _renderYoloIndicator(!!event.detail.enabled);
+  });
+
+  window.addEventListener('odysseus:session-changed', async () => {
+    try {
+      const state = await (async () => {
+        const currentId = sessionModule.getCurrentSessionId?.();
+        if (!currentId) return { yolo_enabled: false };
+        const res = await fetch(`/api/session/${currentId}`, { credentials: 'same-origin' });
+        if (!res.ok) return { yolo_enabled: false };
+        return await res.json();
+      })();
+      _renderYoloIndicator(!!state.yolo_enabled);
+    } catch (_) { /* state unavailable: leave the banner as-is */ }
+  });
+
   document.getElementById('selected-notes-context-btn')?.addEventListener('click', () => {
     const sessionId = sessionModule.getCurrentSessionId?.();
     if (sessionId) {

@@ -1567,6 +1567,68 @@ async function _cmdMcp(args, ctx) {
   return true;
 }
 
+// ── YOLO (M5.3 increment 4) ──
+
+async function _yoloSessionState() {
+  const sessionId = sessionModule.getCurrentSessionId?.() || null;
+  if (!sessionId) return { sessionId: null, yolo_enabled: false, available: false };
+  try {
+    const res = await fetch(`${API_BASE}/api/session/${sessionId}`, { credentials: 'same-origin' });
+    if (!res.ok) return { sessionId, yolo_enabled: false, available: false };
+    const detail = await res.json();
+    return { sessionId, yolo_enabled: !!detail.yolo_enabled, available: true, revision: detail.revision };
+  } catch (_) {
+    return { sessionId, yolo_enabled: false, available: false };
+  }
+}
+
+async function _cmdYolo(args, ctx) {
+  const sub = String(args[0] || '').toLowerCase();
+  const state = await _yoloSessionState();
+  if (!state.sessionId) {
+    slashReply('Open a session first — YOLO is a per-session, server-owned mode.');
+    return true;
+  }
+  if (sub === 'on' || sub === 'off') {
+    const enabling = sub === 'on';
+    if (enabling) {
+      // Meaningful confirmation: the user must acknowledge that ordinary
+      // approval prompts may be skipped for this session.
+      const acknowledged = window.confirm(
+        'Enable YOLO for THIS session?\n\n' +
+        'Ordinary approval prompts (including risky-command approvals) may be ' +
+        'skipped for operations the server already authorizes. Explicit policy ' +
+        'denials, delegated boundaries, and prohibited operations still apply.\n\n' +
+        'You can disable it any time with /yolo off.'
+      );
+      if (!acknowledged) { slashReply('YOLO was not enabled.'); return true; }
+    }
+    const form = new FormData();
+    form.append('yolo', enabling ? 'true' : 'false');
+    if (enabling) form.append('yolo_confirm', 'true');
+    const res = await fetch(`${API_BASE}/api/session/${state.sessionId}`, {
+      method: 'PATCH', body: form, credentials: 'same-origin',
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      slashReply(`YOLO toggle failed: ${ctx.esc(detail.detail || res.statusText)}`);
+      return true;
+    }
+    const effective = (await res.json()).yolo_enabled;
+    document.dispatchEvent(new CustomEvent('odysseus:yolo-changed', {
+      detail: { sessionId: state.sessionId, enabled: !!effective },
+    }));
+    slashReply(effective
+      ? '<strong>YOLO is ON for this session.</strong> Ordinary approval prompts may be skipped — policy denials, prohibited operations and delegated boundaries still apply. <em>/yolo off</em> disables it.'
+      : 'YOLO is OFF for this session. Approvals return to the standard flow.');
+    return true;
+  }
+  slashReply(state.available
+    ? `YOLO is ${state.yolo_enabled ? '<strong>ON</strong>' : 'OFF'} for this session. Use <code>/yolo on</code> or <code>/yolo off</code>.`
+    : 'YOLO state is unavailable for this session.');
+  return true;
+}
+
 // ── Memory ──
 
 async function _cmdMemoryList(args, ctx) {
@@ -6066,6 +6128,13 @@ const COMMANDS = {
     help: 'Show MCP server status',
     handler: _cmdMcp,
     usage: '/mcp'
+  },
+  yolo: {
+    alias: [],
+    category: 'Settings',
+    help: 'Opt-in YOLO approval mode for THIS session (server-enforced)',
+    handler: _cmdYolo,
+    usage: '/yolo  ·  /yolo on  ·  /yolo off'
   },
   model: {
     alias: [],

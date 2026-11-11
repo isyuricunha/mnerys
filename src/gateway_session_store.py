@@ -260,6 +260,40 @@ def create_owner_session(
     return session
 
 
+def set_session_yolo_state(
+    manager: Any, session: Any, owner: str, *, enabled: bool,
+    expected_revision: int | None = None,
+) -> bool:
+    """Persist the opt-in YOLO state for ONE session (M5.3 increment 4).
+
+    Owner-checked, session-scoped, revision-fenced (a stale expected_revision
+    is refused), effective immediately, auditable, and reversible. The state
+    never derives from model text and never leaks to another owner/session.
+    """
+    from core.database import utcnow_naive
+
+    db = _db()
+    try:
+        row = db.query(DbSession).filter(DbSession.id == session.id).first()
+        if row is None:
+            raise SessionStoreError("Session no longer exists", status_code=404)
+        current_revision = int(getattr(row, "revision", 0) or 0)
+        if expected_revision is not None and int(expected_revision) != current_revision:
+            raise SessionStoreError(
+                "Session state changed since you last saw it; reload and retry.",
+                status_code=409,
+            )
+        row.yolo_enabled = bool(enabled)
+        row.revision = current_revision + 1
+        row.updated_at = utcnow_naive()
+        db.commit()
+        session.yolo_enabled = bool(enabled)
+        session.revision = row.revision
+        return bool(enabled)
+    finally:
+        db.close()
+
+
 def update_owner_session(
     manager: Any, session: Any, owner: str, *, name: str | None = None,
     endpoint_id: str | None = None, model_hint: str | None = None,
