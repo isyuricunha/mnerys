@@ -49,6 +49,70 @@ CONTRACT_CORE_TOOLS = frozenset({
     "bash", "python", "read_file", "web_search", "web_fetch", "ask_user",
 })
 
+# Local workspace intent is distinct from public-Web lookup. These narrowly
+# anchored PT-BR forms grant a task *class*, never an operation, path, or policy
+# exemption. Short acknowledgements may refer only to a recent trusted user
+# request in the same local task; model suggestions are never authority.
+_PT_LOCAL_LIST = re.compile(
+    r"^\s*(?:d[aá]\s+(?:um\s+)?(?:ls|dir)\b[^\n;]*|"
+    r"(?:roda|executa|faz|manda)\s+(?:um\s+)?(?:ls|dir)\b[^\n;]*|"
+    r"(?:ls|dir)(?:\s+-[a-z]+)?\s*|"
+    r"(?:e\s+)?(?:o\s+que|qq|q\s*q)\s+(?:tem|h[aá]|existe)\s+"
+    r"(?:na|nessa|dentro\s+da)\s+(?:pasta|diret[oó]rio)\s*[?!.]*|"
+    r"(?:mostra|liste|lista|verifica)\s+(?:o\s+)?conte[uú]do\s+"
+    r"(?:da|dessa|do)\s+(?:pasta|diret[oó]rio)\s*[?!.]*)$",
+    re.IGNORECASE,
+)
+_PT_LOCAL_COPY = re.compile(
+    r"^\s*(?:copia|copie|copiar|duplica|duplique)\s+"
+    r"(?:um|uma|esse|essa|aquele|aquela|o|a|arquivo)\b[^\n;]*$",
+    re.IGNORECASE,
+)
+_PT_LOCAL_VAGUE = re.compile(
+    r"^\s*(?:e\s+)?(?:o\s+que|qq|q\s*q)\s+(?:tem|h[aá]|existe)\s+"
+    r"(?:a[ií]|aqui)(?:\s+\w{1,12})?\s*[?!.]*$", re.IGNORECASE,
+)
+_PT_LOCAL_FOLLOWUP = re.compile(
+    r"^\s*(?:sim|ss|isso|pode|pode\s+sim|tenta\s+(?:dnv|de\s+novo|novamente)|"
+    r"(?:faz|roda)\s+de\s+novo|\?{1,3})\s*[?!.]*$",
+    re.IGNORECASE,
+)
+
+
+def local_filesystem_intent(message: str, history: Iterable = ()) -> str | None:
+    """Return 'list' or 'copy' for an explicit, trusted local task.
+
+    This only selects tool families. Ordinary Gateway authority, path,
+    resource, and risk gates remain mandatory. No assistant/tool text can
+    establish the referenced task.
+    """
+    text = str(message or "").strip()
+    if _PT_LOCAL_LIST.fullmatch(text):
+        return "list"
+    if _PT_LOCAL_COPY.fullmatch(text):
+        return "copy"
+    vague_local_read = bool(_PT_LOCAL_VAGUE.fullmatch(text))
+    if not vague_local_read and not _PT_LOCAL_FOLLOWUP.fullmatch(text):
+        return None
+    user_turns = 0
+    for row in reversed(tuple(history or ())):
+        get = row.get if isinstance(row, dict) else lambda key, default=None: getattr(row, key, default)
+        if get("role") != "user":
+            continue
+        metadata = get("metadata") or {}
+        if isinstance(metadata, dict) and (metadata.get("trusted") is False or metadata.get("tool_gate_untrusted")):
+            return None
+        prior = str(get("content") or "").strip()
+        user_turns += 1
+        if _PT_LOCAL_LIST.fullmatch(prior):
+            return "list"
+        if _PT_LOCAL_COPY.fullmatch(prior):
+            return None if vague_local_read else "copy"
+        if not _PT_LOCAL_FOLLOWUP.fullmatch(prior) or user_turns >= 3:
+            break
+    return None
+
+
 _WORKSPACE_PREFIX_RE = re.compile(r"/workspace/", re.I)
 _WORKSPACE_ARTIFACT_RE = re.compile(
     r"/workspace/[^\s`\"']+\.(?:csv|html?|json|md|svg|txt)\b", re.I
@@ -1043,6 +1107,11 @@ def selected_tools_for_request(message: str) -> frozenset[str] | None:
     """
     message = _routing_email_scope(editor_request_instructions(message))
     raw_text = str(message or "").strip()
+    local_intent = local_filesystem_intent(raw_text)
+    if local_intent == "list":
+        return frozenset({"ls", "get_workspace", "glob"})
+    if local_intent == "copy":
+        return frozenset({"bash", "ls", "read_file", "write_file"})
     if inline_text_transformation(raw_text):
         return frozenset()
     text = _normalize_request_lead(message)
@@ -4777,6 +4846,8 @@ def requested_capabilities(message: str, history: Iterable = (), *, active_docum
     """Classify once; inherit a prior capability only for a referential follow-up."""
     message = _routing_email_scope(editor_request_instructions(message))
     raw_text = str(message or "").strip()
+    if local_filesystem_intent(raw_text, history):
+        return frozenset({"shell_files"})
     text = _normalize_request_lead(message)
     if lead := _CONVERSATIONAL_ACTION_LEAD.fullmatch(text):
         text = lead["request"].strip()

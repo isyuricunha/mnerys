@@ -15,6 +15,7 @@ from src.gateway_chat_context_rules import (
 from src.gateway_chat_context_types import ChatContext
 from src.gateway_context_ports import ChatContextPorts
 from src.prompt_security import untrusted_context_message
+from src.turn_contract import local_filesystem_intent
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +174,11 @@ async def assemble_chat_context(
         or not allow_tool_preprocessing
         or casual_low_signal
         or bool(agent_mode and _PERSONAL_TOOL_CONTEXT_RE.search(context_message or ""))
+        # Explicit and securely inherited local directory/file tasks must not
+        # trigger an unrelated public search merely because the Web toggle is ON.
+        or bool(agent_mode and local_filesystem_intent(
+            context_message, getattr(sess, "history", ()) or (),
+        ))
     )
 
     # Build context preface

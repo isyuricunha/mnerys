@@ -8,6 +8,7 @@ credentials, tool arguments/results and private identity are forbidden.
 """
 
 from collections.abc import Callable, Iterator
+from src.tool_approval_scopes import VALID_APPROVAL_DECISIONS
 import json
 import re
 from datetime import datetime, timezone
@@ -340,7 +341,7 @@ class SqlTurnRecords:
         self, *, approval_id: str, owner: str, decision: str,
     ) -> bool:
         """Record one decision on a pending approval, exactly once."""
-        if decision not in {"approve", "approve_task", "deny"}:
+        if decision not in VALID_APPROVAL_DECISIONS:
             raise TurnRecordError("Invalid approval decision")
         terminal = "consumed" if decision != "deny" else "denied"
         with self.session_factory() as db:
@@ -387,7 +388,7 @@ class SqlTurnRecords:
         """Record a decision from a consumed process-local seal, never issue one."""
         from sqlalchemy import func
 
-        if decision not in {"approve", "approve_task", "deny"}:
+        if decision not in VALID_APPROVAL_DECISIONS:
             raise TurnRecordError("Invalid approval decision")
         with self.session_factory() as db:
             row = db.get(self.approval_model, pending.approval_id)

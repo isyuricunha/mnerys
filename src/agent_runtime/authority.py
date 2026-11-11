@@ -347,6 +347,14 @@ def interpret_request(request_text, *, history=(), workspace=None, active_docume
         if (get("role") == "user" and isinstance(metadata, dict)
                 and metadata.get("trusted") is not False and not metadata.get("tool_gate_untrusted")):
             trusted_history.append({"role": "user", "content": get("content", "")})
+    from src.turn_contract import local_filesystem_intent
+    local_intent = local_filesystem_intent(request_text, trusted_history)
+    if local_intent == "list":
+        return SemanticIntent(frozenset({"shell_files"}),
+                              frozenset({"ls", "get_workspace", "glob"}), None)
+    if local_intent == "copy":
+        return SemanticIntent(frozenset({"shell_files"}),
+                              frozenset({"bash", "ls", "read_file", "write_file"}), None)
     families = requested_capabilities(request_text, trusted_history,
         active_document=active_document, workspace=bool(workspace), image_attachment=image_attachment)
     selected = selected_tools_for_request(request_text)
