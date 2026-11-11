@@ -35318,6 +35318,9 @@ async def stream_agent_loop(
                 "command": cmd_display,
                 "output": output_text,
                 "exit_code": result.get("exit_code"),
+                # Preserve refused/executed state in durable tool evidence.
+                "blocked": bool(result.get("blocked", False)),
+                "execution_attempted": _execution_attempted,
             }
             if _requested_host_command_text:
                 tool_event["requested_command"] = _requested_host_command_text
@@ -37691,6 +37694,16 @@ async def stream_agent_loop(
     # prose. Local finetunes may emit those before the parser catches and
     # executes them; saved history should contain only the user-facing answer.
     full_response = _visible_response_text(full_response)
+    from src.local_task_evidence import failed_local_listing_notice
+    _local_failure_notice = failed_local_listing_notice(
+        _last_user, messages, tool_events,
+    )
+    if _local_failure_notice:
+        # Rejected operations are not evidence for filesystem assertions.
+        # Replace any unverified listing before persisting or returning it.
+        full_response = _local_failure_notice
+        if round_texts:
+            round_texts[-1] = full_response
     if re.match(r"^Done\b", full_response, re.IGNORECASE):
         without_trailing_done = _strip_trailing_done(full_response)
         if without_trailing_done:

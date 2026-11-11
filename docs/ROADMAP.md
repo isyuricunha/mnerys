@@ -597,6 +597,23 @@ text-only ceiling and the strict text-profile route preserved), and the
 security-negative matrix (cross-owner, stale/replayed approvals, policy
 denials, context-equality resume). 658 focused tests green.
 
+**Post-release M5.3 regression correction (2026-11-11):** The first active
+v0.19.0 Web deployment exposed gaps missing from the original English-only
+acceptance fixtures: colloquial PT-BR local directory requests and trusted
+confirmations lost read-tool admission; a Web-search toggle triggered unrelated
+pre-search; the durable Web approval projection accepted only three legacy
+decisions despite the five supported wire values; and a model could describe
+unverified directory contents after every local inspection failed.
+
+The corrective implementation admits only the relevant read tools for directory
+listing (not general Bash), supports narrowly scoped copy/retry follow-ups,
+unifies durable decision values, keeps exact-rule persistence after Web
+settlement, and records actual blocked/executed tool evidence. Focused evidence:
+130 authorization/approval tests, 259 Web tests, and 28 isolated PostgreSQL 17
+turn-record tests, all green. This is a **hotfix**, not a new milestone or a
+relaxation of request authority. Hosted release and production re-verification
+are separate gates; document their actual results before calling them complete.
+
 - No mandatory per-chat workspace. Local CLI/TUI begin in the invoking
   shell's current directory; local Web and Telegram begin in the
   configured execution account's home. Remote CLI/TUI use the server's

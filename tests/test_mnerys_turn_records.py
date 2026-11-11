@@ -156,6 +156,38 @@ def test_approvals_seal_and_decide_exactly_once(records):
         assert row.decision == "approve"
 
 
+@pytest.mark.parametrize("choice", [
+    "approve", "approve_task", "allow_once", "always_allow", "deny",
+])
+def test_all_web_wire_decisions_are_durable(records, choice):
+    from types import SimpleNamespace
+
+    records.open_turn(
+        owner="alice", session_id="session-1", incarnation_id="epoch-a",
+        turn_id="web-turn", policy_version="web-recovery-v1",
+    )
+    records.record_approval(
+        approval_id="web-approval", owner="alice", session_id="session-1",
+        incarnation_id="epoch-a", turn_id="web-turn", tool_name="bash",
+        operation_digest="d" * 64, resource_identity=None,
+        effective_authority=None, expires_at=None, web_projection=True,
+    )
+    pending = SimpleNamespace(approval_id="web-approval", digest="d" * 64)
+    assert records.settle_web_approval(
+        owner="alice", session_id="session-1", incarnation_id="epoch-a",
+        pending=pending, decision=choice,
+    )
+    with records.session_factory() as db:
+        row = db.get(GatewayApproval, "web-approval")
+        assert row.decision == choice
+        assert row.status == ("denied" if choice == "deny" else "consumed")
+    with pytest.raises(TurnRecordError, match="already settled"):
+        records.settle_web_approval(
+            owner="alice", session_id="session-1", incarnation_id="epoch-a",
+            pending=pending, decision=choice,
+        )
+
+
 def test_pending_approvals_expire(records):
     _open(records)
     records.record_approval(

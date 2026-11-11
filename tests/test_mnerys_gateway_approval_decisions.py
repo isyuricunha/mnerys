@@ -88,6 +88,34 @@ def test_decision_consumes_only_exact_matching_pending_card(choice, expected_sco
         assert not result.exact._claimed
 
 
+def test_projected_web_always_allow_settlement_still_saves_exact_rule(monkeypatch):
+    from types import SimpleNamespace
+    from src.gateway_approval_decisions import consume_admitted_tool_approval
+    from src import tool_approval_rules
+
+    store = ToolApprovalStore()
+    pending = _pending(store)
+    records = Mock()
+    records.settle_web_approval.return_value = True
+    saved = SimpleNamespace(rule_id="one-exact-rule")
+    persist = Mock(return_value=saved)
+    monkeypatch.setattr(tool_approval_rules, "persist_scoped_rule", persist)
+
+    decision = consume_admitted_tool_approval(
+        _admit(), pending.approval_id, "always_allow",
+        plan_mode=False, internal_tool_request=False,
+        store=store, records=records,
+        session=SimpleNamespace(incarnation_id="epoch-a"),
+    )
+    assert decision.saved_rule is saved
+    assert decision.exact is not None
+    assert records.settle_web_approval.call_count == 1
+    assert not records.record_approval.called
+    assert persist.call_count == 1
+    assert persist.call_args.kwargs["origin_approval_id"] == pending.approval_id
+    assert persist.call_args.kwargs["content"] == pending.content
+
+
 def test_retry_cannot_consume_a_second_time():
     store = ToolApprovalStore()
     pending = _pending(store)

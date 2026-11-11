@@ -21,6 +21,13 @@ CHAT_SESSION_APPROVAL_DECISION = "approve"
 DENY_APPROVAL_DECISION = "deny"
 ALLOW_ONCE_APPROVAL_DECISION = "allow_once"
 ALWAYS_ALLOW_APPROVAL_DECISION = "always_allow"
+VALID_APPROVAL_DECISIONS = frozenset({
+    TASK_APPROVAL_DECISION,
+    CHAT_SESSION_APPROVAL_DECISION,
+    ALLOW_ONCE_APPROVAL_DECISION,
+    ALWAYS_ALLOW_APPROVAL_DECISION,
+    DENY_APPROVAL_DECISION,
+})
 
 # Session.get_context_messages() adds this server-owned marker only when the
 # session history contains a matching, resolved chat-session approval.

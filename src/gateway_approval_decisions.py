@@ -14,6 +14,7 @@ from src.gateway_admission import AdmittedSession, AdmissionDenied, require_admi
 from src.tool_approval_scopes import (
     ALLOW_ONCE_APPROVAL_DECISION,
     ALWAYS_ALLOW_APPROVAL_DECISION,
+    VALID_APPROVAL_DECISIONS,
 )
 from src.tool_approvals import ExactToolApproval, PendingToolApproval, ToolApprovalStore
 
@@ -80,6 +81,7 @@ def consume_admitted_tool_approval(
         raise AdmissionDenied(409, "This tool approval could not be consumed.")
 
     settle = getattr(records, "settle_web_approval", None)
+    durable_projection_settled = False
     if callable(settle) and session is not None:
         from sqlalchemy.exc import SQLAlchemyError
         from src.gateway_turn_records import TurnRecordError
@@ -92,10 +94,12 @@ def consume_admitted_tool_approval(
             raise AdmissionDenied(409, "This approval is no longer valid for the session.") from exc
         except SQLAlchemyError as exc:
             raise AdmissionDenied(503, "Approval audit unavailable; request a fresh turn.") from exc
-        if settled:
-            return ToolApprovalDecision(normalized_decision, pending, exact)
+        durable_projection_settled = bool(settled)
 
-    if records is not None and exact is not None:
+    # A projected Web settlement must not skip persistence of a separately
+    # reviewed, exact-operation always-allow rule. It has already recorded the
+    # decision, however; do not try to record it again as a legacy approval.
+    if records is not None and exact is not None and not durable_projection_settled:
         from datetime import datetime, timezone
 
         from src.gateway_turn_records import TurnRecordError
@@ -204,10 +208,7 @@ def inspect_admitted_tool_approval(
         )
 
     normalized_decision = str(decision or "").strip().lower()
-    if normalized_decision not in {
-        "approve", "approve_task", "deny",
-        ALLOW_ONCE_APPROVAL_DECISION, ALWAYS_ALLOW_APPROVAL_DECISION,
-    }:
+    if normalized_decision not in VALID_APPROVAL_DECISIONS:
         raise AdmissionDenied(400, "Invalid tool approval decision.")
     if plan_mode:
         raise AdmissionDenied(

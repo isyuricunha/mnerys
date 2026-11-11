@@ -2521,6 +2521,14 @@ def setup_chat_routes(
         # not chats we quietly promoted for a notes/calendar intent.
         user_requested_agent = (chat_mode == "agent")
         _search_enabled = web_search_enabled_for_turn(allow_web_search, use_web)
+        # A Web-search UI preference is not a request to search the public Web
+        # for local shell terms such as `ls`, `sim`, or `copia um`. Suppress it
+        # for this local-only turn; the persisted toggle remains unchanged.
+        from src.turn_contract import local_filesystem_intent
+        if local_filesystem_intent(message):
+            _search_enabled = False
+            allow_web_search = "false"
+            use_web = "false"
         # Pre-admission text classification is a routing hint, never a tool
         # grant. A validated workspace is required before considering local
         # HTML rendering, and its own server checks stay in the Web adapter.
@@ -2674,6 +2682,12 @@ def setup_chat_routes(
             # but BEFORE loading. Prevents cross-user session hijack.
             _admitted_session = _verify_session_owner(request, session)
             sess = session_manager.get_session(session)
+            # Only after admitted session resolution may trusted history turn
+            # a short confirmation into a local task continuation.
+            if local_filesystem_intent(message, getattr(sess, "history", ()) or ()):
+                _search_enabled = False
+                allow_web_search = "false"
+                use_web = "false"
             session_mode = str(getattr(sess, "thinking_mode", "") or "off").lower()
             # An explicit request-scoped mode (headless eval, API client, or
             # UI override) wins over the persisted session default. The old
@@ -4595,6 +4609,17 @@ def setup_chat_routes(
                         _forced_tools.update({"bash", "ls", "manage_bg_jobs"})
                     if _turn_contract is None:
                         _explicit_selected_tools = selected_tools_for_request(message)
+                        _local_task = local_filesystem_intent(
+                            message, getattr(sess, "history", ()) or (),
+                        )
+                        if _local_task == "list":
+                            _explicit_selected_tools = frozenset({
+                                "ls", "get_workspace", "glob",
+                            })
+                        elif _local_task == "copy":
+                            _explicit_selected_tools = frozenset({
+                                "bash", "ls", "read_file", "write_file",
+                            })
                         if _explicit_selected_tools:
                             # Full-schema/API models normally retain broad
                             # freedom, but a complete request that explicitly

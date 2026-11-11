@@ -81,3 +81,34 @@ Gateway execution evidence and focused deterministic coverage. Known
 limitations (documented, non-binding): external CLI/TUI visual verification,
 browser screenshot verification, and the classifier's opaque-blob boundary
 (enforced by the sandbox, not classification).
+
+## Post-release user acceptance and corrective gate (2026-11-11)
+
+The deployed v0.19.0 revealed four defects absent from the original M5.3
+English-only acceptance:
+
+1. Colloquial PT-BR requests to list a directory or confirm a local task
+   lost their read grants even though the model was offered tools.
+2. The Web prefetch searched public websites for local shell terms and
+   acknowledgments because the enabled search toggle was treated as intent.
+3. The durable Web projection accepted only the legacy approve, approve_task
+   and deny decisions; valid allow_once/always_allow choices failed after
+   their in-memory seal was consumed. A projected-settlement early return
+   additionally skipped persistence of the exact reviewed rule.
+4. Failed filesystem tools did not prevent the model from asserting
+   directory contents without evidence.
+
+The correction preserves the M5.3 security boundaries: listing requests admit
+only directory-read tools, not general Bash or write capabilities; copy
+requests remain bound to user intent and existing risk/approval/resource gates.
+Short acknowledgments inherit only a recent trusted user task, never model
+or external tool prose. Web and durable approval paths use one decision catalog,
+and projected always-allow settlement no longer skips exact-rule persistence.
+Persisted tool events now distinguish blocked from executed operations; failed
+local inspections cannot be reported as verified directory contents.
+
+**Focused evidence:** 130 authorization/approval tests, 259 Web/Agent-first
+tests, 28 PostgreSQL 17 isolated turn-record tests; compilation and diff checks
+green. The original v0.19.0 milestone PASS is historical evidence, not proof
+of this corrective deployment. Hosted release and authenticated production
+re-verification remain distinct acceptance gates.
