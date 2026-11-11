@@ -600,6 +600,90 @@ async def set_yolo_mode(session_id: str, body: YoloToggleBody, request: Request)
     }
 
 
+@router.get("/models/metadata")
+async def model_metadata_view(request: Request, model: str, endpoint: str = "") -> dict:
+    """Owner-scoped sanitized model-metadata projection (M5.4 increment 3)."""
+    owner = _require_owner(request)
+    from src.model_metadata import models_dev_catalog, resolve_model_metadata
+
+    # Endpoint-reported metadata only (none here): the resolver's built-in
+    # level already handles known-table values with honest heuristic
+    # provenance — never mislabel them as provider-reported.
+    provider_reported = None
+    # The provider identity for override matching: an explicit query param
+    # wins, else the endpoint URL's protocol detection (never a guess from
+    # the model name).
+    provider_hint = request.query_params.get("provider") or None
+    if not provider_hint and endpoint:
+        from src.llm_core import _detect_provider
+
+        provider_hint = _detect_provider(endpoint)
+    metadata = resolve_model_metadata(
+        provider_hint, model, endpoint or None, owner=owner, provider_reported=provider_reported,
+    )
+    catalog_meta, freshness = models_dev_catalog()
+    return {
+        **metadata.to_dict(),
+        "catalog_freshness": {
+            k: v for k, v in freshness.items() if k != "catalog"
+        },
+    }
+
+
+class ModelOverrideBody(BaseModel):
+    provider_id: str = Field(max_length=64)
+    model_id: str = Field(max_length=256)
+    fields: dict
+
+
+@router.put("/models/metadata/override")
+async def set_model_metadata_override(body: ModelOverrideBody, request: Request) -> dict:
+    """Apply owner-scoped per-field trusted overrides (validated, audited)."""
+    owner = _require_owner(request)
+    from src.model_metadata import model_overrides
+
+    try:
+        result = model_overrides().set_override(
+            owner, body.provider_id, body.model_id, body.fields,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    try:
+        from src.event_bus import fire_event
+
+        fire_event("model_metadata_override_changed", owner)
+    except Exception:
+        logger.warning("model_metadata_override_changed delivery failed", exc_info=True)
+    return result
+
+
+@router.delete("/models/metadata/override")
+async def remove_model_metadata_override(request: Request, provider: str, model: str) -> dict:
+    owner = _require_owner(request)
+    from src.model_metadata import model_overrides
+
+    if not model_overrides().remove_override(owner, provider, model):
+        raise HTTPException(404, "No saved override for this model")
+    return {"removed": f"{provider}:{model}"}
+
+
+@router.get("/models/metadata/overrides")
+async def list_model_metadata_overrides(request: Request) -> dict:
+    owner = _require_owner(request)
+    from src.model_metadata import model_overrides
+
+    return {"overrides": model_overrides().list_overrides(owner)}
+
+
+@router.post("/models/metadata/refresh")
+async def refresh_model_metadata(request: Request) -> dict:
+    """Controlled models.dev refresh (no billable inference; ETag-aware)."""
+    _require_owner(request)
+    from src.model_metadata import refresh_models_dev_catalog
+
+    return refresh_models_dev_catalog(force=True)
+
+
 @router.get("/provider-accounts")
 async def provider_account_status(request: Request) -> dict:
     """Sanitized account health/cooldown projection (M5.4 increment 2).
