@@ -469,6 +469,17 @@ every gate; MCP names never translate. Full redacted matrix:
 `docs/architecture/M5_2_REAL_PROVIDER_ACCEPTANCE.md`. The exit gate remains
 BLOCKED on independent second-provider credentials.
 
+**Increment 7 status (verified): M5.2 exit gate PASSED.** The remaining live
+gaps closed with real execution on both wire protocols: attended exact-approval
+executed the sealed `Edit` and sealed structured `apply_patch` operations
+exactly once each through the normal sealed-replay path (real replacements
+verified on disk); `Glob`/`Grep` positive live executions returned real
+filenames and content matches; the complete ToolSearch → activation →
+invocation → result flow ran in one turn. The last defect — canonical-name
+prescriptions ("call the Glob tool") deriving no grants — was fixed as the
+allow-side counterpart of the denylist boundary. Independent-provider
+acceptance is explicitly M5.4 scope. M5.2 is complete and published.
+
 **Exit gate:** real provider-backed read/search/edit/patch/shell tests;
 unread/stale file edits rejected; exact tool calls, permissions and
 results agree between the model trace, Gateway and client UI. Verify

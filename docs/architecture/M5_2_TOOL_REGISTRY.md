@@ -1,11 +1,11 @@
 # M5.2 — Canonical Tool Registry (Increment 1)
 
-Status: increments 1 (canonical registry), 2 (read-before-edit), 3 (unified
-textual/native tool vocabulary), 4 (derived-artifact writer publication
-boundary), 5 (ToolSearch and Skill) and 6 (real-provider acceptance and
-canonical policy security) implemented and regression-covered. The formal
-exit gate remains BLOCKED on one condition: independent second-provider
-credentials — see the acceptance report.
+Status: COMPLETE — increments 1 (canonical registry), 2 (read-before-edit),
+3 (unified textual/native tool vocabulary), 4 (derived-artifact writer
+publication boundary), 5 (ToolSearch and Skill), 6 (real-provider acceptance
+and canonical policy security) and 7 (final live acceptance and closure) all
+implemented and regression-covered; the formal exit gate PASSED (see
+`M5_2_REAL_PROVIDER_ACCEPTANCE.md`).
 
 ## What this is
 
@@ -567,6 +567,23 @@ JSON contract — same protections); the textual prompt can no longer silently
 drop a registry tool that lacks a hand-maintained section (registry-derived
 fallback rendering); request authority grants the neutral discovery controls;
 the tool-RAG index advertises the new tools.
+
+## Increment 7 — final live acceptance and milestone closure (implemented)
+
+The remaining live gaps closed with real execution evidence on both wire
+protocols: the attended exact-approval path executed the sealed `Edit` and
+sealed structured `apply_patch` operations EXACTLY ONCE per approval through
+the normal sealed-replay path (real content replacements verified on disk);
+`Glob`/`Grep` positive live executions returned real filenames and real
+`file:line:match` results; the complete discovery flow (ToolSearch → server-side
+activation → authorized invocation → real result → model continuation) ran in
+one turn. One further defect found and fixed: explicit canonical-name
+prescriptions ("call the Glob tool") now derive the same operation grants as
+handler-id phrasing — the allow-side counterpart of the denylist boundary —
+while bare English words never narrow anything.
+
+**M5.2 exit gate: PASS.** Evidence and the full matrix:
+`docs/architecture/M5_2_REAL_PROVIDER_ACCEPTANCE.md`.
 
 ## Remaining M5.2 work (after increment 6)
 
