@@ -583,6 +583,20 @@ Historical sessions/transcripts stay readable without migration; the
 strict-cutover (71), policy, TUI/Gateway-execution, and frontend Node suites.
 Contract: `docs/architecture/AGENT_FIRST_CONTRACT.md`.
 
+**M5.3 status: COMPLETE — exit gate PASSED (verified).** Formal acceptance:
+`docs/architecture/M5_3_ACCEPTANCE.md`. All ten binding requirements validated
+with real Gateway execution evidence: natural CWD defaults (CLI/TUI pwd,
+Web/Telegram/remote HOME, no implicit root/workspace), the persistent
+session-scoped directory shared across clients, the four approval decisions
+with genuine pending prompts and exactly-once sealed replay (real filesystem
+evidence), the deterministic local risk classifier integrated at the shared
+gate, secure opt-in YOLO (default OFF, confirmed enable, revision fencing,
+audited suppression, all negatives intact), the unified Agent-first
+experience with the legacy Chat compatibility boundary (the demoted caller's
+text-only ceiling and the strict text-profile route preserved), and the
+security-negative matrix (cross-owner, stale/replayed approvals, policy
+denials, context-equality resume). 658 focused tests green.
+
 - No mandatory per-chat workspace. Local CLI/TUI begin in the invoking
   shell's current directory; local Web and Telegram begin in the
   configured execution account's home. Remote CLI/TUI use the server's
