@@ -35,6 +35,38 @@ def test_unit_promotion_updates_release_and_venv(tmp_path):
     assert "ExecStart=" + str(old_python) not in updated
 
 
+def test_native_release_metadata_from_exact_semver_tag(monkeypatch, tmp_path):
+    revision = "e" * 40
+
+    def fake_call(args, **_kwargs):
+        assert args == ["git", "tag", "--points-at", revision]
+        return "v0.19.0\n"
+
+    monkeypatch.setattr(deployment, "call", fake_call)
+    assert deployment.revision_release_version(tmp_path, revision) == "0.19.0"
+
+    env = "AUTH_ENABLED=true\nODYSSEUS_SOURCE_COMMIT=old\n"
+    updated = deployment.update_release_version(env, "0.19.0")
+    assert updated.endswith("MNERYS_RELEASE_VERSION=0.19.0\n")
+    assert updated.count("MNERYS_RELEASE_VERSION=") == 1
+    assert deployment.update_release_version(updated, "0.19.1").endswith(
+        "MNERYS_RELEASE_VERSION=0.19.1\n"
+    )
+    assert deployment.update_release_version(updated, "0.19.1").count(
+        "MNERYS_RELEASE_VERSION="
+    ) == 1
+
+
+def test_native_untagged_version_is_honest_and_invalid_is_refused(monkeypatch, tmp_path):
+    revision = "b" * 40
+    monkeypatch.setattr(deployment, "call", lambda *_a, **_k: "")
+    value = deployment.revision_release_version(tmp_path, revision)
+    assert value == "0.0.0-dev." + revision[:12]
+    assert "MNERYS_RELEASE_VERSION=" + value in deployment.update_release_version("", value)
+    with pytest.raises(deployment.DeployError, match="Invalid release version"):
+        deployment.update_release_version("", "0.19.0\nAUTH_ENABLED=false")
+
+
 def test_update_commit_changes_only_last_setting():
     original = "ODYSSEUS_SOURCE_COMMIT=old\nAUTH_ENABLED=true\nODYSSEUS_SOURCE_COMMIT=old2\n"
     changed = deployment.update_source_commit(original, "a" * 40)
