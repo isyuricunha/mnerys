@@ -524,6 +524,35 @@ def setup_session_routes(
         endpoint_api_key = ""
         endpoint_base_url = ""
         _reject_raw_endpoint_url_for_non_admin(request, user, endpoint_id, endpoint_url)
+        # M5.3 increment 1: one authoritative session CWD, validated
+        # server-side. A caller-supplied directory must be a real, selectable
+        # directory (never the filesystem root, never sensitive) — an invalid
+        # selection is refused with an actionable reason instead of being
+        # stored as junk. When the caller did not choose one, the natural
+        # default applies: this Web surface (and any future remote/Telegram
+        # surface) starts in the execution account's HOME; a local CLI/TUI
+        # client passes its invoking shell pwd explicitly. Non-admin callers
+        # get no binding at all (the workspace-backed tools are not available
+        # to them, so a default directory would be dead state).
+        from src.tool_security import owner_is_admin_or_single_user
+        from src.session_cwd import (
+            default_session_cwd_for_surface,
+            vetted_session_cwd,
+        )
+        session_cwd = None
+        if cwd is not None and str(cwd).strip():
+            canonical, reason = vetted_session_cwd(cwd)
+            if canonical is None:
+                raise HTTPException(400, f"Invalid working directory: {reason}")
+            if owner_is_admin_or_single_user(user):
+                session_cwd = canonical
+        elif owner_is_admin_or_single_user(user):
+            canonical, _reason = default_session_cwd_for_surface(
+                "web",
+                invoking_cwd=None,
+                remote=False,
+            )
+            session_cwd = canonical
         if endpoint_id and endpoint_id.strip():
             from core.database import ModelEndpoint
             from src.auth_helpers import owner_filter
@@ -613,7 +642,7 @@ def setup_session_routes(
             model=model_to_use,
             rag=str(rag).lower() == "true" if rag else False,
             owner=user,
-            cwd=cwd or None,
+            cwd=session_cwd,
             endpoint_id=endpoint_id.strip() if endpoint_id else None,
         )
         # Set auth headers for custom API-key endpoints
@@ -673,7 +702,20 @@ def setup_session_routes(
             finally:
                 db.close()
         if cwd is not None:
-            clean_cwd = cwd.strip() or None
+            # M5.3 increment 1: a selected working directory is validated
+            # server-side before it becomes the session's authoritative CWD.
+            # An empty value clears the selection (documented); anything else
+            # must be a real, selectable directory — an invalid selection is
+            # refused with an actionable reason and nothing is stored, so the
+            # session keeps its previous directory.
+            clean_cwd_value, cwd_reason = None, None
+            if str(cwd).strip():
+                from src.session_cwd import clearable_session_cwd
+
+                clean_cwd_value, cwd_reason = clearable_session_cwd(cwd)
+                if clean_cwd_value is None:
+                    raise HTTPException(400, f"Invalid working directory: {cwd_reason}")
+            clean_cwd = clean_cwd_value
             db = SessionLocal()
             try:
                 db_session = db.query(DbSession).filter(DbSession.id == sid).first()

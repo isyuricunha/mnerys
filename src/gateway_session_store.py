@@ -200,8 +200,16 @@ def validated_session_model(endpoint_row: Any, owner: str, model_hint: str | Non
 def create_owner_session(
     manager: Any, owner: str, *, name: str,
     endpoint_id: str | None, model_hint: str | None,
+    cwd: str | None = None,
 ) -> Any:
-    """Create one owner-scoped session from a registered endpoint."""
+    """Create one owner-scoped session from a registered endpoint.
+
+    ``cwd`` (M5.3 increment 1) is the session's working directory: a
+    client-supplied value is validated server-side (``vetted_session_cwd``)
+    and an invalid selection is refused; when the caller does not choose one,
+    the natural default applies — the execution account's HOME (local CLI/TUI
+    clients pass their invoking shell ``pwd`` explicitly).
+    """
     from datetime import timezone
     from uuid import uuid4
 
@@ -217,6 +225,28 @@ def create_owner_session(
         build_headers(endpoint_row.api_key, endpoint_row.base_url or "")
         if endpoint_row.api_key else {}
     )
+    session_cwd = None
+    if cwd is not None and str(cwd).strip():
+        from src.session_cwd import vetted_session_cwd
+
+        session_cwd, reason = vetted_session_cwd(cwd)
+        if session_cwd is None:
+            raise SessionStoreError(f"Invalid working directory: {reason}", status_code=400)
+    else:
+        # Natural default at creation (M5.3 increment 1): the execution
+        # account's HOME for authorized callers; local CLI/TUI clients pass
+        # their invoking shell pwd explicitly. No binding for callers without
+        # the workspace-backed tools.
+        from src.tool_security import owner_is_admin_or_single_user
+
+        if owner_is_admin_or_single_user(owner):
+            from src.session_cwd import default_session_cwd_for_surface
+
+            session_cwd, reason = default_session_cwd_for_surface("cli", remote=False)
+            if session_cwd is None and cwd is not None:
+                raise SessionStoreError(
+                    f"Invalid working directory: {reason}", status_code=400,
+                )
     session = manager.create_session(
         session_id=str(uuid4()),
         name=name or "",
@@ -225,6 +255,7 @@ def create_owner_session(
         owner=owner,
         endpoint_id=getattr(endpoint_row, "id", None),
         headers=headers,
+        cwd=session_cwd,
     )
     return session
 
@@ -232,8 +263,15 @@ def create_owner_session(
 def update_owner_session(
     manager: Any, session: Any, owner: str, *, name: str | None = None,
     endpoint_id: str | None = None, model_hint: str | None = None,
+    cwd: str | None = None,
 ) -> Any:
-    """Apply owner-checked preference updates to one admitted session."""
+    """Apply owner-checked preference updates to one admitted session.
+
+    ``cwd`` (M5.3 increment 1): a non-empty value is validated server-side
+    and becomes the session's authoritative working directory; an empty
+    string clears the selection. Invalid selections are refused and the
+    previous directory is kept.
+    """
     from src.endpoint_resolver import build_chat_url, build_headers, normalize_base
 
     if name:
@@ -269,6 +307,24 @@ def update_owner_session(
                 db_session.thinking_mode = getattr(session, "thinking_mode", "off") or "off"
                 db_session.updated_at = utcnow_naive()
                 db.commit()
+        finally:
+            db.close()
+    if cwd is not None:
+        from src.session_cwd import clearable_session_cwd
+
+        clean_cwd, cwd_reason = clearable_session_cwd(cwd)
+        if cwd and clean_cwd is None:
+            raise SessionStoreError(
+                f"Invalid working directory: {cwd_reason}", status_code=400,
+            )
+        db = _db()
+        try:
+            db_session = db.query(DbSession).filter(DbSession.id == session.id).first()
+            if db_session is not None:
+                db_session.cwd = clean_cwd
+                db_session.updated_at = utcnow_naive()
+                db.commit()
+                session.cwd = clean_cwd
         finally:
             db.close()
     return session

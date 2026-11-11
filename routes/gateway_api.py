@@ -382,12 +382,19 @@ class SessionCreateBody(BaseModel):
     name: str = Field(default="", max_length=200)
     endpoint_id: Optional[str] = Field(default=None, max_length=128)
     model: Optional[str] = Field(default=None, max_length=256)
+    # M5.3 increment 1: the session's working directory. A local CLI/TUI
+    # client passes its invoking shell pwd; the value is validated
+    # server-side and persisted as the authoritative session CWD.
+    cwd: Optional[str] = Field(default=None, max_length=4096)
 
 
 class SessionUpdateBody(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)
     endpoint_id: Optional[str] = Field(default=None, max_length=128)
     model: Optional[str] = Field(default=None, max_length=256)
+    # Selected working directory: a non-empty validated value becomes the
+    # session's authoritative CWD; an empty string clears the selection.
+    cwd: Optional[str] = Field(default=None, max_length=4096)
 
 
 @router.post("/sessions", status_code=201)
@@ -408,6 +415,7 @@ async def create_session(body: SessionCreateBody, request: Request) -> dict:
             name=body.name or "",
             endpoint_id=(body.endpoint_id or "").strip() or None,
             model_hint=(body.model or "").strip() or None,
+            cwd=body.cwd,
         )
     except SessionStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -423,6 +431,7 @@ async def create_session(body: SessionCreateBody, request: Request) -> dict:
         "name": session.name,
         "model": session.model,
         "mode": "chat",
+        "cwd": getattr(session, "cwd", None),
     }
 
 
@@ -441,6 +450,9 @@ async def session_detail(
             "name": getattr(session, "name", None),
             "model": getattr(session, "model", None),
             "mode": getattr(session, "mode", "chat"),
+            # M5.3 increment 1: the effective working directory (authoritative,
+            # persisted; the client's local state never overrides it).
+            "cwd": getattr(session, "cwd", None),
         },
         **page,
     }
@@ -514,6 +526,7 @@ async def update_session(
             name=(body.name or "").strip() or None,
             endpoint_id=(body.endpoint_id or "").strip() or None,
             model_hint=(body.model or "").strip() or None,
+            cwd=body.cwd,
         )
     except SessionStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -522,6 +535,7 @@ async def update_session(
         "name": getattr(session, "name", None),
         "model": getattr(session, "model", None),
         "mode": getattr(session, "mode", "chat"),
+        "cwd": getattr(session, "cwd", None),
     }
 
 

@@ -69,7 +69,8 @@ class FakeManager:
             db.close()
 
     def create_session(self, *, session_id: str, name: str, endpoint_url: str,
-                       model: str, owner: str, endpoint_id=None, headers=None):
+                       model: str, owner: str, endpoint_id=None, headers=None,
+                       cwd=None):
         from core.database import utcnow_naive
 
         db = core_database.SessionLocal()
@@ -77,7 +78,7 @@ class FakeManager:
             db.add(DbSession(
                 id=session_id, name=name, endpoint_url=endpoint_url,
                 model=model, owner=owner, endpoint_id=endpoint_id,
-                headers=dict(headers or {}),
+                headers=dict(headers or {}), cwd=cwd or None,
                 revision=0, incarnation_id=uuid4().hex,
                 created_at=utcnow_naive(), updated_at=utcnow_naive(),
             ))
@@ -88,7 +89,7 @@ class FakeManager:
             id=session_id, name=name, endpoint_url=endpoint_url, model=model,
             owner=owner, endpoint_id=endpoint_id, headers=dict(headers or {}),
             incarnation_id=uuid4().hex, incognito=False,
-            thinking_mode="off",
+            thinking_mode="off", cwd=cwd or None,
         )
         self.sessions[session_id] = session
         return session

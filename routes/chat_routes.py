@@ -2677,6 +2677,37 @@ def setup_chat_routes(
                 current_workspace=workspace,
                 current_rejected=workspace_rejected,
             )
+            # M5.3 increment 1: a CWD selection is not merely client state.
+            # When an authorized request binds a directory and the session has
+            # no authoritative CWD yet, the first explicit bind persists as the
+            # session's working directory — later turns and other authorized
+            # clients of the same session resume in it. The session keeps its
+            # existing directory afterwards (no silent relocation); changing
+            # it goes through the validated session API.
+            from src.tool_security import (
+                owner_is_admin_or_single_user as _owadmin,
+            )
+            if (
+                workspace
+                and not str(getattr(sess, "cwd", "") or "").strip()
+                and _owadmin(effective_user(request))
+            ):
+                _session_db = SessionLocal()
+                try:
+                    _session_row = (
+                        _session_db.query(DbSession)
+                        .filter(DbSession.id == sess.id)
+                        .first()
+                    )
+                    if _session_row is not None and not str(
+                        _session_row.cwd or ""
+                    ).strip():
+                        _session_row.cwd = workspace
+                        _session_row.updated_at = utcnow_naive()
+                        _session_db.commit()
+                        sess.cwd = workspace
+                finally:
+                    _session_db.close()
             owner = effective_user(request)
             selected_notes = []
             if selected_note_ids:
