@@ -527,6 +527,26 @@ inspectable and revocable via the Gateway v1 API. Evidence:
 `tests/test_approval_decisions_rules.py` (24 deterministic tests) plus every
 existing approval suite (198+42 passed).
 
+**Increment 3 status (verified): deterministic command-risk classifier.**
+`src/command_risk.py` is one shared, Gateway-owned, local, deterministic risk
+boundary for shell/process execution, running inside the existing approval
+gate immediately before the four-decision flow and process launch (covering
+Web/CLI/TUI/MCP continuations/background jobs — not one tool spelling). A
+structured result (category, level, reason, matched segment, resource scope,
+analysis completeness, version) maps LOW_RISK to "no additional risk prompt"
+(all other gates intact), REQUIRES_APPROVAL to the existing four-decision flow
+with the concrete risk reason, and DENIED to non-delegable refusal. Parsing is
+quote-aware with conservative fallbacks: substitutions, heredocs, script
+files, inline interpreter code, unknown executables and unbalanced quoting
+never classify as safe; pipelines are data-flow expressions (download-and-
+execute detection); wrappers recurse; safe inspection is differentiated from
+mutation; sensitive paths gate reading AND mutation. The risk gate is
+independent of the task/session bypasses; scoped rules keep their exact
+operation semantics; delegated credentials keep their non-delegable boundary.
+No YOLO, no LLM reviewer, no new permission engine. Evidence:
+`tests/test_command_risk_classifier.py` (68 deterministic tests) plus every
+gate/approval suite (190+) and the subprocess/background suites (102+).
+
 - No mandatory per-chat workspace. Local CLI/TUI begin in the invoking
   shell's current directory; local Web and Telegram begin in the
   configured execution account's home. Remote CLI/TUI use the server's
