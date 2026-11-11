@@ -490,6 +490,25 @@ emulation or loss of results, authorization or streaming fidelity.
 
 #### M5.3 — Natural CWD, permission UX and opt-in YOLO
 
+**Increment 1 status (verified): natural CWD and persistent session
+directories.** `src/session_cwd.py` is the single documented resolution and
+validation contract: local CLI/TUI sessions start in the invoking shell's
+`pwd` (validated; unusable `pwd` falls back to the execution HOME); Web and
+future Telegram/remote surfaces default to the execution account's HOME; the
+filesystem root is never selected; a per-conversation workspace remains
+optional and is never mandatory. A selected CWD is validated server-side
+(real directory, not sensitive, not deny-listed, not a root), persisted on
+the shared session row, returned to the client, and shared by every
+authorized client of the session; an invalid selection is refused with an
+actionable reason and keeps the previous value. First-bind persistence stores
+an authorized explicit bind as the session CWD (no silent relocation after).
+CWD is not the sandbox: binding changes only where relative paths resolve and
+subprocesses run — admission, policy, authority grants, vetting, deny lists,
+resource confinement, read-before-edit and artifact publication are unchanged;
+an exact-operation approval sealed for one workspace cannot execute against
+another. Evidence: `tests/test_session_cwd_contract.py` (23 deterministic
+tests) plus session-persistence and security regressions.
+
 - No mandatory per-chat workspace. Local CLI/TUI begin in the invoking
   shell's current directory; local Web and Telegram begin in the
   configured execution account's home. Remote CLI/TUI use the server's
