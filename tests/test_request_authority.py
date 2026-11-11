@@ -86,7 +86,7 @@ def test_browser_fallback_does_not_authorize_interaction_or_evaluation():
 
 def test_unknown_intent_has_no_generic_execution_floor():
     grant = create_request_authority("Please solve this")
-    assert {g.tool for g in grant.grants} == {"ask_user", "update_plan"}
+    assert {g.tool for g in grant.grants} == {"ask_user", "update_plan", "tool_search", "activate_skill"}
 
 
 @pytest.mark.parametrize("metadata", [

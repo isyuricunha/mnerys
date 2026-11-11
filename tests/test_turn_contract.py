@@ -197,7 +197,7 @@ def test_model_switch_request_offers_discovery_and_the_ui_switch_only():
         selected_tools=selected_tools_for_request(message),
     )
     assert {"list_models", "ui_control"} <= contract.offered
-    assert contract.offered <= {"list_models", "ui_control", "ask_user", "update_plan"}
+    assert contract.offered <= {"list_models", "ui_control", "ask_user", "update_plan", "tool_search", "activate_skill"}
 
 
 def test_research_filter_followup_seals_a_library_search():
@@ -276,7 +276,7 @@ def test_ten_families_use_real_inventory(message, family, tool):
     contract = resolve(capabilities)
     assert tool in contract.offered
     inventory = {s["function"]["name"] for s in FUNCTION_TOOL_SCHEMAS}
-    assert contract.offered == (FAMILY_TOOLS[family] | {"ask_user", "update_plan"}) & inventory
+    assert contract.offered == (FAMILY_TOOLS[family] | {"ask_user", "update_plan", "tool_search", "activate_skill"}) & inventory
     assert contract.required <= contract.offered <= contract.executable
     assert {s["function"]["name"] for s in contract.schemas()} == contract.offered
 
@@ -287,7 +287,7 @@ def test_local_image_ocr_uses_the_exact_native_tool_contract():
     assert capabilities == {"ocr"}
     contract = resolve(capabilities)
     assert contract.required == {"extract_text"}
-    assert contract.offered == {"extract_text", "ask_user", "update_plan"}
+    assert contract.offered == {"extract_text", "ask_user", "update_plan", "tool_search", "activate_skill"}
     assert contract.required <= contract.offered <= contract.executable
 
     assert requested_capabilities(
@@ -1853,7 +1853,7 @@ def test_declared_media_actions_offer_only_the_supported_tool(message, family, t
     assert capabilities == {family}
     contract = resolve(capabilities)
     assert contract.required == {tool}
-    assert contract.offered == {tool, "ask_user", "update_plan"}
+    assert contract.offered == {tool, "ask_user", "update_plan", "tool_search", "activate_skill"}
     assert contract.unavailable == set()
     actual = next(s for s in FUNCTION_TOOL_SCHEMAS if s["function"]["name"] == tool)
     assert actual in contract.schemas()
@@ -1922,7 +1922,7 @@ def test_account_discovery_requires_and_offers_only_metadata_operation(message):
     capabilities = requested_capabilities(message)
     assert capabilities == {"email"}
     contract = resolve(capabilities, selected_tools=selected, required_tools=selected)
-    assert contract.offered == {"list_email_accounts", "ask_user", "update_plan"}
+    assert contract.offered == {"list_email_accounts", "ask_user", "update_plan", "tool_search", "activate_skill"}
     assert contract.required == {"list_email_accounts"}
     assert not contract.unavailable
 
@@ -1949,7 +1949,7 @@ def test_single_html_url_read_selects_only_web_fetch():
         selected_tools=selected,
         required_tools=selected,
     )
-    assert contract.offered == {"web_fetch", "ask_user", "update_plan"}
+    assert contract.offered == {"web_fetch", "ask_user", "update_plan", "tool_search", "activate_skill"}
 
 
 @pytest.mark.parametrize("message", [
@@ -2014,7 +2014,7 @@ def test_account_discovery_alias_and_permission_semantics(qualified, denied):
         assert contract.offered == set()
     else:
         assert contract.required == {schema["function"]["name"]}
-        assert contract.offered == {schema["function"]["name"], "ask_user", "update_plan"}
+        assert contract.offered == {schema["function"]["name"], "ask_user", "update_plan", "tool_search", "activate_skill"}
 
 
 def test_missing_account_discovery_schema_cannot_offer_other_email_tools():
@@ -2028,7 +2028,7 @@ def test_missing_account_discovery_schema_cannot_offer_other_email_tools():
 def test_optional_selection_is_a_narrowing_boundary_and_empty_means_none():
     assert resolve({"email"}, selected_tools=[]).offered == set()
     assert resolve({"calendar"}, selected_tools={"manage_calendar", "send_email"}).offered == {
-        "manage_calendar", "ask_user", "update_plan",
+        "manage_calendar", "ask_user", "update_plan", "tool_search", "activate_skill",
     }
 
 
@@ -3946,7 +3946,7 @@ def test_contextual_latest_email_read_is_operation_specific():
         history=history,
     )
     assert {canonical_tool(name) for name in contract.offered} == {
-        "list_emails", "ask_user", "update_plan",
+        "list_emails", "ask_user", "update_plan", "tool_search", "activate_skill",
     }
 
 
@@ -3983,7 +3983,7 @@ def test_ordinal_email_followup_binds_prior_server_owned_uid_and_account():
         history=history,
     )
     assert {canonical_tool(name) for name in contract.offered} == {
-        "read_email", "ask_user", "update_plan",
+        "read_email", "ask_user", "update_plan", "tool_search", "activate_skill",
     }
 
     clean_history = [{

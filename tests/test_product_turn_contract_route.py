@@ -104,7 +104,7 @@ async def test_actual_route_constructs_contract_with_real_mcp_apis(
             assert selected.offered == set()
         else:
             assert selected.required == {"mcp__email__list_email_accounts"}
-            assert selected.offered == {"mcp__email__list_email_accounts", "ask_user", "update_plan"}
+            assert selected.offered == {"mcp__email__list_email_accounts", "ask_user", "update_plan", "tool_search", "activate_skill"}
         for name in ("send_email", "mcp__email__send_email", "list_emails", "mcp__email__list_emails"):
             assert not selected.permits(name)
             assert policy.blocks(name)

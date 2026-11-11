@@ -81,6 +81,12 @@ class _FakeSkillsManager:
 def _patch_fake_skills(monkeypatch):
     fake_skills = types.ModuleType("services.memory.skills")
     fake_skills.SkillsManager = _FakeSkillsManager
+    # agent_loop applies the shared activation/audit gate to explicitly
+    # activated skills; the stub module must expose the real single
+    # enforcement point (services.memory.skills.activation_eligible).
+    from services.memory.skills import activation_eligible as _real_gate
+
+    fake_skills.activation_eligible = _real_gate
     monkeypatch.setitem(sys.modules, "services.memory.skills", fake_skills)
     monkeypatch.setattr(al, "get_setting", lambda key, default=None: default, raising=False)
     monkeypatch.setattr(al, "get_mcp_manager", lambda: None, raising=False)

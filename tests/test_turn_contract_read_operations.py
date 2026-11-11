@@ -251,7 +251,7 @@ def test_explicit_email_attachment_read_is_sealed_and_available():
     )
     assert {
         name.rsplit("__", 1)[-1] for name in contract.offered
-        if name not in {"ask_user", "update_plan"}
+        if name not in {"ask_user", "update_plan", "tool_search", "activate_skill"}
     } == {
         "download_attachment"
     }
