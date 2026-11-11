@@ -116,10 +116,10 @@ Run on the preview server from the Mnerys checkout:
 
 ```bash
 # Stage/install/test the candidate without restarting the live app
-python3 scripts/deploy_native_preview.py --check
+python3 scripts/deploy_native_preview.py --check --release-tag v0.19.0
 
 # Repeat validation, snapshot data, restart and verify; rollback on failed checks
-python3 scripts/deploy_native_preview.py --deploy
+python3 scripts/deploy_native_preview.py --deploy --release-tag v0.19.0
 ```
 
 The runner reads service names from protected private host files and uses a local filesystem lock to prevent concurrent promotions. Failed tests or preparation never interrupt the running service. Versions already deployed are reported as unchanged. Private runtime credentials, addresses, ports, snapshots and host paths never belong in the repository.

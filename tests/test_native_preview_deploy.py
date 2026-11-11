@@ -67,6 +67,53 @@ def test_native_untagged_version_is_honest_and_invalid_is_refused(monkeypatch, t
         deployment.update_release_version("", "0.19.0\nAUTH_ENABLED=false")
 
 
+def test_explicit_stable_tag_requires_exact_ancestor(monkeypatch, tmp_path):
+    current = "c" * 40
+    target = "b" * 40
+    calls = []
+
+    def fake_call(argv, **_kwargs):
+        calls.append(argv)
+        if argv[:2] == ["git", "rev-parse"]:
+            return target + "\n"
+        if argv[:2] == ["git", "tag"]:
+            return "v0.19.0\n"
+        if argv[:2] == ["git", "merge-base"]:
+            return ""
+        raise AssertionError(argv)
+
+    monkeypatch.setattr(deployment, "call", fake_call)
+    assert deployment.reviewed_stable_revision(tmp_path, current, "v0.19.0") == target
+    assert ["git", "merge-base", "--is-ancestor", target, current] in calls
+    with pytest.raises(deployment.DeployError, match="exact stable"):
+        deployment.reviewed_stable_revision(tmp_path, current, "HEAD")
+
+
+def test_explicit_tag_rejects_nonancestor_and_mismatch(monkeypatch, tmp_path):
+    current = "c" * 40
+    target = "b" * 40
+
+    def nonancestor(argv, **kwargs):
+        if argv[:2] == ["git", "rev-parse"]:
+            return target
+        raise deployment.DeployError("not a parent")
+
+    monkeypatch.setattr(deployment, "call", nonancestor)
+    with pytest.raises(deployment.DeployError, match="not in the reviewed"):
+        deployment.reviewed_stable_revision(tmp_path, current, "v0.19.0")
+
+    def wrongtag(argv, **kwargs):
+        if argv[:2] == ["git", "rev-parse"]:
+            return target
+        if argv[:2] == ["git", "tag"]:
+            return "v0.18.0"
+        return ""
+
+    monkeypatch.setattr(deployment, "call", wrongtag)
+    with pytest.raises(deployment.DeployError, match="identity"):
+        deployment.reviewed_stable_revision(tmp_path, current, "v0.19.0")
+
+
 def test_update_commit_changes_only_last_setting():
     original = "ODYSSEUS_SOURCE_COMMIT=old\nAUTH_ENABLED=true\nODYSSEUS_SOURCE_COMMIT=old2\n"
     changed = deployment.update_source_commit(original, "a" * 40)
