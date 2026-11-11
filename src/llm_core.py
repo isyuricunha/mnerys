@@ -2553,9 +2553,13 @@ def llm_call_with_fallback(candidates, messages, **kwargs) -> str:
     `candidates` is a list of (url, model, headers). The first one that returns
     without an exception wins. Connection / 5xx-style failures fall through to
     the next candidate. The dead-host cooldown inside `llm_call` makes repeat
-    attempts at an offline primary effectively free.
+    attempts at an offline primary effectively free. M5.4 increment 2: the
+    chain is deterministically re-ordered health-first (cooling accounts move
+    to the back) without changing the candidate set.
     """
-    cands = dedupe_model_candidates(candidates)
+    from src.provider_accounts import account_ordered_candidates
+
+    cands = dedupe_model_candidates(account_ordered_candidates(candidates))
     if not cands:
         raise HTTPException(503, "No model endpoint configured")
     last_err = None
@@ -2891,11 +2895,22 @@ async def llm_call_async(
                     f"(attempt {attempt}): HTTP {r.status_code} {friendly}"
                 )
                 if r.status_code in (429, 502, 503, 504) and attempt < max_retries:
-                    await asyncio.sleep(LLMConfig.RETRY_DELAY)
+                    # M5.4 increment 2: provider-aware cooldown — a documented
+                    # Retry-After is honored (bounded); the failure is recorded
+                    # per ACCOUNT (url + credential fingerprint), so one
+                    # rate-limited credential never poisons same-URL accounts.
+                    from src.provider_accounts import classify_provider_error, account_pool
+
+                    error_class = classify_provider_error(r.status_code, r.text, dict(r.headers))
+                    account_pool().record_failure(target_url, h, error_class)
+                    await asyncio.sleep(min(max(error_class.cooldown_seconds, 0.0), 60.0))
                     continue
                 raise HTTPException(r.status_code, friendly)
             logger.info(f"LLM async call to {target_url} succeeded in {duration:.2f}s (attempt {attempt})")
             _clear_host_dead(target_url)
+            from src.provider_accounts import account_pool
+
+            account_pool().record_success(target_url, h)
             data = r.json()
             if isinstance(data, dict) and data.get("error"):
                 provider_error = data["error"]
@@ -3186,8 +3201,17 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                 if r.status_code != 200:
                     raw = (await r.aread()).decode(errors="replace")
                     friendly = _format_chatgpt_subscription_error(r.status_code, _chatgpt_safe_error(raw, h))
+                    from src.provider_accounts import account_pool, classify_provider_error
+
+                    account_pool().record_failure(
+                        target_url, h,
+                        classify_provider_error(r.status_code, raw, dict(r.headers)),
+                    )
                     yield f'event: error\ndata: {json.dumps({"status": r.status_code, "text": friendly})}\n\n'
                     return
+                from src.provider_accounts import account_pool
+
+                account_pool().record_success(target_url, h)
                 async for line in r.aiter_lines():
                     if not line:
                         continue
@@ -3315,8 +3339,17 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                 if r.status_code != 200:
                     raw = (await r.aread()).decode(errors="replace")
                     friendly = _format_upstream_error(r.status_code, raw, target_url)
+                    from src.provider_accounts import account_pool, classify_provider_error
+
+                    account_pool().record_failure(
+                        target_url, h,
+                        classify_provider_error(r.status_code, raw, dict(r.headers)),
+                    )
                     yield f'event: error\ndata: {json.dumps({"status": r.status_code, "text": friendly})}\n\n'
                     return
+                from src.provider_accounts import account_pool
+
+                account_pool().record_success(target_url, h)
                 async for line in r.aiter_lines():
                     if not line:
                         continue
@@ -3416,8 +3449,17 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                 if r.status_code != 200:
                     raw = (await r.aread()).decode(errors="replace")
                     friendly = _format_upstream_error(r.status_code, raw, target_url)
+                    from src.provider_accounts import account_pool, classify_provider_error
+
+                    account_pool().record_failure(
+                        target_url, h,
+                        classify_provider_error(r.status_code, raw, dict(r.headers)),
+                    )
                     yield f'event: error\ndata: {json.dumps({"status": r.status_code, "text": friendly})}\n\n'
                     return
+                from src.provider_accounts import account_pool
+
+                account_pool().record_success(target_url, h)
                 async for line in r.aiter_lines():
                     # SSE allows "data:value" with no space after the colon
                     # (the space is optional per the spec). Some gateways and
@@ -3612,8 +3654,17 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
             if r.status_code != 200:
                 raw = (await r.aread()).decode(errors="replace")
                 friendly = _format_upstream_error(r.status_code, raw, target_url)
+                from src.provider_accounts import account_pool, classify_provider_error
+
+                account_pool().record_failure(
+                    target_url, h,
+                    classify_provider_error(r.status_code, raw, dict(r.headers)),
+                )
                 yield f'event: error\ndata: {json.dumps({"status": r.status_code, "text": friendly})}\n\n'
                 return
+            from src.provider_accounts import account_pool
+
+            account_pool().record_success(target_url, h)
 
             first_token_budget = _first_token_timeout(target_url, timeout)
             stream_received_event = False
@@ -4575,6 +4626,9 @@ async def stream_llm_with_fallback(candidates, messages, **kwargs):
 
     Yields the same SSE chunk protocol as stream_llm.
     """
+    from src.provider_accounts import account_ordered_candidates
+
+    candidates = account_ordered_candidates(candidates)
     fallback_statuses = kwargs.pop("fallback_statuses", None)
     fallback_on_empty = bool(kwargs.pop("fallback_on_empty", True))
     candidate_request_factory = kwargs.pop("candidate_request_factory", None)

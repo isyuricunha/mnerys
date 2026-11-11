@@ -600,6 +600,20 @@ async def set_yolo_mode(session_id: str, body: YoloToggleBody, request: Request)
     }
 
 
+@router.get("/provider-accounts")
+async def provider_account_status(request: Request) -> dict:
+    """Sanitized account health/cooldown projection (M5.4 increment 2).
+
+    Never credentials, never raw provider error bodies: fingerprint-only
+    account identities with health state, cooldown remainder, in-flight count,
+    failure category and Retry-After metadata.
+    """
+    from src.provider_accounts import account_health_projection
+
+    _require_owner(request)
+    return {"accounts": account_health_projection()}
+
+
 @router.get("/approval-rules")
 async def list_approval_rules(request: Request) -> dict:
     """Owner-scoped saved approval rules (inspectable, revocable)."""

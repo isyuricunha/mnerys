@@ -641,6 +641,25 @@ sealed operations. Live two-protocol acceptance carries over from M5.2's
 harness; a second INDEPENDENT provider remains gated on authorized
 credentials.
 
+**Increment 2 status (verified): account pools, health, cooldowns and safe
+fallback.** `src/provider_accounts.py` is the ONE Gateway-owned account-
+selection contract: deterministic, explainable selection over owner-authorized
+accounts (preferred → priority → health → caller order; never random
+rotation); account keys = URL + credential fingerprint so same-URL accounts
+cool independently; provider-aware error classification (429 quota-exhaustion
+vs throttling, Retry-After delta/HTTP-date bounded, 401/403 DISABLE the
+account instead of cycling credentials, 5xx/overload bounded cooldowns);
+health states (healthy/degraded/cooling/unavailable/disabled) with sanitized
+projections (`GET /api/v1/provider-accounts` — fingerprint-only); the
+fallback chains re-order health-first with the primary never moved and the
+candidate set never changed; side-effect safety preserved (pre-content-only
+failover, durable tool receipts authoritative, bounded retries, immediate
+cancellation). Rotation and fallback remain distinct operations. Evidence:
+`tests/test_provider_accounts.py` (22 deterministic tests) + the llm-core
+fallback/concurrency suites (103). Limitations: in-memory health state
+(restart resets cooldowns — advisory by design), per-account quota dimensions
+land with the metadata cache.
+
 - Support validated provider adapters and account configurations:
   authorized Codex/ChatGPT subscription OAuth when terms allow,
   official Claude Code CLI/login integration only through permitted
