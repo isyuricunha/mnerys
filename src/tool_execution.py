@@ -1819,13 +1819,21 @@ async def execute_tool_block(
     if exact_approval is not None:
         if (
             not isinstance(security_context, ToolRunSecurityContext)
-            or not security_context.external_untrusted_context_seen
-            or not exact_approval.pending.external_untrusted_context_seen
+            or security_context.external_untrusted_context_seen
+            != exact_approval.pending.external_untrusted_context_seen
         ):
+            # M5.3 increment 3 fix (found by formal acceptance): the exact
+            # approval must resume under the SAME security context it was
+            # sealed under. An untrusted-context-gated approval resumes only
+            # when the run is still armed; a RISK-gated approval sealed in a
+            # clean run resumes only in a clean run. A context change between
+            # approval and resume (new untrusted content appeared, or the
+            # armed state was stripped) refuses and requests fresh
+            # authorization instead of redirecting the sealed operation.
             return (
                 f"{getattr(block, 'tool_type', None)}: BLOCKED",
                 {
-                    "error": "Exact-action approval requires an armed run security context.",
+                    "error": "Exact-action approval requires the same armed run security context it was sealed under.",
                     "exit_code": 1,
                     "blocked": True,
                     "policy": "exact_tool_approval",
