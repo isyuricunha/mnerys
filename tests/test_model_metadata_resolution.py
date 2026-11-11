@@ -20,13 +20,13 @@ from src import constants
 
 @pytest.fixture(autouse=True)
 def _disposable_data_dir(tmp_path, monkeypatch):
+    # The metadata paths read ODYSSEUS_DATA_DIR at call time — no shared-module
+    # reload (reloading src.constants would poison every later test in the
+    # process with a deleted disposable dir).
     monkeypatch.setenv("ODYSSEUS_DATA_DIR", str(tmp_path))
-    import importlib
-
-    importlib.reload(constants)
-    importlib.reload(mm)
+    mm._cache.reset_for_tests()
     yield tmp_path
-    monkeypatch.delenv("ODYSSEUS_DATA_DIR", raising=False)
+    mm._cache.reset_for_tests()
 
 
 @pytest.fixture()

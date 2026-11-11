@@ -2430,7 +2430,11 @@ def setup_chat_routes(
         compare_mode = str(form_data.get("compare_mode", "")).lower() == "true"
         thinking_mode = str(form_data.get("thinking_mode") or "").strip().lower()
         thinking_mode = thinking_mode if thinking_mode in {"on", "off"} else None
-        raw_effort = str(form_data.get("reasoning_effort") or (body or {}).get("reasoning_effort") or "").strip().lower()
+        raw_effort = str(
+            form_data.get("reasoning_effort")
+            or (body or {}).get("reasoning_effort")
+            or ""
+        ).strip().lower()
         reasoning_effort = raw_effort if raw_effort else None
         temperature_override = None
         raw_temperature = form_data.get("temperature")
@@ -2683,6 +2687,13 @@ def setup_chat_routes(
                 thinking_mode = "off"
             if reasoning_effort is None and session_mode.startswith("effort:"):
                 reasoning_effort = session_mode[7:].strip()
+            # M5.4 increment 4: the session's persisted preference is the
+            # fallback (explicit per-request values win; model text can never
+            # set it — only the validated session API can).
+            if reasoning_effort is None:
+                reasoning_effort = str(
+                    getattr(sess, "reasoning_effort", None) or ""
+                ).strip().lower() or None
             from src.chatgpt_subscription import validate_reasoning_effort
             reasoning_effort = validate_reasoning_effort(sess.model, reasoning_effort)
             if getattr(sess, "temperature_override", None) is not None:

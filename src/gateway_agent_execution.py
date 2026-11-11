@@ -166,6 +166,10 @@ async def stream_admitted_agent_turn(
         # never from caller options or model output.
         "yolo_enabled": bool(getattr(session, "yolo_enabled", False)),
     })
+    # M5.4 increment 4: the session's persisted reasoning preference fills the
+    # gap when the caller sent none (server-owned like YOLO; translated
+    # per-model by the adapters — never an authority change).
+    options.setdefault("reasoning_effort", getattr(session, "reasoning_effort", None))
 
     # The inner generator must close before bridge/contract contextvars reset
     # when the transport disconnects, cancels or errors mid-stream.

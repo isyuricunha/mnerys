@@ -687,6 +687,7 @@ def setup_session_routes(
         endpoint_id: str = Form(None),
         cwd: str = Form(None),
         yolo: str = Form(None), yolo_confirm: str = Form(None),
+        reasoning_effort: str = Form(None),
     ):
         user = effective_user(request)
         _verify_session_owner(request, sid)
@@ -710,7 +711,7 @@ def setup_session_routes(
                     result["folder"] = folder if folder else None
             finally:
                 db.close()
-        if yolo is not None:
+        if isinstance(yolo, str):
             # M5.3 increment 4: the legacy session surface exposes the same
             # YOLO state. Enabling requires an explicit confirmation flag in
             # the same request; disabling is always allowed.
@@ -734,6 +735,32 @@ def setup_session_routes(
                     db.commit()
                     session.yolo_enabled = want_yolo
                     result["yolo_enabled"] = want_yolo
+            finally:
+                db.close()
+
+        if isinstance(reasoning_effort, str):
+            # M5.4 increment 4: the owner's provider-independent reasoning
+            # preference (validated shape; translated per-model by the
+            # reasoning contract at request time — never an authority change).
+            clean_effort = str(reasoning_effort).strip().lower()
+            if clean_effort and not (
+                clean_effort in {"off", "low", "medium", "high", "max"}
+                or clean_effort.isdigit()
+            ):
+                raise HTTPException(
+                    400,
+                    "reasoning_effort must be off, low, medium, high, max, or a "
+                    "token-budget number",
+                )
+            db = SessionLocal()
+            try:
+                db_session = db.query(DbSession).filter(DbSession.id == sid).first()
+                if db_session:
+                    db_session.reasoning_effort = clean_effort or None
+                    db_session.updated_at = utcnow_naive()
+                    db.commit()
+                    session.reasoning_effort = clean_effort or None
+                    result["reasoning_effort"] = session.reasoning_effort
             finally:
                 db.close()
 
