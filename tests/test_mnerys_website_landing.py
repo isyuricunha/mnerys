@@ -89,7 +89,18 @@ def test_local_page_assets_and_anchor_links_are_valid():
         if href.startswith("#"):
             assert href[1:] in parsed.ids, f"broken anchor: {href}"
         elif not href.startswith(("https://", "mailto:")):
-            assert (WEBSITE / href.split("#")[0]).is_file(), href
+            target = WEBSITE / href.split("#")[0]
+            if target.suffix == ".html" and not target.is_file():
+                # Jekyll emits a .html page for a Markdown source with valid
+                # frontmatter. Verify that source instead of demanding a
+                # generated artifact inside the Git working tree.
+                markdown = target.with_suffix(".md")
+                assert markdown.is_file(), href
+                assert markdown.read_text(encoding="utf-8").startswith(
+                    "---\nlayout: default\n---\n"
+                ), href
+            else:
+                assert target.is_file(), href
         else:
             assert href.startswith("https://github.com/isyuricunha/mnerys"), (
                 f"unexpected off-site link: {href}"

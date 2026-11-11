@@ -614,6 +614,20 @@ turn-record tests, all green. This is a **hotfix**, not a new milestone or a
 relaxation of request authority. Hosted release and production re-verification
 are separate gates; document their actual results before calling them complete.
 
+**M5.3 follow-up — risk-first default permission policy (local increment):**
+the existing unified tool gate now allows confidently read-only native tools and
+concrete LOW_RISK shell inspections without redundant prompts, even after
+untrusted Web content. Normal mode prompts for writes, edits, deletions,
+arbitrary execution and unknown effects; YOLO suppresses ordinary approvals
+for authorized known tools, including destructive ones. The command-risk
+classifier now treats mutating Git/Docker subcommands and filesystem creation
+as requiring approval, not read-only. All tool-policy, owner, request-authority,
+filesystem confinement, read-before-edit and replay gates remain mandatory.
+This is distinct from unresolved natural-language follow-up intent routing;
+a safe action without request authority is still refused. Contract:
+`docs/architecture/M5_3_PERMISSION_MODES.md`. Local tests and commits are not
+hosted publication or production acceptance.
+
 - No mandatory per-chat workspace. Local CLI/TUI begin in the invoking
   shell's current directory; local Web and Telegram begin in the
   configured execution account's home. Remote CLI/TUI use the server's

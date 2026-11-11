@@ -9,10 +9,10 @@ continuations, background jobs) is covered — not just one tool spelling.
 
 Classification NEVER grants execution authority:
 
-* ``LOW_RISK`` — a confidently understood, non-destructive operation. It only
-  means no ADDITIONAL risk-triggered approval is necessary; admission, tool
-  policy, request authority, resource/CWD binding, the external-context gate,
-  read-before-edit and artifact publication still apply.
+* ``LOW_RISK`` — a concrete, confidently understood read-only operation. It
+  does not require an ordinary risk or external-context confirmation, but
+  admission, tool policy, request authority, resource/CWD binding, sensitive
+  path protection, read-before-edit and artifact publication still apply.
 * ``REQUIRES_APPROVAL`` — potentially destructive, sensitive, privileged, or
   insufficiently understood. Flows into the existing four-decision approval
   flow with the concrete risk reason; the exact-operation scoped rules
@@ -195,25 +195,18 @@ _SAFE_READ_ONLY = {
     "du", "df", "free", "uname", "hostname", "printenv", "env", "id",
     "groups", "tree", "true", "false", "test", "sleep", "jq", "column",
     "basename", "dirname", "realpath", "readlink", "md5sum", "sha256sum",
-    "cksum", "tty", "seq", "touch", "mkdir", "ln", "tee",
-    "curl", "wget",  # plain fetches are reviewable reads; pipelines and
-                     # substitution capture execution patterns separately
+    "cksum", "tty", "seq",
 }
 
-# mkdir/touch/ln/tee are mild mutations within the workspace: allowed without
-# the risk prompt (the sandbox and vetting still apply), but a redirect or a
-# sensitive target is still caught below.
-
-_GIT_SAFE_SUBCOMMANDS = {
-    "status", "log", "diff", "show", "branch", "remote", "rev-parse",
-    "tag", "stash list", "describe", "blame", "ls-files", "config --get",
-    "fetch", "pull", "add", "commit", "merge --ff-only", "worktree list",
-}
-
-_DOCKER_SAFE_SUBCOMMANDS = {
+# These lists contain only inspection subcommands. Mutating operations need
+# ordinary approval even when a command starts with a familiar executable.
+_GIT_SAFE_SUBCOMMANDS = frozenset({
+    "status", "log", "diff", "show", "rev-parse", "describe", "blame",
+    "ls-files", "shortlog",
+})
+_DOCKER_SAFE_SUBCOMMANDS = frozenset({
     "ps", "images", "logs", "version", "info", "inspect", "stats",
-    "compose ps", "compose logs", "compose config", "compose up",
-}
+})
 
 
 def _basename(executable: str) -> str:
@@ -432,7 +425,9 @@ def _classify_simple_command(argv: list[str], segment: str) -> CommandRiskClassi
             return _approval("moderate", "Potentially destructive git operation.", matched=segment)
         if "rm" in argv:
             return _approval("moderate", "git rm removes tracked files.", matched=segment)
-        return _low("Non-destructive git operation.", matched=segment)
+        if len(argv) > 1 and argv[1] in _GIT_SAFE_SUBCOMMANDS:
+            return _low("Read-only git inspection.", matched=segment)
+        return _approval("moderate", "Git operation may modify repository state.", matched=segment)
 
     if executable == "docker":
         if any(sub in argv[1:3] for sub in ("rm", "rmi")):
@@ -445,7 +440,12 @@ def _classify_simple_command(argv: list[str], segment: str) -> CommandRiskClassi
             return _approval("high", "Compose down with volume destruction.", matched=segment)
         if "stop" in argv or "kill" in argv:
             return _approval("moderate", "Docker container stop/kill.", matched=segment)
-        return _low("Read-only Docker inspection.", matched=segment)
+        if len(argv) > 1 and (
+            argv[1] in _DOCKER_SAFE_SUBCOMMANDS
+            or (argv[1] == "compose" and len(argv) > 2 and argv[2] in {"ps", "logs", "config"})
+        ):
+            return _low("Read-only Docker inspection.", matched=segment)
+        return _approval("moderate", "Docker operation may change runtime state.", matched=segment)
 
     if executable in {"dropdb", "mysqladmin"} or (
         executable == "psql" and any("-c" in arg for arg in argv)
@@ -481,6 +481,11 @@ def _classify_simple_command(argv: list[str], segment: str) -> CommandRiskClassi
             matched=segment, scope=sensitive,
         )
 
+    if executable in {"touch", "mkdir", "ln", "tee", "curl", "wget", "env", "printenv"}:
+        return _approval(
+            "moderate", "Command may mutate files, access sensitive environment data, "
+            "or perform network effects.", matched=segment,
+        )
     if executable in _SAFE_READ_ONLY or executable in {"pip", "npm", "yarn", "pnpm", "uv"}:
         # Package managers: list/show are read-only; installs mutate the
         # environment but are ordinary, reviewable development operations.

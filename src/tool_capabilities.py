@@ -899,12 +899,49 @@ class ToolRunSecurityContext:
                         "YOLO suppressed risk approval: run=%s tool=%s level=%s reason=%s",
                         self.run_id, tool, risk.level, risk.reason,
                     )
+                if (tool in {"bash", "host_shell"} and risk.is_low_risk
+                        and isinstance(content, str) and content.strip()):
+                    # Only a concrete, inspected shell command may be unattended;
+                    # an empty/missing command cannot inherit blanket approval.
+                    # Do not reclassify a genuinely safe shell inspection as
+                    # executable-code risk merely because a Web result or
+                    # untrusted text appeared earlier in this run.
+                    return ToolGateDecision(True)
         if not TOOL_APPROVAL_GATE_ENABLED:
             return ToolGateDecision(True)
         if self.approval_gate_bypassed:
             return ToolGateDecision(True)
         if isinstance(tool_name, str) and tool_name in self.unattended_tools:
             return ToolGateDecision(True)
+        capabilities = capabilities_for_action(tool_name, content)
+        if not capabilities.known:
+            # Missing effects are not evidence of safety. The normal mode
+            # requires review; YOLO still cannot manufacture a registry
+            # contract or an authority grant for an unknown tool.
+            return ToolGateDecision(False, "Unknown tool effects require review.")
+        automatic_effects = frozenset({
+            ToolEffect.READ_PUBLIC,
+            ToolEffect.READ_WORKSPACE,
+            ToolEffect.READ_PRIVATE,
+            ToolEffect.BROKERED_NETWORK_READ,
+            ToolEffect.USER_INTERACTION,
+        })
+        if capabilities.known and capabilities.effects and capabilities.effects.issubset(automatic_effects):
+            # Native read/inspection tools never require an ordinary prompt;
+            # separate owner, path, request and policy gates remain enforced.
+            return ToolGateDecision(True)
+        if self.yolo_enabled and capabilities.known:
+            # YOLO is opted into by the authenticated session owner; it
+            # bypasses ordinary risk/taint approval for every known tool,
+            # including mutations, without minting missing tool authority.
+            logger.info("YOLO suppressed ordinary tool confirmation: run=%s tool=%s",
+                        self.run_id, tool_name)
+            return ToolGateDecision(True)
+        if capabilities.known and (capabilities.effects - automatic_effects):
+            if not self.external_untrusted_context_seen:
+                return ToolGateDecision(
+                    False, "State-changing or sensitive operation requires approval.",
+                )
         if not self.external_untrusted_context_seen:
             return ToolGateDecision(True)
 
