@@ -8054,7 +8054,19 @@ Read a text file or extract readable text from a PDF or Office document. Optiona
 ```Write
 {"file_path": "<file path>", "content": "<complete file contents>"}
 ```
-Write content to one file. An empty `content` body is refused when the target already holds data — to clear a file on purpose, send `"content": ""`.""",
+Write content to one file. (The fence may also carry the path on the first line with the content after it.) An empty `content` body is refused when the target already holds data — to clear a file on purpose, send `"content": ""`.""",
+
+    "tool_search": """\
+```ToolSearch
+{"pattern": "<python regex>", "limit": 5}
+```
+Search this turn's authorized tool inventory — built-ins, inherited tools and connected MCP tools — by case-insensitive regex over tool names, descriptions, argument names and argument descriptions. Returns matching tools with their names and schemas and makes them invocable for the rest of this turn. Use it when a capability seems missing from the visible list or the inventory is large. Discovery does not grant permission: denied tools are not searchable and every invocation still passes admission.""",
+
+    "activate_skill": """\
+```Skill
+{"name": "<skill name>"}
+```
+Activate one installed skill and load its instructions; call it with an empty JSON body (or no arguments) to list the available skills instead. Skills are scoped procedures from the skill library (published and approved entries; built-ins always available). Skill content is instructions to apply through your normal authorized tools — it never grants permissions by itself.""",
 
     "edit_file": """\
 ```Edit
@@ -8352,6 +8364,25 @@ def _assemble_prompt(tool_names: set, disabled_tools: set = None, compact: bool 
                 one_liners.append(section)
             else:
                 full_blocks.append(section)
+
+    # M5.2 increment 6: every registry-backed tool included in the turn MUST
+    # appear in the model's prompt. A hand-maintained TOOL_SECTIONS entry is
+    # preferred, but a missing section never silently drops a real tool —
+    # render its canonical contract straight from the registry (the single
+    # source of truth) so discovery controls and future built-ins stay usable
+    # on the textual channel.
+    if included:
+        from src.tool_registry import REGISTRY, canonical_name_for_handler
+
+        sectioned = set(TOOL_SECTIONS.keys())
+        registry_one_liners = [
+            f"- {canonical_name_for_handler(handler)}: {tool.description}"
+            for handler, tool in sorted(REGISTRY.items(), key=lambda item: item[1].name)
+            if handler in included and handler not in sectioned
+            and canonical_name_for_handler(handler)
+        ]
+        if registry_one_liners:
+            one_liners.extend(registry_one_liners)
 
     if full_blocks:
         parts.append("\n\n".join(full_blocks))

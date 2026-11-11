@@ -1112,6 +1112,15 @@ def _detect_provider(url: str) -> str:
     """
     if _is_ollama_native_url(url):
         return "ollama"
+    # An explicit ``/v1/messages`` path is the operator's wire-protocol
+    # declaration (same shape ``_normalize_anthropic_url`` and the base
+    # normalizers already anticipate): aggregators and self-hosted gateways
+    # serve Anthropic Messages semantics on non-anthropic.com hosts. The
+    # declaration selects the wire format only — execution, authorization and
+    # auditing stay Mnerys-owned, and real anthropic.com hosts keep matching
+    # below.
+    if (url or "").strip().rstrip("/").endswith("/v1/messages"):
+        return "anthropic"
     if _host_match(url, "anthropic.com"):
         return "anthropic"
     if _host_match(url, "opencode.ai/zen/go"):
@@ -1355,7 +1364,8 @@ def _provider_label(url: str) -> str:
     """Human-friendly provider name for error messages."""
     if not url:
         return "provider"
-    if _host_match(url, "anthropic.com"): return "Anthropic"
+    if (url.strip().rstrip("/").endswith("/v1/messages")) or _host_match(url, "anthropic.com"):
+        return "Anthropic"
     if _host_match(url, "ollama.com"): return "Ollama Cloud"
     if _host_match(url, "x.ai"): return "xAI"
     if _host_match(url, "openai.com"): return "OpenAI"
@@ -2286,7 +2296,9 @@ def list_model_ids(
     if cached:
         return cached
     provider = _detect_provider(base_chat_url)
-    if provider == "anthropic":
+    # Only real Anthropic hosts lack /v1/models; path-declared
+    # Anthropic-protocol endpoints (aggregators, gateways) still network-list.
+    if provider == "anthropic" and _host_match(base_chat_url, "anthropic.com"):
         return list(ANTHROPIC_MODELS)
     try:
         h = {}

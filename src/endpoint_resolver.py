@@ -340,6 +340,11 @@ def _validated_endpoint_base(url: str) -> str:
 
 
 def _prepare_endpoint_base(base: str) -> str:
+    # An explicit ``/v1/messages`` path declares the Anthropic Messages wire
+    # protocol (matching ``llm_core._detect_provider``); it must survive
+    # normalization or the declaration would be lost before protocol selection.
+    if (base or "").strip().rstrip("/").endswith("/v1/messages"):
+        return _validated_endpoint_base(resolve_url((base or "").strip().rstrip("/")))
     base = _validated_endpoint_base(normalize_base(base))
     return _validated_endpoint_base(normalize_base(resolve_url(base)))
 
@@ -362,6 +367,10 @@ def _anthropic_api_root(base: str) -> str:
     base = (base or "").strip().rstrip("/")
     if _host_match(base, "anthropic.com") and base.endswith("/v1"):
         return base[:-3].rstrip("/")
+    # Path-declared Anthropic-protocol endpoints: strip the declared chat path
+    # so /v1/messages or /v1/models can be appended cleanly.
+    if base.endswith("/v1/messages"):
+        return base[: -len("/v1/messages")].rstrip("/")
     return base
 
 

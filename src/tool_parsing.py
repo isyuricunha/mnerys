@@ -202,7 +202,7 @@ _CANONICAL_FENCE_RAW: Dict[str, Optional[str]] = {
     "WebFetch": "url",          # a single URL
     "Glob": "pattern",          # a glob pattern
     "Grep": "pattern",          # a regex pattern
-    "Write": None,              # structured content; JSON required
+    "Write": "line_form",       # first line = file path, remainder = content
     "Edit": None,               # structured old/new strings; JSON required
 }
 
@@ -241,7 +241,7 @@ def _canonical_fenced_call(
         return _legacy_fenced_rejection(
             tag,
             "",
-            message=(
+            error=InvalidToolArguments(
                 f"{tag} requires JSON arguments ({_canonical_args_hint(tag)}). "
                 "An empty fenced body is not a valid call."
             ),
@@ -264,12 +264,32 @@ def _canonical_fenced_call(
         if legacy_compat and not body.strip():
             return None
         return handler, body
+    if mode == "line_form":
+        # The Write fence grammar the textual channel has always taught and
+        # models naturally emit: first line is the destination path, the
+        # remainder is the file content. Translated to the registry's JSON
+        # argument contract, so the same read-before-edit and publication
+        # protections apply as for a native call. (Trailing whitespace of the
+        # content is not preserved by the fence channel; JSON bodies are.)
+        first, _, remainder = stripped.partition("\n")
+        if not first.strip() or not remainder.strip():
+            return _legacy_fenced_rejection(
+                tag,
+                body,
+                error=InvalidToolArguments(
+                    f"{tag} needs a file path on the first line and content after "
+                    f"it (or JSON arguments: {_canonical_args_hint(tag)})."
+                ),
+            )
+        return _registry_resolved_fence(
+            tag, {"file_path": first.strip(), "content": remainder}
+        )
     if mode is None:
         # Structured tags cannot be safely inferred from a bare fence body.
         return _legacy_fenced_rejection(
             tag,
             body,
-            message=(
+            error=InvalidToolArguments(
                 f"{tag} requires JSON arguments "
                 f"({_canonical_args_hint(tag)}). A bare fenced body is not a valid "
                 f"{tag} call."

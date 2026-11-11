@@ -66,10 +66,23 @@ def test_canonical_write_fence_requires_json():
     assert [(b.tool_type, b.content) for b in blocks] == [
         ("write_file", "notes/x.md\nhello"),
     ]
-    # A raw non-JSON body is rejected with actionable feedback, never executed.
+
+
+def test_canonical_write_fence_accepts_the_line_form():
+    # M5.2 increment 6 (live-provider finding): models naturally emit the
+    # Write fence in the textual channel's historical grammar — path on the
+    # first line, content after. The canonical spelling converts it to the
+    # registry's JSON contract, so read-before-edit and publication
+    # protections apply exactly as for a native call.
     blocks = _blocks("```Write\nnotes/x.md\nhello\n```")
+    assert [(b.tool_type, b.content) for b in blocks] == [
+        ("write_file", "notes/x.md\nhello"),
+    ]
+    # A path-only body is refused with the truthful invalid-arguments code.
+    blocks = _blocks("```Write\nnotes/x.md\n```")
     envelope = _rejection(blocks[0])
-    assert "Write" in envelope["result"]["error"]
+    assert envelope["result"]["rejection_code"] == "invalid_tool_arguments"
+    assert "first line" in envelope["result"]["error"]
 
 
 def test_canonical_edit_fence_json():

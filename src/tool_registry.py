@@ -391,9 +391,36 @@ _UNAVAILABLE: MappingProxyType = MappingProxyType({})
 
 REGISTRY: Mapping[str, CanonicalTool] = MappingProxyType({t.name: t for t in _TOOLS})
 _BY_HANDLER: Mapping[str, CanonicalTool] = MappingProxyType({t.handler: t for t in _TOOLS})
+_BY_CANONICAL: Mapping[str, CanonicalTool] = MappingProxyType({t.name: t for t in _TOOLS})
 CANONICAL_NAMES: tuple[str, ...] = tuple(t.name for t in _TOOLS)
 HANDLER_IDS: frozenset[str] = frozenset(_BY_HANDLER)
 UNAVAILABLE_NAMES: frozenset[str] = frozenset(_UNAVAILABLE)
+
+
+def policy_spellings(name: str) -> tuple[str, ...]:
+    """All policy-equivalent spellings of a tool name (M5.2 increment 6).
+
+    THE one normalization boundary for deny/allow interpretation. A registry
+    built-in may be named in a policy rule either by its internal handler id
+    (``bash``, ``read_file``) or by its canonical model-visible name
+    (``Bash``, ``Read``) — both spellings address the same tool and every
+    policy gate must treat them identically. MCP server-defined names and
+    unknown/inherited names alias only to themselves and are never
+    translated (case-sensitive, so an unrelated inherited tool is not swept
+    into a canonical denial).
+    """
+    candidate = str(name or "")
+    if not candidate:
+        return ("",)
+    if candidate.startswith("mcp__"):
+        return (candidate,)
+    canonical = _BY_CANONICAL.get(candidate)
+    if canonical is not None:
+        return (candidate, canonical.handler)
+    tool = _BY_HANDLER.get(candidate)
+    if tool is not None:
+        return (candidate, tool.name)
+    return (candidate,)
 
 
 def canonical_name_for_handler(handler: str) -> Optional[str]:

@@ -384,7 +384,14 @@ def create_request_authority(request_text, *, owner=None, session_id=None, works
     else:
         operation = None
     grants = []
-    for name in sorted(tools | {"ask_user", "update_plan"}):
+    for name in sorted(tools | {
+        "ask_user", "update_plan",
+        # Discovery controls (M5.2 increment 5) are neutral like ask_user:
+        # ToolSearch searches the admitted inventory and Skill loads library
+        # content; neither widens what the request authority otherwise grants,
+        # and every discovered invocation still needs its own grant.
+        "tool_search", "activate_skill",
+    }):
         name = canonical_tool(name)
         actions = inputs = None
         if name == "private_browser":

@@ -101,6 +101,24 @@ _register(
     result_integrity=ResultIntegrity.WORKSPACE_UNTRUSTED,
 )
 _register(
+    {"tool_search"},
+    # Ranks only the turn's admitted tool inventory: control-plane metadata,
+    # never user data and never a mutation. Read-only effects keep discovery
+    # reachable when the external-content gate arms — recovery must not
+    # require approval. Activation widens the model-visible offer inside the
+    # already-admitted executable set only.
+    ToolEffect.READ_PUBLIC,
+    result_integrity=ResultIntegrity.SYSTEM,
+)
+_register(
+    {"activate_skill"},
+    # Loads one installed skill's instructions (owner-scoped library content)
+    # into the turn. The content is untrusted instructions, never authority:
+    # read-only effect, untrusted result integrity, no side effects.
+    ToolEffect.READ_PRIVATE,
+    result_integrity=ResultIntegrity.EXTERNAL_UNTRUSTED,
+)
+_register(
     {"get_weather", "private_browser", "web_search", "youtube_tool"},
     ToolEffect.BROKERED_NETWORK_READ,
     result_integrity=ResultIntegrity.EXTERNAL_UNTRUSTED,

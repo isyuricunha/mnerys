@@ -174,12 +174,46 @@ class ToolPolicy:
     disable_mcp: bool = False
 
     def all_disabled_names(self) -> Set[str]:
-        return set(self.disabled_tools) | set(self.hidden_tools)
+        """Every policy-equivalent spelling of every stored deny/hide entry.
+
+        M5.2 increment 6: the single normalization boundary for policy
+        interpretation lives in the canonical registry
+        (``src.tool_registry.policy_spellings``). A stored ``Read`` entry must
+        deny the ``read_file`` handler and vice versa — turn contracts, request
+        authorities and compact surfaces all expand through this method, so a
+        rule written in one spelling can never slip past a gate that checks
+        the other. MCP server-defined names are never translated.
+        """
+        try:
+            from src.tool_registry import policy_spellings
+
+            expand = policy_spellings
+        except Exception:  # pragma: no cover - registry is a leaf module
+            expand = lambda name: (name,)
+        expanded: Set[str] = set()
+        for name in set(self.disabled_tools) | set(self.hidden_tools):
+            expanded.update(expand(name))
+        return expanded
 
     def blocks(self, tool_name: Optional[str]) -> bool:
         if not tool_name:
             return False
-        return self.block_all_tool_calls or tool_name in self.disabled_tools or tool_name in self.hidden_tools
+        if self.block_all_tool_calls:
+            return True
+        if tool_name in self.disabled_tools or tool_name in self.hidden_tools:
+            return True
+        # Registry built-ins answer to either spelling (handler id or
+        # canonical name); MCP and inherited names only to themselves.
+        if tool_name not in ("",) and not tool_name.startswith("mcp__"):
+            try:
+                from src.tool_registry import policy_spellings
+
+                names = set(policy_spellings(tool_name))
+                if names != {tool_name}:
+                    return bool(names & self.disabled_tools) or bool(names & self.hidden_tools)
+            except Exception:  # pragma: no cover
+                pass
+        return False
 
     def reason_for(self, tool_name: Optional[str]) -> str:
         if tool_name and tool_name in self.reasons:

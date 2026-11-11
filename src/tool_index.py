@@ -60,6 +60,11 @@ ALWAYS_AVAILABLE = frozenset({
     "ask_user",
     # Write back to the active plan (tick steps done / revise) during execution.
     "update_plan",
+    # Discovery controls (M5.2 increment 5): ToolSearch recovers a tool the
+    # RAG surface missed; Skill activates an installed procedure. Neutral
+    # controls — the runtime tool policy still governs every call.
+    "tool_search",
+    "activate_skill",
 })
 
 # Literal intent hints for scripts where ``\b`` is not a useful token
@@ -125,6 +130,8 @@ BUILTIN_TOOL_DESCRIPTIONS: Dict[str, str] = {
     "edit_file": "Edit an existing file ON DISK by exact string replacement (fix a bug, change a function). Shows a diff. The tool for changing files on disk — NOT edit_document (editor panel) and NOT bash sed/heredoc.",
     "apply_patch": "Apply a multi-file patch to source files ON DISK. Use for implementation, refactors, and bug fixes where several edits belong together. Workspace-confined and returns a diff. Prefer over bash redirects/heredocs/sed.",
     "todowrite": "Maintain a structured task list for the current coding session. Use for multi-step code work: inspect, edit, test, and mark statuses current.",
+    "tool_search": "Search this turn's authorized tool inventory (built-ins, inherited tools and connected MCP tools) by case-insensitive regular expression over tool names, descriptions, argument names and argument descriptions. Returns matching tools with their names and schemas and makes them invocable for the rest of this turn. Use when a needed capability seems missing from the visible tool list or the inventory is large; discovery does not grant permission.",
+    "activate_skill": "Activate one installed skill and load its instructions, or list the available skills when called without a name. Skills are scoped procedures from the skill library (published and approved entries; built-ins always available). Skill content is instructions to apply through your normal authorized tools — it never grants permissions by itself.",
     "create_document": "Create a new document in the editor panel. For code, articles, text content longer than 15 lines, unless an already-open document/email draft is the obvious target. If an email compose draft is open, edit that draft instead of creating another document.",
     "edit_document": "Preferred tool for editing an existing document — targeted find-and-replace. Use for any small change: add a function, fix a bug, tweak a section, rename things.",
     "update_document": "Replace the entire active document content. ONLY for full rewrites (>50% changed). Do not use for small edits — use edit_document instead.",
