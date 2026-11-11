@@ -86,6 +86,31 @@ authorization and auditing remain Gateway-owned.
 - The scheduler/endpoint authority suite (provider selection cannot widen
   authority; enabled/visible registration required).
 
+
+## Increment 3 — model metadata, cache, pricing and trusted overrides (implemented)
+
+`src/model_metadata.py` resolves model metadata with PER-FIELD precedence and
+provenance: owner-scoped trusted overrides → authoritative provider-reported
+values → the cached models.dev catalog (the FIXED trusted endpoint;
+`https://models.dev/api.json`; the schema verified live 2026-11-11 —
+`limit.context/output`, `cost.input/output/cache_read/cache_write` priced in
+USD per million tokens, `modalities`, `reasoning`, `tool_call`) → the built-in
+tables (heuristic) → unknown. Unknown is explicit and never zero. The cache is
+bounded (TTL, ETag/If-None-Match conditional requests with 304 handling, atomic
+publication, size/type/schema validation, refresh deduplication, offline
+operation with explicit stale/fresh status, no billable inference, no SSRF).
+Overrides are owner-scoped, validated, inspectable, removable and
+revision-counted; they label capabilities but never grant tool execution
+authority or alter policy. Exact-id matching only (no variant cross-mapping);
+local endpoints never match the community catalog. Cost estimation uses
+provider-reported costs when present, prices cached tokens at the cache
+dimension (never double-charged), never double-counts reasoning tokens, and
+returns UNKNOWN (never a misleading zero) for missing usage/prices.
+`GET /api/v1/models/metadata` (+ override list/set/remove + controlled
+refresh) exposes the sanitized owner-scoped projection with freshness
+provenance. Evidence: `tests/test_model_metadata_resolution.py` (18
+deterministic tests) + the model (75) and provider (222) suites.
+
 ## Remaining M5.4 work (subsequent increments)
 
 Multi-account pools/rotation, provider health/cooldown scheduling and safe
