@@ -101,6 +101,7 @@ class ModelMetadata:
     cache_read_price: ResolvedField = dc_field(default_factory=ResolvedField)
     cache_write_price: ResolvedField = dc_field(default_factory=ResolvedField)
     reasoning: ResolvedField = dc_field(default_factory=ResolvedField)
+    reasoning_options: ResolvedField = dc_field(default_factory=ResolvedField)
     tool_call: ResolvedField = dc_field(default_factory=ResolvedField)
     streaming: ResolvedField = dc_field(default_factory=ResolvedField)
     modalities: ResolvedField = dc_field(default_factory=ResolvedField)
@@ -115,7 +116,8 @@ class ModelMetadata:
                 for name in (
                     "context", "max_output", "input_price", "output_price",
                     "cache_read_price", "cache_write_price", "reasoning",
-                    "tool_call", "streaming", "modalities", "display_name",
+                    "reasoning_options", "tool_call", "streaming", "modalities",
+                    "display_name",
                 )
             },
         }
@@ -127,10 +129,17 @@ def _unknown(value: Any = None) -> ResolvedField:
 
 # ── models.dev catalog cache ─────────────────────────────────────────────
 
-def _catalog_path() -> str:
-    from src.constants import DATA_DIR
+def _data_dir() -> str:
+    """The data dir, honoring ODYSSEUS_DATA_DIR at call time (no shared-module
+    reload churn: importing ``src.constants.DATA_DIR`` would freeze the value
+    at import and a test's env change would not apply)."""
+    from src.constants import DATA_DIR as _default
 
-    return os.path.join(DATA_DIR, "models_dev_catalog.json")
+    return os.environ.get("ODYSSEUS_DATA_DIR") or _default
+
+
+def _catalog_path() -> str:
+    return os.path.join(_data_dir(), "models_dev_catalog.json")
 
 
 def _validated_catalog(raw: Any) -> Optional[dict]:
@@ -275,6 +284,15 @@ class _ModelsDevCache:
             with self._lock:
                 self._refreshing = False
 
+    def reset_for_tests(self) -> None:
+        with self._lock:
+            self._data = None
+            self._etag = None
+            self._fetched_at = None
+            self._stale = True
+            self._last_error = None
+            self._refreshing = False
+
     def _record_error(self, message: str) -> None:
         with self._lock:
             self._last_error = message
@@ -334,9 +352,7 @@ class OverrideStore:
         self._lock = threading.Lock()
 
     def _path(self) -> str:
-        from src.constants import DATA_DIR
-
-        return os.path.join(DATA_DIR, "model_metadata_overrides.json")
+        return os.path.join(_data_dir(), "model_metadata_overrides.json")
 
     def _load(self) -> dict:
         try:
@@ -530,6 +546,9 @@ def resolve_model_metadata(
         metadata.cache_read_price = apply(metadata.cache_read_price, _non_negative_number(cost.get("cache_read")), MODELS_DEV_SOURCE, "registry")
         metadata.cache_write_price = apply(metadata.cache_write_price, _non_negative_number(cost.get("cache_write")), MODELS_DEV_SOURCE, "registry")
         metadata.reasoning = apply(metadata.reasoning, catalog_model.get("reasoning"), MODELS_DEV_SOURCE, "registry")
+        metadata.reasoning_options = apply(
+            metadata.reasoning_options, catalog_model.get("reasoning_options"), MODELS_DEV_SOURCE, "registry",
+        )
         metadata.tool_call = apply(metadata.tool_call, catalog_model.get("tool_call"), MODELS_DEV_SOURCE, "registry")
         metadata.modalities = apply(metadata.modalities, catalog_model.get("modalities"), MODELS_DEV_SOURCE, "registry")
         metadata.display_name = apply(metadata.display_name, catalog_model.get("name"), MODELS_DEV_SOURCE, "registry")

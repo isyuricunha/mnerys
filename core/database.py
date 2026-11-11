@@ -221,6 +221,11 @@ class Session(TimestampMixin, Base):
     # DENIED risk classifications, request authority, confinement, and all
     # other security gates remain fully enforced.
     yolo_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
+    # M5.4 increment 4: the owner's provider-independent reasoning preference
+    # for this session (off/low/medium/high/max or an explicit token budget as
+    # a string of digits). Translated per-model by the reasoning contract;
+    # never derived from model text and never an authority change.
+    reasoning_effort = Column(String, nullable=True, default=None)
     # Registered ModelEndpoint this session is bound to. endpoint_url alone
     # cannot distinguish two endpoints that share a provider URL but use
     # different credentials (e.g. two ChatGPT Subscription accounts), so the
@@ -1554,6 +1559,22 @@ def _migrate_add_folder_column():
         except Exception:
             pass
 
+def _migrate_add_session_reasoning_effort_column():
+    """Add the reasoning-effort preference column to sessions (idempotent)."""
+    with engine.begin() as connection:
+        schema = inspect(connection)
+        if not schema.has_table("sessions"):
+            return
+        columns = {column["name"] for column in schema.get_columns("sessions")}
+        if "reasoning_effort" not in columns:
+            connection.execute(
+                text("ALTER TABLE sessions ADD COLUMN reasoning_effort VARCHAR")
+            )
+            logging.getLogger(__name__).info(
+                "Migrated: added 'reasoning_effort' column to sessions"
+            )
+
+
 def _migrate_add_session_yolo_column():
     """Add the opt-in YOLO flag to sessions (idempotent, default OFF)."""
     with engine.begin() as connection:
@@ -2577,6 +2598,7 @@ def init_db():
     _migrate_add_folder_column()
     _migrate_add_session_cwd_column()
     _migrate_add_session_yolo_column()
+    _migrate_add_session_reasoning_effort_column()
     _migrate_add_session_endpoint_id_column()
     _migrate_add_token_columns()
     _migrate_add_total_cost_usd()

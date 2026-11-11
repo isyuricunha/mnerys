@@ -1707,6 +1707,34 @@ def setup_model_routes(model_discovery):
                 from src.chatgpt_subscription import get_chatgpt_model_metadata
                 for mid in list(curated) + list(extra):
                     meta = get_chatgpt_model_metadata(mid)
+                    if not meta:
+                        # M5.4 increment 4: non-ChatGPT reasoning models get
+                        # their DOCUMENTED effort levels from the models.dev
+                        # catalog (verified schema: reasoning_options[].type ==
+                        # "effort" with explicit values). Unknown stays absent
+                        # — the effort selector hides rather than guessing.
+                        try:
+                            from src.model_metadata import resolve_model_metadata
+
+                            resolved = resolve_model_metadata(None, mid, chat_url)
+                            if resolved.reasoning.value is True:
+                                options = resolved.reasoning_options.value or []
+                                effort_values = [
+                                    str(option.get("values") or [])
+                                    for option in options
+                                    if isinstance(option, dict) and option.get("type") == "effort"
+                                ]
+                                levels = [
+                                    str(level).lower()
+                                    for values in effort_values for level in (
+                                        values if isinstance(values, list) else []
+                                    )
+                                    if str(level).strip()
+                                ]
+                                if levels:
+                                    meta = {"supported_reasoning_levels": levels}
+                        except Exception:
+                            meta = None
                     if meta:
                         models_metadata[mid] = meta
                 items.append({

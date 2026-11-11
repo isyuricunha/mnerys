@@ -16073,6 +16073,7 @@ def _append_tool_results(
     include_reasoning_content: bool = True,
     preserve_all_reasoning_content: bool = False,
     allow_visual_evidence: bool = True,
+    thinking_blocks: Optional[list] = None,
 ):
     """Append tool execution results back into the message history for the next LLM round.
 
@@ -16224,6 +16225,13 @@ def _append_tool_results(
         assistant_msg["content"] = round_response if round_response.strip() else None
         if round_reasoning and include_reasoning_content:
             assistant_msg["reasoning_content"] = round_reasoning
+        # M5.4 increment 4: Anthropic thinking blocks (with opaque signatures
+        # and redacted data) ride along VERBATIM for the next round's payload
+        # builder — never stripped by the reasoning-content pruning above
+        # (Anthropic requires them back complete and unmodified; pruning them
+        # 400s every tool-use follow-up).
+        if thinking_blocks:
+            assistant_msg["thinking_blocks"] = thinking_blocks
         assistant_msg["tool_calls"] = [
             {
                 "id": tc.get("id", f"call_{round_num}_{j}"),
@@ -25998,6 +26006,7 @@ async def stream_agent_loop(
             break
         round_response = ""
         round_reasoning = ""  # reasoning_content deltas (DeepSeek-thinking, vLLM --reasoning-parser)
+        round_thinking_blocks = []  # Anthropic thinking blocks (verbatim, with signatures)
         native_tool_calls = []  # populated if model uses function calling
         _qwen_live_visible_text = ""
         _qwen_round_streamed_live = False
@@ -27731,6 +27740,14 @@ async def stream_agent_loop(
                             round_reasoning += data["delta"]
                             if _qwen38_tool_router:
                                 continue
+                        elif data.get("type") == "thinking_blocks":
+                            # M5.4 increment 4: Anthropic thinking blocks arrive
+                            # VERBATIM (with their opaque signatures and
+                            # redacted data) for the tool-use round trip —
+                            # store them exactly as received; never parse,
+                            # reorder or regenerate them (Anthropic 400s on
+                            # altered blocks).
+                            round_thinking_blocks = list(data.get("blocks") or [])
                         else:
                             _qwen_text_cleanup = (
                                 _ody_qwen_finetune_model or _qwen38_tool_router
@@ -36619,6 +36636,7 @@ async def stream_agent_loop(
         _append_tool_results(messages, round_response, converted_calls,
                              tool_results, tool_result_texts, used_native, round_num,
                              round_reasoning=round_reasoning,
+                             thinking_blocks=round_thinking_blocks,
                              tool_result_records=tool_result_records,
                              # DeepSeek requires its prior reasoning_content on
                              # the follow-up request even when native/external

@@ -395,6 +395,10 @@ class SessionUpdateBody(BaseModel):
     # Selected working directory: a non-empty validated value becomes the
     # session's authoritative CWD; an empty string clears the selection.
     cwd: Optional[str] = Field(default=None, max_length=4096)
+    # M5.4 increment 4: the owner's provider-independent reasoning preference
+    # (off/low/medium/high/max or an explicit token-budget number); an empty
+    # string clears it. Translated per-model at request time.
+    reasoning_effort: Optional[str] = Field(default=None, max_length=32)
 
 
 class YoloToggleBody(BaseModel):
@@ -466,6 +470,7 @@ async def session_detail(
             "cwd": getattr(session, "cwd", None),
             # M5.3 increment 4: the effective opt-in YOLO state.
             "yolo_enabled": bool(getattr(session, "yolo_enabled", False)),
+            "reasoning_effort": getattr(session, "reasoning_effort", None),
             "revision": getattr(session, "revision", None),
         },
         **page,
@@ -541,6 +546,7 @@ async def update_session(
             endpoint_id=(body.endpoint_id or "").strip() or None,
             model_hint=(body.model or "").strip() or None,
             cwd=body.cwd,
+            reasoning_effort=body.reasoning_effort,
         )
     except SessionStoreError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

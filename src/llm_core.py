@@ -1904,8 +1904,16 @@ def _convert_openai_content_to_anthropic(content):
     return converted
 
 
-def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=False, tools=None):
-    """Convert OpenAI-style messages to Anthropic format."""
+def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=False, tools=None,
+                             thinking_mode=None, reasoning_effort=None):
+    """Convert OpenAI-style messages to Anthropic format.
+
+    M5.4 increment 4: applies the per-generation thinking/effort configuration
+    (src/reasoning_contract.py — adaptive+effort on Claude 4.6+, manual
+    budget_tokens on 4.5-and-earlier) and replays stored assistant thinking
+    blocks VERBATIM (with their opaque signatures and redacted_thinking data)
+    before text/tool_use blocks — the documented tool-use round-trip contract.
+    """
     system_parts = []
     chat_messages = []
     for m in messages:
@@ -1922,8 +1930,13 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
                 }],
             })
         elif m.get("role") == "assistant" and isinstance(m.get("tool_calls"), list):
-            # Convert OpenAI assistant tool_calls to Anthropic format
             content = []
+            from src.reasoning_contract import assistant_thinking_blocks
+
+            # The thinking blocks come back FIRST, complete and unmodified —
+            # the opaque signatures/redacted data are never parsed, reordered
+            # or regenerated (Anthropic 400s on altered blocks).
+            content.extend(assistant_thinking_blocks(m))
             if m.get("content"):
                 content.append({"type": "text", "text": m["content"]})
             for tc in m["tool_calls"]:
@@ -1989,6 +2002,21 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
             # The breakpoint caches all tool defs preceding it in the request.
             anthropic_tools[-1]["cache_control"] = {"type": "ephemeral"}
             payload["tools"] = anthropic_tools
+    # M5.4 increment 4: the per-generation thinking/effort configuration —
+    # never fabricated; unsupported combinations use the documented safe form
+    # with an explanatory note (logged for observability).
+    from src.reasoning_contract import anthropic_thinking_config
+
+    thinking_config = anthropic_thinking_config(
+        model, thinking_mode=thinking_mode, reasoning_effort=reasoning_effort,
+        max_tokens=payload.get("max_tokens"),
+    )
+    if thinking_config.get("thinking"):
+        payload["thinking"] = thinking_config["thinking"]
+    if thinking_config.get("output_config"):
+        payload["output_config"] = thinking_config["output_config"]
+    if thinking_config.get("note"):
+        logger.info("[anthropic-thinking] %s: %s", model, thinking_config["note"])
     return payload
 
 def _build_anthropic_headers(headers):
@@ -2418,7 +2446,10 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
     if provider == "anthropic":
         target_url = _normalize_anthropic_url(url)
         h = _build_anthropic_headers(headers)
-        payload = _build_anthropic_payload(model, messages_copy, temperature, max_tokens)
+        payload = _build_anthropic_payload(
+            model, messages_copy, temperature, max_tokens,
+            thinking_mode=thinking_mode, reasoning_effort=reasoning_effort,
+        )
     elif provider == "ollama":
         target_url = _normalize_ollama_url(url)
         payload = _build_ollama_payload(
@@ -2830,7 +2861,10 @@ async def llm_call_async(
     if provider == "anthropic":
         target_url = _normalize_anthropic_url(url)
         h = _build_anthropic_headers(headers)
-        payload = _build_anthropic_payload(model, messages_copy, temperature, max_tokens)
+        payload = _build_anthropic_payload(
+            model, messages_copy, temperature, max_tokens,
+            thinking_mode=thinking_mode, reasoning_effort=reasoning_effort,
+        )
     elif provider == "ollama":
         target_url = _normalize_ollama_url(url)
         h = {"Content-Type": "application/json"}
@@ -3440,6 +3474,7 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
         _anth_model_announced = False
         # Track tool_use blocks: {index: {id, name, arguments_json}}
         _anth_tool_blocks: Dict[int, Dict] = {}
+        _anth_thinking_blocks: Dict[int, Dict] = {}
         _anth_block_idx = -1
         _anth_block_type = ""
         try:
@@ -3483,6 +3518,20 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                                     "name": cb.get("name") or "",
                                     "arguments": "",
                                 }
+                            elif _anth_block_type in ("thinking", "redacted_thinking"):
+                                # M5.4 increment 4: capture thinking blocks
+                                # VERBATIM (with their opaque signatures and
+                                # redacted data) for the tool-use round trip —
+                                # Anthropic requires them back complete and
+                                # unmodified.
+                                _anth_thinking_blocks[_anth_block_idx] = {
+                                    "type": _anth_block_type,
+                                    **(
+                                        {"data": cb.get("data") or ""}
+                                        if _anth_block_type == "redacted_thinking"
+                                        else {"thinking": cb.get("thinking") or ""}
+                                    ),
+                                }
                         elif evt == "content_block_delta":
                             delta = j.get("delta") or {}
                             delta_type = delta.get("type", "")
@@ -3490,6 +3539,19 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                                 text = delta.get("text") or ""
                                 if text:
                                     yield f'data: {json.dumps({"delta": text})}\n\n'
+                            elif delta_type == "thinking_delta":
+                                idx = j.get("index", _anth_block_idx)
+                                block = _anth_thinking_blocks.setdefault(idx, {"type": "thinking", "thinking": ""})
+                                text = delta.get("thinking") or ""
+                                block["thinking"] = block.get("thinking", "") + text
+                                if text and _normalize_thinking_mode(thinking_mode) != "off":
+                                    yield _stream_delta_event(text, thinking=True)
+                            elif delta_type == "signature_delta":
+                                idx = j.get("index", _anth_block_idx)
+                                block = _anth_thinking_blocks.setdefault(idx, {"type": "thinking", "thinking": ""})
+                                # The opaque signature accumulates verbatim; it is
+                                # never parsed or exposed beyond the round trip.
+                                block["signature"] = block.get("signature", "") + (delta.get("signature") or "")
                             elif delta_type == "input_json_delta":
                                 # Accumulate tool arguments JSON
                                 idx = j.get("index", _anth_block_idx)
@@ -3542,6 +3604,16 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                                 _anth_usage_seen = True
                             _anth_output_tokens = _u.get("output_tokens", 0)
                         elif evt == "message_stop":
+                            # M5.4 increment 4: emit the captured thinking
+                            # blocks (with opaque signatures) for the loop's
+                            # history — the tool-use round trip needs them
+                            # back complete and unmodified next round.
+                            if _anth_thinking_blocks:
+                                ordered_blocks = [
+                                    _anth_thinking_blocks[idx]
+                                    for idx in sorted(_anth_thinking_blocks)
+                                ]
+                                yield f'data: {json.dumps({"type": "thinking_blocks", "blocks": ordered_blocks})}\n\n'
                             # Emit accumulated tool calls in OpenAI-compatible format
                             if _anth_tool_blocks:
                                 calls = []

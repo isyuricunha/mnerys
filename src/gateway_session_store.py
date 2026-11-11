@@ -297,7 +297,7 @@ def set_session_yolo_state(
 def update_owner_session(
     manager: Any, session: Any, owner: str, *, name: str | None = None,
     endpoint_id: str | None = None, model_hint: str | None = None,
-    cwd: str | None = None,
+    cwd: str | None = None, reasoning_effort: str | None = None,
 ) -> Any:
     """Apply owner-checked preference updates to one admitted session.
 
@@ -305,6 +305,11 @@ def update_owner_session(
     and becomes the session's authoritative working directory; an empty
     string clears the selection. Invalid selections are refused and the
     previous directory is kept.
+
+    ``reasoning_effort`` (M5.4 increment 4): the owner's provider-independent
+    reasoning preference (off/low/medium/high/max or a token-budget number);
+    an empty string clears it. Translated per-model by the reasoning contract
+    at request time — never an authority change and never model-text driven.
     """
     from src.endpoint_resolver import build_chat_url, build_headers, normalize_base
 
@@ -359,6 +364,27 @@ def update_owner_session(
                 db_session.updated_at = utcnow_naive()
                 db.commit()
                 session.cwd = clean_cwd
+        finally:
+            db.close()
+    if reasoning_effort is not None:
+        clean_effort = str(reasoning_effort).strip().lower()
+        if clean_effort and not (
+            clean_effort in {"off", "low", "medium", "high", "max"}
+            or clean_effort.isdigit()
+        ):
+            raise SessionStoreError(
+                "reasoning_effort must be off, low, medium, high, max, or a "
+                "token-budget number",
+                status_code=400,
+            )
+        db = _db()
+        try:
+            db_session = db.query(DbSession).filter(DbSession.id == session.id).first()
+            if db_session is not None:
+                db_session.reasoning_effort = clean_effort or None
+                db_session.updated_at = utcnow_naive()
+                db.commit()
+                session.reasoning_effort = clean_effort or None
         finally:
             db.close()
     return session
