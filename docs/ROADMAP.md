@@ -509,6 +509,24 @@ an exact-operation approval sealed for one workspace cannot execute against
 another. Evidence: `tests/test_session_cwd_contract.py` (23 deterministic
 tests) plus session-persistence and security regressions.
 
+**Increment 2 status (verified): Hermes-style approval decisions.** The
+Gateway approval system now answers every gated action with four consistent
+decisions — Allow once (`allow_once`, executes the sealed action exactly once
+and re-arms), Allow for this chat session (existing `approve`), Always allow
+this specific rule (`always_allow`, executes now and persists a narrow,
+revocable rule binding the exact reviewed operation — same tool identity
+through the normalization boundary, same input, same effective directory,
+same capability fingerprint), and Deny (default; timeouts, malformed
+decisions, disconnected channels and unauthorized responders all fail closed
+to denial). A scoped rule suppresses ONLY the automatic prompt for the exact
+operation; admission, policy, request authority, resource/CWD binding,
+sealed validation and replay checks still apply to every execution. No
+wildcard or executable-prefix rules exist in this store. Web cards render
+the server-provided options; CLI/TUI submit the same wire values; rules are
+inspectable and revocable via the Gateway v1 API. Evidence:
+`tests/test_approval_decisions_rules.py` (24 deterministic tests) plus every
+existing approval suite (198+42 passed).
+
 - No mandatory per-chat workspace. Local CLI/TUI begin in the invoking
   shell's current directory; local Web and Telegram begin in the
   configured execution account's home. Remote CLI/TUI use the server's
