@@ -108,5 +108,22 @@ identities; typed Core metadata is not silently widened. Legacy browser
 events without IDs retain their single-action compatibility path. Structured
 tool receipts and nonzero exit codes remain authoritative over model prose.
 
+## Independent shell inspections after approval
+
+A compound shell command joined with `&&` stops after its first failing
+step, as specified by Bash's command-list semantics. The result's nonzero
+exit status means the shell action ran and failed; it does not mean the
+execution was blocked or that every requested check was performed.
+
+The approval continuation now distinguishes a denied launch from a command
+that executed and returned a failure. It preserves bounded observed output
+and exit status rather than saying that a partially executed shell did not
+run. Only a **verified low-risk, read-only** shell operation with observed
+output and no policy/resource error can continue model synthesis for any
+remaining independent inspections. It does not replay the approved command,
+widen authority, change the session's CWD or retry effectful commands. All
+later tool calls remain independently authorized and audited. The Agent
+instructions ask for separate calls when results are independently requested.
+
 No secrets, private endpoints, server identifiers or real user transcripts
 should be added to published documentation.

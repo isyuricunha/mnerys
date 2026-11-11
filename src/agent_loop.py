@@ -105,6 +105,9 @@ from src.turn_contract import (
     with_turn_contract,
 )
 from src.agent_runtime.journal import propose_action, execute_action
+from src.agent_runtime.approved_tool_failure import (
+    approved_action_failure_text, can_continue_after_approved_shell_failure,
+)
 from src.agent_runtime.completion import with_completion_gate
 from src.agent_runtime.runtime_selection import is_compact_preview_contract
 from src.teacher_escalation import with_teacher_takeover, request_teacher_takeover
@@ -7126,6 +7129,7 @@ _AGENT_RULES = """\
 - If the user explicitly says "this workspace" or "current workspace" but no active workspace is set, do not inspect or edit random home-folder files. Tell them to set one with `/workspace <path>`, `/workspace pick`, or `/workspace set /absolute/path`.
 - After a tool succeeds, do not second-guess it; reply with one short confirmation unless more work remains.
 - After a tool fails, retry with a concrete fix or state what is blocking you.
+- For multiple independent shell inspections, prefer separate tool calls: a shell chain with && skips later steps after one fails. Report actual exit codes and never claim skipped commands ran.
 - Finish only when the user's concrete request is actually done, or clearly state that you are blocked.
 - User identity facts/preferences ("my name is X", "call me X", "I live in X") use `manage_memory`, not contacts.
 - When the prompt contains "Selected notes and todos", treat that content as already-provided reference context. Use it directly when it answers the request; do not call `manage_notes` to list/search/view the same notes, and do not ask for permission merely to use the selected context. Call `manage_notes` only when the user requests a note change or the selected context is insufficient and a fresh lookup is needed.
@@ -7136,6 +7140,7 @@ _API_AGENT_RULES = """\
 - Use native tools for requested actions; never claim an action succeeded without its result. Casual conversation needs no tool.
 - User wording may contain typos. When an action clearly matches one currently offered tool, use that tool instead of treating the misspelling as unavailable.
 - Continue after each tool result: take the next useful step after success, and retry or explain the blocker after failure. Stop only when the request is complete or blocked.
+- Run separately requested, independent shell inspections in separate tool calls where possible; && skips later commands on failure. Report each actual exit code and do not invent skipped results.
 - Only the current turn's tool schemas are available. If a required capability is absent, say so briefly.
 - Be concise unless the user asks for depth.
 - With no active workspace, do not guess a folder for "this/current workspace"; ask the user to set one with `/workspace <path>` or `/workspace pick`.
@@ -25773,6 +25778,7 @@ async def stream_agent_loop(
             "output": _truncate(approved_output),
             "exit_code": approved_result.get("exit_code"),
             "approved": True,
+            "blocked": bool(approved_result.get("blocked", False)),
             "call_id": approved_call_id,
             "tool_call_id": approved_call_id,
         }
@@ -25820,28 +25826,40 @@ async def stream_agent_loop(
             or approved_result.get("approval_required")
             or approved_result.get("exit_code") not in (None, 0)
         ):
-            # An approval continuation is a sealed action, not a fresh agent
-            # turn. If dispatch rejects that exact action (for example because
-            # the tool was disabled between proposal and approval), report the
-            # authoritative failure instead of asking the model to improvise a
-            # different domain or invent a generic synthesis.
-            _approval_error = str(
-                approved_result.get("error")
-                or approved_result.get("output")
-                or f"exit code {approved_result.get('exit_code')}"
-            ).strip()
-            _approval_response = (
-                f"The approved {approved.tool_name} action could not run: "
-                f"{_approval_error}"
-            )
-            full_response = _approval_response
-            yield (
-                "data: "
-                + json.dumps({"type": "final_response", "content": _approval_response})
-                + "\n\n"
-            )
-            _approved_read_completed = True
-            _approved_result_injected = True
+            if can_continue_after_approved_shell_failure(
+                approved.tool_name, approved.content, approved_result,
+            ):
+                # The approved read-only command DID run and returned partial
+                # evidence. Let the model complete remaining independent reads
+                # within the original request's tool policy and workspace.
+                # We never re-execute or widen the sealed approved operation.
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "The already approved read-only shell command executed "
+                        "but exited nonzero. The observed output is authoritative. "
+                        "An && chain can skip later requested inspections. "
+                        "Do not repeat the failed compound command; separately "
+                        "run only missing independent read-only checks using the "
+                        "existing session CWD and granted tools. Report each "
+                        "command's actual result or clearly state what was not run."
+                    ),
+                })
+            else:
+                # A denied or effectful failed action must not trigger an
+                # uncontrolled re-execution. Describe its actual receipt and
+                # terminate the one-shot approval continuation honestly.
+                _approval_response = approved_action_failure_text(
+                    approved.tool_name, approved.content, approved_result,
+                )
+                full_response = _approval_response
+                yield (
+                    "data: "
+                    + json.dumps({"type": "final_response", "content": _approval_response})
+                    + "\n\n"
+                )
+                _approved_read_completed = True
+                _approved_result_injected = True
         if approved_result.get("image_url"):
             yield (
                 "data: "
