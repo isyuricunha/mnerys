@@ -660,6 +660,23 @@ fallback/concurrency suites (103). Limitations: in-memory health state
 (restart resets cooldowns — advisory by design), per-account quota dimensions
 land with the metadata cache.
 
+**Increment 4 status (verified): native reasoning, effort controls and token
+accounting.** `src/reasoning_contract.py` + the Anthropic continuity chain:
+three real defects fixed (the streaming parser dropped thinking_delta/
+signature_delta — every tool-use follow-up lost the opaque signatures
+Anthropic requires back verbatim, 400ing the round; the payload builder never
+applied the thinking/effort configuration; the assistant history never
+carried the blocks). Now: the per-generation config (adaptive+effort on 4.6+,
+manual budgets with the documented bounds on 4.5-and-earlier, effort composes
+with a budget only on Opus 4.5), verbatim thinking-block round trips (never
+parsed/reordered/regenerated), session-level effort preferences (validated,
+server-owned, protected from model text, surviving model switches), effort
+levels for non-ChatGPT models from the verified models.dev reasoning_options,
+and the accounting rules (no reasoning double-count, no cache double-charge,
+missing usage stays unknown). Evidence:
+`tests/test_native_reasoning_contract.py` (14) + the full affected round
+(1213 green). Contract: `docs/architecture/NATIVE_REASONING.md`.
+
 - Support validated provider adapters and account configurations:
   authorized Codex/ChatGPT subscription OAuth when terms allow,
   official Claude Code CLI/login integration only through permitted

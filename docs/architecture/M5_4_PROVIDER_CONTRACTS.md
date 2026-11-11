@@ -111,6 +111,23 @@ refresh) exposes the sanitized owner-scoped projection with freshness
 provenance. Evidence: `tests/test_model_metadata_resolution.py` (18
 deterministic tests) + the model (75) and provider (222) suites.
 
+
+## Increment 4 — native reasoning, effort controls and token accounting (implemented)
+
+`src/reasoning_contract.py` + the Anthropic continuity chain: the streaming
+parser captures `thinking`/`redacted_thinking` blocks verbatim (including
+`signature_delta` assembly) and emits them to the loop; the assistant history
+carries them unmodified; the payload builder replays them FIRST and applies
+the per-generation thinking/effort configuration (adaptive + `output_config.effort`
+on Claude 4.6+; manual `budget_tokens` with the documented bounds on 4.5-and-
+earlier; forced-tool-choice restrictions honored per model). Session-level
+effort preferences are server-owned (protected from model text), validated on
+both session surfaces, and survive model switches with per-model validation;
+non-ChatGPT reasoning models get documented levels from models.dev's
+`reasoning_options`. Accounting: no reasoning double-count, no cache double-
+charge, missing usage stays unknown, provider-reported cost wins. Evidence:
+`tests/test_native_reasoning_contract.py` (14) + the affected round (1213).
+
 ## Remaining M5.4 work (subsequent increments)
 
 Multi-account pools/rotation, provider health/cooldown scheduling and safe
