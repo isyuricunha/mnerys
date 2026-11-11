@@ -133,6 +133,22 @@ def update_source_commit(contents: str, sha: str) -> str:
     return contents[:match.start()] + "ODYSSEUS_SOURCE_COMMIT=" + sha + contents[match.end():]
 
 
+def reviewed_stable_revision(repo: Path, current: str, tag: str) -> str:
+    """Select a reviewed exact stable Git tag already contained in local main."""
+    if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
+        raise DeployError("Only an exact stable semantic release tag may be deployed")
+    revision = call(["git", "rev-parse", f"refs/tags/{tag}^{{commit}}"], cwd=repo, timeout=15).strip()
+    if not re.fullmatch(r"[a-f0-9]{40}", revision):
+        raise DeployError("Unable to resolve exact stable release tag")
+    try:
+        call(["git", "merge-base", "--is-ancestor", revision, current], cwd=repo, timeout=15)
+    except DeployError as exc:
+        raise DeployError("Requested stable release is not in the reviewed main history") from exc
+    if revision_release_version(repo, revision) != tag[1:]:
+        raise DeployError("Release tag identity does not match the selected commit")
+    return revision
+
+
 def revision_release_version(repo: Path, revision: str) -> str:
     """Derive the display version from an exact release tag, never a stale constant."""
     if not re.fullmatch(r"[a-f0-9]{40}", revision):
@@ -501,12 +517,16 @@ def verified_postgresql_backup(private: Path, destination: Path) -> Path:
     return destination
 
 
-def deploy(repo: Path, home: Path, dry_run: bool = False) -> dict:
+def deploy(repo: Path, home: Path, dry_run: bool = False, release_tag: str | None = None) -> dict:
     runtime = home / ".local/share/mnerys-preview"
     unit, envfile, private, service_name = unit_and_config(home)
     with exclusive_lock(runtime):
         base = public_endpoint(private)
-        revision = repo_revision(repo)
+        current = repo_revision(repo)
+        revision = (
+            reviewed_stable_revision(repo, current, release_tag)
+            if release_tag else current
+        )
         before_unit = unit.read_text()
         before_env = envfile.read_text()
         backend = selected_database_backend(before_env)
@@ -613,10 +633,14 @@ def main() -> None:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--check", action="store_true", help="Stage and test without service restart")
     group.add_argument("--deploy", action="store_true", help="Deploy and automatically roll back code on validation failure")
+    parser.add_argument(
+        "--release-tag",
+        help="Deploy an exact reviewed stable tag already in the clean main checkout",
+    )
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     try:
-        report = deploy(repo, Path.home(), dry_run=args.check)
+        report = deploy(repo, Path.home(), dry_run=args.check, release_tag=args.release_tag)
         print(json.dumps(report, indent=2))
     except DeployError as exc:
         print("DEPLOY FAILED: " + str(exc), file=sys.stderr)
