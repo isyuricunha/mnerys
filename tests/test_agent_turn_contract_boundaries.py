@@ -69,6 +69,9 @@ def schema_function(force_answer=False, keep_artifacts=False, guide_only=False):
             {"type": "function", "function": {"name": name}}
             for name in ("manage_calendar", "bash")
         ],
+        # M5.2 increment 5: the live-contract read falls back to the bound
+        # contract when nothing is activated (no ToolSearch activation here).
+        "active_turn_contract": lambda: None,
         "normalized_external_tool_schemas": [], "disabled_tools": set(),
         "_pure_web_turn": False, "_native_artifact_runtime": False,
         "_drop_legacy_email_alias_schemas_when_mcp_available": lambda schemas: schemas,

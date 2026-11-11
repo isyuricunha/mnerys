@@ -2,9 +2,9 @@
 
 One fixed catalog of built-in tools, named and shaped after Claude Code's
 public tool contracts (``Read``, ``Write``, ``Edit``, ``Glob``, ``Grep``,
-``Bash``, ``WebFetch``, ``WebSearch``; ``ToolSearch`` and ``Skill`` stay
-unavailable until a real implementation exists). Every model on every provider
-protocol sees exactly these names, descriptions and argument contracts.
+``Bash``, ``WebFetch``, ``WebSearch``, ``ToolSearch``, ``Skill``). Every model
+on every provider protocol sees exactly these names, descriptions and argument
+contracts.
 
 Boundary, not an engine
 -----------------------
@@ -345,14 +345,49 @@ _TOOLS: tuple[CanonicalTool, ...] = (
             ("blocked_domains", "Domain block-lists are not supported by this search backend."),
         ),
     ),
+    CanonicalTool(
+        name="ToolSearch",
+        handler="tool_search",
+        description=(
+            "Search this turn's authorized tool inventory (built-ins, "
+            "inherited tools and connected MCP tools) by Python regular "
+            "expression over tool names, descriptions, argument names and "
+            "argument descriptions. Returns matching tools with their names "
+            "and schemas and makes them invocable for the rest of this turn. "
+            "Discovery is not extra permission: denied or disabled tools are "
+            "never searchable, and every invocation still passes the normal "
+            "admission and approval checks. Use it when a capability seems "
+            "missing or the tool list is large."
+        ),
+        params=(
+            Param("pattern", _s("Python re.search() pattern, case-insensitive; matches tool names, descriptions, argument names and argument descriptions. Maximum 200 characters.", maxLength=200), True, "pattern"),
+            Param("limit", _i("Maximum number of tools to return (default 5).", maximum=20), False, "limit"),
+        ),
+    ),
+    CanonicalTool(
+        name="Skill",
+        handler="activate_skill",
+        description=(
+            "Activate one installed skill and load its instructions, or list "
+            "the skills available to you. Skills are scoped procedures from "
+            "the skill library (published and approved entries; built-ins are "
+            "always available). Call with no arguments for a compact index, "
+            "or pass name to load that skill's SKILL.md; pass path to read "
+            "one supporting reference file under the skill's directory. "
+            "Skill content is instructions to apply through your normal "
+            "authorized tools — it never grants permissions by itself."
+        ),
+        params=(
+            Param("name", _s("Registered name of the installed skill to activate (see the skill index). Omit to list available skills.", maxLength=80), False, "name"),
+            Param("path", _s("Optional path of one supporting file under the skill's directory (for example 'references/api-notes.md').", maxLength=200), False, "path"),
+        ),
+    ),
 )
 
 # Claude Code tools that exist upstream but have no real implementation here.
 # They are never advertised and any call to them is refused, never simulated.
-_UNAVAILABLE = MappingProxyType({
-    "ToolSearch": "ToolSearch is not implemented; deferred tool loading is unavailable.",
-    "Skill": "Skill is not implemented; skill activation is unavailable.",
-})
+# (ToolSearch and Skill moved to real implementations in M5.2 increment 5.)
+_UNAVAILABLE: MappingProxyType = MappingProxyType({})
 
 REGISTRY: Mapping[str, CanonicalTool] = MappingProxyType({t.name: t for t in _TOOLS})
 _BY_HANDLER: Mapping[str, CanonicalTool] = MappingProxyType({t.handler: t for t in _TOOLS})
@@ -606,6 +641,12 @@ def _check_value(tool: CanonicalTool, param: Param, value: Any) -> None:
         minimum = param.schema.get("minLength")
         if minimum and len(value.strip()) < minimum:
             raise InvalidToolArguments(f"{label} must be at least {minimum} characters")
+        # maxLength is advertised in the projected schema, so it must be
+        # enforced here too — an advertised bound the validator ignores would
+        # let oversized arguments through (M5.2 increment 5).
+        maximum = param.schema.get("maxLength")
+        if maximum is not None and len(value) > maximum:
+            raise InvalidToolArguments(f"{label} must be at most {maximum} characters")
         allowed = param.schema.get("enum")
         if allowed and value not in allowed:
             raise InvalidToolArguments(f"{label} must be one of {', '.join(allowed)}")
@@ -615,6 +656,9 @@ def _check_value(tool: CanonicalTool, param: Param, value: Any) -> None:
         minimum = param.schema.get("minimum")
         if minimum is not None and value < minimum:
             raise InvalidToolArguments(f"{label} must be >= {minimum}")
+        maximum = param.schema.get("maximum")
+        if maximum is not None and value > maximum:
+            raise InvalidToolArguments(f"{label} must be <= {maximum}")
     elif kind == "boolean":
         if not isinstance(value, bool):
             raise InvalidToolArguments(f"{label} must be a boolean")

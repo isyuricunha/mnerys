@@ -37,7 +37,7 @@ from src.tool_registry import (
 from src.tool_types import TOOL_TAGS
 
 
-EXPECTED_CANONICAL = ("Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch")
+EXPECTED_CANONICAL = ("Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "ToolSearch", "Skill")
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +48,9 @@ def test_canonical_catalog_matches_the_fixed_vocabulary():
     assert CANONICAL_NAMES == EXPECTED_CANONICAL
     assert set(REGISTRY) == set(EXPECTED_CANONICAL)
     # Claude Code tools without a real implementation stay unavailable.
-    assert set(UNAVAILABLE_NAMES) == {"ToolSearch", "Skill"}
+    # M5.2 increment 5: every Claude Code built-in name is now backed by a
+    # real implementation, so nothing is unavailable.
+    assert set(UNAVAILABLE_NAMES) == set()
 
 
 def test_registry_is_immutable():
@@ -134,10 +136,20 @@ def test_inherited_alias_spellings_are_rejected_too(name):
         resolve_model_call(name, "{}")
 
 
-@pytest.mark.parametrize("name", ["ToolSearch", "Skill"])
-def test_unavailable_canonical_tools_are_refused_never_simulated(name):
-    with pytest.raises(ToolUnavailable):
-        resolve_model_call(name, "{}")
+def test_every_canonical_name_resolves_to_a_real_handler():
+    # M5.2 increment 5: the registry advertises only capabilities backed by
+    # working implementations — every canonical name, ToolSearch and Skill
+    # included, must map to a registered handler id that round-trips.
+    from src.agent_tools import TOOL_HANDLERS
+
+    for name in CANONICAL_NAMES:
+        tool = REGISTRY[name]
+        assert tool.handler in TOOL_HANDLERS, name
+        assert canonical_name_for_handler(tool.handler) == name
+    resolved = resolve_model_call("Skill", "{}")
+    assert resolved.governed is True and resolved.handler == "activate_skill"
+    resolved = resolve_model_call("ToolSearch", json.dumps({"pattern": "weather"}))
+    assert resolved.governed is True and resolved.handler == "tool_search"
 
 
 def test_non_registry_tools_pass_through_unchanged():

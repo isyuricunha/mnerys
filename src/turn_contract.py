@@ -6283,6 +6283,12 @@ class TurnContract:
     executable: frozenset[str]
     unavailable: frozenset[str]
     schema_json: tuple[str, ...]
+    # Server-resolved discovery snapshot (M5.2 increment 5): the schemas of
+    # every policy-admitted tool this turn, offered or not. ToolSearch ranks
+    # over it and activation widens `offered` only inside it. Empty means the
+    # contract predates the snapshot; discovery then falls back to the
+    # offered schemas.
+    discoverable_schema_json: tuple[str, ...] = ()
     required_read_operation: RequiredReadOperation | None = None
     active_capabilities: frozenset[str] = frozenset()
     selection_mode: str = "routed"
@@ -6294,6 +6300,10 @@ class TurnContract:
         names = {json.loads(s)["function"]["name"] for s in self.schema_json}
         if names != set(self.offered):
             raise ValueError("Turn contract schema inventory differs from offered tools")
+        if self.discoverable_schema_json:
+            discoverable = {json.loads(s)["function"]["name"] for s in self.discoverable_schema_json}
+            if not set(self.offered) <= discoverable:
+                raise ValueError("Turn contract offered tools must be discoverable")
         operation = self.required_read_operation
         if operation is not None:
             if not isinstance(operation, RequiredReadOperation):
@@ -6308,6 +6318,17 @@ class TurnContract:
     def schemas(self) -> list[dict]:
         # Return copies: compact/full model formatting must not mutate the contract.
         return [json.loads(value) for value in self.schema_json]
+
+    def discoverable_schemas(self) -> list[dict]:
+        """The turn's policy-admitted tool schemas (offered or activatable).
+
+        Falls back to the offered schemas for contracts built before the
+        discovery snapshot existed. This is the ONLY inventory ToolSearch may
+        search or activate: policy-hidden, disabled and unknown tools are not
+        in it and cannot leak their schemas.
+        """
+        source = self.discoverable_schema_json or self.schema_json
+        return [json.loads(value) for value in source]
 
     def audit(self) -> dict:
         result = {"capabilities": sorted(self.capabilities), "required": sorted(self.required),
@@ -6338,6 +6359,9 @@ def resolve_full_inventory_contract(*, schemas: Iterable[dict], policy: ToolPoli
         # nevertheless part of the trained/runtime contract and must survive
         # the full-inventory intersection for exact pipeline requests.
         "pipeline", "edit_image",
+        # Discovery controls (M5.2 increment 5): neutral, offered with any
+        # tool surface; authority still comes only from executable/policy.
+        "tool_search", "activate_skill",
     }
     denied = {canonical_tool(n) for n in policy.all_disabled_names()}
     inventory = {s["function"]["name"]: s for s in schemas if isinstance(s.get("function"), dict)}
@@ -6347,6 +6371,9 @@ def resolve_full_inventory_contract(*, schemas: Iterable[dict], policy: ToolPoli
     offered = frozenset(n for n in offered if n.startswith("mcp__") or "mcp__email__" + n not in offered)
     return TurnContract(families, frozenset(), offered, executable, frozenset(),
                         tuple(json.dumps(inventory[n], sort_keys=True) for n in sorted(offered)),
+                        discoverable_schema_json=tuple(
+                            json.dumps(inventory[n], sort_keys=True) for n in sorted(executable)
+                        ),
                         selection_mode="full_compact_experiment")
 
 
@@ -6419,8 +6446,11 @@ def resolve_turn_contract(*, capabilities: Iterable[str], schemas: Iterable[dict
     selected.update(canonical_tool(n) for n in always_available_tools)
     selected.update(canonical_tool(n) for n in warm_tools if str(n or "").strip())
     # Controls are neutral; enabling Web is permission, never a requested family.
+    # Discovery controls (M5.2 increment 5) are neutral too: offering
+    # ToolSearch/Skill never widens authority — denied tools stay
+    # undiscoverable and every invocation still passes admission.
     if selected:
-        selected.update({"ask_user", "update_plan"})
+        selected.update({"ask_user", "update_plan", "tool_search", "activate_skill"})
     offered = frozenset(n for n in executable if canonical_tool(n) in selected)
     # Prefer the real MCP email schema over its legacy alias when both exist.
     offered = frozenset(n for n in offered if n.startswith("mcp__") or "mcp__email__" + n not in offered)
@@ -6446,7 +6476,14 @@ def resolve_turn_contract(*, capabilities: Iterable[str], schemas: Iterable[dict
     required = frozenset(n for n in offered if canonical_tool(n) in required_names)
     return TurnContract(families, required, offered, executable, unavailable,
                         tuple(json.dumps(inventory[n], sort_keys=True) for n in sorted(offered)),
-                        operation, required_families)
+                        # Discovery snapshot: every policy-admitted schema, offered
+                        # or not, frozen for the whole turn so ToolSearch ranks and
+                        # activates strictly inside the admitted inventory.
+                        discoverable_schema_json=tuple(
+                            json.dumps(inventory[n], sort_keys=True) for n in sorted(executable)
+                        ),
+                        required_read_operation=operation,
+                        active_capabilities=required_families)
 
 
 _ACTIVE_CONTRACT: ContextVar[TurnContract | None] = ContextVar("turn_contract", default=None)
@@ -6454,6 +6491,76 @@ _ACTIVE_CONTRACT: ContextVar[TurnContract | None] = ContextVar("turn_contract", 
 
 def active_turn_contract() -> TurnContract | None:
     return _ACTIVE_CONTRACT.get()
+
+
+def activate_discovered_tools(names: Iterable[str]) -> dict:
+    """Server-side activation of ToolSearch-discovered tools (M5.2 increment 5).
+
+    This is the only sanctioned bridge from discovery to executability, and it
+    is server code, not model output: a discovered tool joins `offered` for the
+    remainder of the turn only when it is ALREADY in the turn's `executable`
+    set and in the discovery snapshot (policy-admitted inventory). `required`,
+    `executable`, the policy, the request authority and every approval rule
+    are unchanged — activation widens the model-visible offer, never the
+    permission. Unknown, denied, hidden or snapshot-absent names are refused
+    truthfully and never execute.
+
+    Setting the widened contract in the ContextVar keeps the original binding
+    intact: `bind_turn_contract` still resets to the caller's contract when
+    the turn ends, so activation cannot leak into a later turn.
+    """
+    contract = _ACTIVE_CONTRACT.get()
+    requested = [str(name or "").strip() for name in (names or ())]
+    if contract is None:
+        return {
+            "activated": [],
+            "already_offered": [],
+            "refused": sorted(set(n for n in requested if n)),
+            "reason": "no bound turn contract; discovery cannot activate tools",
+        }
+    if not requested:
+        return {"activated": [], "already_offered": [], "refused": []}
+    inventory_name_by_canonical: dict[str, str] = {}
+    for schema_name in contract.executable:
+        inventory_name_by_canonical.setdefault(canonical_tool(schema_name), schema_name)
+    discoverable_json = {
+        json.loads(value)["function"]["name"]: value
+        for value in contract.discoverable_schema_json
+    } or {
+        json.loads(value)["function"]["name"]: value
+        for value in contract.schema_json
+    }
+    offered_names = set(contract.offered)
+    activated: list[str] = []
+    already_offered: list[str] = []
+    refused: list[str] = []
+    for name in dict.fromkeys(n for n in requested if n):
+        inventory_name = inventory_name_by_canonical.get(canonical_tool(name))
+        if (
+            inventory_name is None
+            or inventory_name not in discoverable_json
+            or inventory_name not in contract.executable
+        ):
+            refused.append(name)
+        elif inventory_name in offered_names:
+            already_offered.append(inventory_name)
+        else:
+            activated.append(inventory_name)
+    if activated:
+        new_offered = frozenset(offered_names | set(activated))
+        # The snapshot values are already canonical JSON strings; reusing them
+        # verbatim keeps schema_json byte-identical to the frozen snapshot.
+        new_schema_json = tuple(discoverable_json[n] for n in sorted(new_offered))
+        _ACTIVE_CONTRACT.set(replace(
+            contract,
+            offered=new_offered,
+            schema_json=new_schema_json,
+        ))
+    return {
+        "activated": sorted(activated),
+        "already_offered": sorted(already_offered),
+        "refused": sorted(set(refused)),
+    }
 
 
 @contextmanager

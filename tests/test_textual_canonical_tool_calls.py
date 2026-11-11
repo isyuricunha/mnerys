@@ -155,11 +155,26 @@ def test_governed_case_variants_rejected():
         assert envelope["result"]["blocked"] is True
 
 
-def test_unavailable_tools_rejected_never_simulated():
-    for tag in ("ToolSearch", "Skill"):
-        blocks = _blocks(f"```{tag}\n{{}}\n```")
-        envelope = _rejection(blocks[0])
-        assert envelope["result"]["blocked"] is True
+def test_canonical_tools_resolve_to_real_handlers_never_simulated():
+    # M5.2 increment 5: ToolSearch and Skill are real registry tools now.
+    # Their fenced calls must convert to the real handlers — the handlers
+    # return truthful results (an empty skill library yields not-found), and
+    # nothing is ever simulated or accepted by spelling alone.
+    blocks = _blocks("```ToolSearch\n{\"pattern\": \"weather\"}\n```")
+    assert [(b.tool_type, b.content) for b in blocks] == [
+        ("tool_search", json.dumps({"pattern": "weather"})),
+    ]
+    blocks = _blocks("```Skill\n{}\n```")
+    assert [(b.tool_type, b.content) for b in blocks] == [("activate_skill", "{}")]
+
+
+def test_invalid_canonical_arguments_keep_the_truthful_rejection_code():
+    # Focused regression: a fenced canonical call with invalid arguments is
+    # sealed as invalid_tool_arguments, not mislabeled legacy_tool_name.
+    blocks = _blocks("```ToolSearch\n{}\n```")
+    envelope = _rejection(blocks[0])
+    assert envelope["result"]["rejection_code"] == "invalid_tool_arguments"
+    assert "pattern is required" in envelope["result"]["error"]
 
 
 def test_compat_mode_keeps_legacy_fences_working():

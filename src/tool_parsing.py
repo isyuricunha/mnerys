@@ -20,6 +20,7 @@ from src.tool_registry import (
     CANONICAL_NAMES,
     REJECTED_CALL_TOOL_TYPE,
     UNAVAILABLE_NAMES,
+    InvalidToolArguments,
     LegacyToolNameRejected,
     ToolRegistryError,
     ToolUnavailable,
@@ -293,7 +294,10 @@ def _registry_resolved_fence(tag: str, args: dict) -> Tuple[str, str]:
     try:
         resolved = resolve_model_call(tag, json.dumps(args, ensure_ascii=False))
     except ToolRegistryError as error:
-        return _legacy_fenced_rejection(tag, json.dumps(args, ensure_ascii=False), message=str(error))
+        # Preserve the exact rejection class so the sealed record's
+        # rejection_code names the real violation (invalid arguments are not
+        # a legacy-name refusal).
+        return _legacy_fenced_rejection(tag, json.dumps(args, ensure_ascii=False), error=error)
     handler = resolved.handler
     internal = json.dumps(resolved.arguments or {}, ensure_ascii=False)
     # Reuse the shared converter so the block content lands in the exact
@@ -304,7 +308,10 @@ def _registry_resolved_fence(tag: str, args: dict) -> Tuple[str, str]:
     block = textual_function_call_to_tool_block(handler, internal, legacy_compat=True)
     if block is None:
         return _legacy_fenced_rejection(
-            tag, internal, message=f"{tag} arguments could not be converted for execution.")
+            tag, internal,
+            error=InvalidToolArguments(
+                f"{tag} arguments could not be converted for execution."),
+        )
     return block.tool_type, block.content
 
 
@@ -312,12 +319,18 @@ def _legacy_fenced_rejection(
     spelled_name: str,
     arguments: str,
     message: Optional[str] = None,
+    error: Optional[ToolRegistryError] = None,
 ) -> Tuple[str, str]:
     """The inert record for a refused fenced call (legacy spelling, case
-    variant, unavailable tool, or invalid canonical arguments)."""
+    variant, unavailable tool, or invalid canonical arguments).
+
+    ``error`` carries the exact registry violation when one exists so the
+    sealed record keeps its truthful rejection_code; without one the call is
+    a name-resolution failure and keeps the legacy-name class.
+    """
     from src.tool_registry import LegacyToolNameRejected, rejected_block_content
 
-    if message is None:
+    if error is None and message is None:
         unavailable = unavailable_message_for_spelling(spelled_name)
         if unavailable is not None:
             content = rejected_block_content(
@@ -330,7 +343,7 @@ def _legacy_fenced_rejection(
     content = rejected_block_content(
         spelled_name,
         arguments,
-        LegacyToolNameRejected(
+        error or LegacyToolNameRejected(
             message
             or (
                 f"'{spelled_name}' is not a tool name; use {canonical}. "

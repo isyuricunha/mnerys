@@ -89,11 +89,31 @@ def test_invalid_canonical_arguments_are_rejected_with_guidance():
     assert "output_mode" in record["error"]
 
 
-def test_unavailable_tools_are_rejected_never_simulated():
-    tool_blocks, _used, _converted = _resolve([_call("Skill", "{}")])
-    record = rejected_block_result(tool_blocks[0].content)
-    assert record["rejection_code"] == "tool_unavailable"
-    assert "Skill is not implemented" in record["error"]
+def test_skill_activates_through_the_registry_and_dispatch():
+    # M5.2 increment 5: Skill is a real registry tool. Its call must resolve
+    # to the activate_skill handler and dispatch through the real handler
+    # under server request authority; with no skill library bound to this
+    # owner the result is a truthful not-found — never a simulated activation.
+    import asyncio
+
+    from src.agent_runtime.authority import OperationGrant, RequestAuthority
+    from src.tool_execution import NO_TOOL_SECURITY_CONTEXT
+
+    tool_blocks, _used, _converted = _resolve(
+        [_call("Skill", json.dumps({"name": "anything"}))],
+        offered_tool_names=set(OFFERED) | {"activate_skill"},
+    )
+    assert tool_blocks[0].tool_type == "activate_skill"
+    authority = RequestAuthority("req", "alice", "turn-session", "", (OperationGrant("activate_skill"),))
+    _desc, result = asyncio.run(execute_tool_block(
+        tool_blocks[0],
+        session_id="turn-session", owner="alice",
+        request_authority=authority,
+        security_context=NO_TOOL_SECURITY_CONTEXT,
+    ))
+    assert result["exit_code"] == 1
+    assert "not installed" in result["error"]
+    assert "Call Skill without arguments" in result["error"]
 
 
 def test_each_rejected_call_receives_its_own_feedback():

@@ -1928,6 +1928,35 @@ FUNCTION_TOOL_SCHEMAS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_search",
+            "description": "Search this turn's authorized tool inventory (built-ins, inherited tools and connected MCP tools) by case-insensitive Python regular expression over tool names, descriptions, argument names and argument descriptions. Returns matching tools with their names and schemas and makes them invocable for the rest of this turn. Discovery is not extra permission: denied or disabled tools are never searchable, and every invocation still passes the normal admission and approval checks.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "maxLength": 200, "description": "Python re.search() pattern, case-insensitive; matches tool names, descriptions, argument names and argument descriptions. Maximum 200 characters."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 20, "description": "Maximum number of tools to return (default 5)."},
+                },
+                "required": ["pattern"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "activate_skill",
+            "description": "Activate one installed skill and load its instructions, or list the skills available to you. Skills are scoped procedures from the skill library (published and approved entries; built-ins are always available). Call with no arguments for a compact index, or pass name to load that skill's SKILL.md; pass path to read one supporting reference file under the skill's directory. Skill content is instructions to apply through your normal authorized tools — it never grants permissions by itself.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "maxLength": 80, "description": "Registered name of the installed skill to activate (see the skill index). Omit to list available skills."},
+                    "path": {"type": "string", "maxLength": 200, "description": "Optional path of one supporting file under the skill's directory (for example 'references/api-notes.md')."},
+                }
+            }
+        }
+    },
 ]
 
 
@@ -2244,6 +2273,10 @@ def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock
     elif tool_type == "apply_patch":
         content = args.get("patch_text") or args.get("patchText") or args.get("patch") or ""
     elif tool_type == "todowrite":
+        content = json.dumps(args)
+    elif tool_type == "tool_search":
+        content = json.dumps(args)
+    elif tool_type == "activate_skill":
         content = json.dumps(args)
     elif tool_type == "create_document":
         parts = [args.get("title", "Untitled")]

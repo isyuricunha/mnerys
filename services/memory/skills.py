@@ -75,6 +75,37 @@ def _approval_policy(owner: Optional[str]) -> tuple[bool, float]:
     return bool(prefs.get("auto_approve_skills", True)), max(0.0, min(1.0, minimum))
 
 
+def activation_eligible(skill: Dict, *, auto_approve: bool, min_confidence: float) -> bool:
+    """Single approval/audit gate for model-facing skill activation (M5.2 inc. 5).
+
+    The same rule the agent loop applies to explicitly activated skills, plus
+    the index's failed-audit exclusion: built-ins always pass; with
+    auto-approve off only published entries pass; otherwise a skill must be
+    published, hold a passing audit (version 2+ records; a failed or
+    needs-work verdict never injects), and meet the owner's confidence
+    threshold. Skill content is untrusted instructions, so this gate bounds
+    what can be loaded into a model turn — it never widens tool permissions.
+    """
+    if not isinstance(skill, dict):
+        return False
+    if skill.get("source") == "builtin":
+        return True
+    audit_verdict = str(skill.get("audit_verdict") or "").lower()
+    if audit_verdict in {"needs_work", "fail"}:
+        return False
+    if not auto_approve:
+        return skill.get("status") == "published"
+    try:
+        confidence = float(skill.get("confidence") or 0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return (
+        skill.get("status") == "published"
+        and audit_verdict == "pass"
+        and confidence >= min_confidence
+    )
+
+
 # ---------------------------------------------------------------------------
 # SkillsManager
 # ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ from .weather_tools import WeatherTool
 from .media_tools import ExtractTextTool, InspectMediaTool, TranscribeMediaTool
 from .filesystem_tools import ReadFileTool, WriteFileTool, EditFileTool, ApplyPatchTool, LsTool, GlobTool, GrepTool, GetWorkspaceTool
 from .coding_tools import TodoWriteTool
+from .discovery_tools import ToolSearchTool, SkillTool
 from .document_tools import CreateDocumentTool, UpdateDocumentTool, EditDocumentTool, SuggestDocumentTool, ManageDocumentTool
 from .interaction_tools import AskUserTool, UpdatePlanTool
 from .model_interaction_tools import ChatWithModelTool, AskTeacherTool, ListModelsTool
@@ -53,6 +54,8 @@ TOOL_HANDLERS = {
     "edit_file": EditFileTool().execute,
     "apply_patch": ApplyPatchTool().execute,
     "todowrite": TodoWriteTool().execute,
+    "tool_search": ToolSearchTool().execute,
+    "activate_skill": SkillTool().execute,
     "ls": LsTool().execute,
     "glob": GlobTool().execute,
     "grep": GrepTool().execute,

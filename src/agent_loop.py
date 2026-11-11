@@ -99,7 +99,11 @@ from src.text_scanning import (
     iter_markdown_links,
     replace_markdown_links_with_labels,
 )
-from src.turn_contract import selected_tools_for_request, with_turn_contract
+from src.turn_contract import (
+    active_turn_contract,
+    selected_tools_for_request,
+    with_turn_contract,
+)
 from src.agent_runtime.journal import propose_action, execute_action
 from src.agent_runtime.completion import with_completion_gate
 from src.agent_runtime.runtime_selection import is_compact_preview_contract
@@ -15083,23 +15087,16 @@ def _build_system_prompt(
                 else:
                     # Explicit client activation chooses which eligible skill
                     # to use; it must not bypass the same audit gate that
-                    # protects normal relevance-based injection.
-                    def _active_skill_is_eligible(skill):
-                        if skill.get("source") == "builtin":
-                            return True
-                        if not _prefs.get("auto_approve_skills", True):
-                            return skill.get("status") == "published"
-                        try:
-                            confidence = float(skill.get("confidence") or 0)
-                        except (TypeError, ValueError):
-                            confidence = 0.0
-                        return (
-                            skill.get("status") == "published"
-                            and str(skill.get("audit_verdict") or "").lower() == "pass"
-                            and confidence >= _skill_min_conf
-                        )
+                    # protects normal relevance-based injection. The shared
+                    # gate (services.memory.skills.activation_eligible) is the
+                    # single enforcement point; the Skill tool uses it too.
+                    from services.memory.skills import activation_eligible
                     relevant_skills = [
-                        skill for skill in relevant_skills if _active_skill_is_eligible(skill)
+                        skill for skill in relevant_skills
+                        if activation_eligible(
+                            skill, auto_approve=_prefs.get("auto_approve_skills", True),
+                            min_confidence=_skill_min_conf,
+                        )
                     ][:max(0, _skill_max_injected or len(relevant_skills))]
                 lines = [""]
                 if relevant_skills:
@@ -25273,8 +25270,14 @@ async def stream_agent_loop(
             # their offerings in the prompt, not as native function schemas.
             if guide_only or not route_state["is_api_model"]:
                 return []
+            # M5.2 increment 5: read the LIVE contract. ToolSearch's
+            # server-side activation widens the bound contract's offer inside
+            # the same turn; the per-round wire surface must follow it so a
+            # discovered tool is genuinely invocable (schema visible, dispatch
+            # permitted) instead of silently claimed.
+            live_contract = active_turn_contract() or turn_contract
             contract_schemas = [
-                schema for schema in turn_contract.schemas()
+                schema for schema in live_contract.schemas()
                 if (schema.get("function", {}).get("name") or schema.get("name"))
                 not in disabled_tools
             ]
