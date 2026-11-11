@@ -1,9 +1,9 @@
 # M5.2 — Canonical Tool Registry (Increment 1)
 
 Status: increments 1 (canonical registry), 2 (read-before-edit), 3 (unified
-textual/native tool vocabulary) and 4 (derived-artifact writer publication
-boundary) implemented and regression-covered. Remaining M5.2 work is listed
-at the end.
+textual/native tool vocabulary), 4 (derived-artifact writer publication
+boundary) and 5 (ToolSearch and Skill) implemented and regression-covered.
+Remaining M5.2 work is listed at the end.
 
 ## What this is
 
@@ -442,11 +442,90 @@ exclusive (`O_CREAT | O_EXCL`) so even a UUID collision refuses instead of
 clobbering. Ownership registration and gallery records, retrieval routes,
 and client preview behavior are unchanged.
 
-## Remaining M5.2 work (after increment 4)
+## Increment 5 — ToolSearch and Skill (implemented)
 
-1. **`ToolSearch`/`Skill` implementations** — discovery and activation of
-   installed skills/MCP tools; reserved names stay refused until then.
-2. **The qwen3.8 fine-tuned router compatibility carve-out** — the route keeps
+The canonical catalog is now ten tools: `Read`, `Write`, `Edit`, `Glob`,
+`Grep`, `Bash`, `WebFetch`, `WebSearch`, `ToolSearch`, `Skill`. Both new
+tools are real registry-backed implementations (`src/agent_tools/discovery_tools.py`,
+handlers `tool_search`/`activate_skill`) that surface what already exists and
+is already authorized through the single Gateway path — no provider aliases,
+no second registry, no simulated discovery.
+
+**ToolSearch contract.** `ToolSearch(pattern: string ≤200 chars, limit?: integer 1–20, default 5)`.
+`pattern` is a case-insensitive Python `re.search()` pattern over the same
+search space Anthropic's Tool Search documents: tool names, descriptions,
+argument names and argument descriptions. Results are ranked deterministically
+(tool-name hit → argument-name hit → description-only hit, then shorter names,
+then alphabetical) and bounded. Every result carries the model-visible name
+(canonical projection; MCP tools keep their original `mcp__<server>__<tool>`
+identities), source (`builtin`/`inherited`/`mcp:<server>`), description and
+argument schema. Invalid regexes, empty patterns, wrong argument types and
+unsupported arguments return truthful errors.
+
+**Discovery source and snapshot consistency.** ToolSearch ranks ONLY over the
+discovery snapshot frozen in the bound turn contract
+(`TurnContract.discoverable_schema_json`): every policy-admitted schema of the
+turn, offered or not, resolved once by the server before inference. Within a
+turn the snapshot is immutable, so discovery is consistent; a tool hidden or
+denied by the active policy (disabled names, guide-only, `disable_mcp`,
+owner-blocked connections) never enters the snapshot and cannot leak its
+privileged schema, configuration or metadata through search. A tool does not
+become discoverable because its name appears in model output, user text or a
+historical transcript — discovery reads server inventory only. With no bound
+contract (plain preview/recovery paths) the search falls back to the registry's
+real built-ins and activation is refused.
+
+**Discovery is not authorization.** Activation is server code, never model
+output: `TurnContract.activate_discovered_tools` widens the model-visible
+`offered` set for the remainder of the turn only for tools already in the
+turn's `executable` set and snapshot; `required`, `executable`, the policy, the
+request authority and approval rules are untouched, and the original contract
+binding is restored when the turn ends. The agent loop reads the LIVE contract
+when assembling each round's wire surface, so a discovered tool is genuinely
+invocable (schema visible, dispatch permitted) instead of silently claimed.
+A discovered invocation must STILL pass request-authority grants, exact
+approval, resource binding and audit — discovery alone refuses with truthful
+feedback. Discovery calls are audited through the normal tool-event path.
+
+**Skill contract.** `Skill(name?: string ≤80 chars, path?: string ≤200 chars)`.
+With no arguments it returns the compact, cache-friendly eligible index (the
+same owner-scoped, approval-gated list the system prompt carries — lazy: never
+skill bodies). With `name` it activates one installed skill from the existing
+SKILL.md library (`services.memory.skills.SkillsManager`, `data/skills/…`,
+Agent-Skills-style frontmatter) and loads its bounded instructions
+(≤32,000 chars) with provenance (storage, owner scope, status); `path` reads
+one supporting reference file confined to the skill's own directory
+(≤16,000 chars returned, ≤1 MB underlying file). Missing skills, foreign-owner
+skills (denied without leaking metadata), drafts and failed/low-confidence
+audits refuse truthfully at the shared `activation_eligible` gate — the same
+gate the loop's relevance injection applies, extracted to a single enforcement
+point in `services/memory/skills.py`.
+
+**Skill content is untrusted.** Activation changes no policy, grants no
+permission, disables no approval and executes nothing: a skill's scripts or
+assets run only through normal authorized tools and permissions, referenced
+files cannot escape the skill directory (symlink and traversal refused through
+the same confinement the read uses), and skill instructions never become
+privileged system policy — they are candidate procedures the model applies
+through already-authorized tools.
+
+**Compatibility.** Both tools flow through the shared schema projection,
+textual parsing (canonical fenced calls validate and convert exactly like
+native calls), native calling, compact preview and the Web/CLI/TUI paths.
+MCP names are unchanged; the qwen3.8 carve-out is untouched (schemas are
+withheld for that router exactly as before).
+
+**Residual limitations and M5.5 dependencies.** Skill scopes are owner +
+built-in today (project/session scopes arrive with M5.5's skill management);
+there is no hot reload, versioning, publication flow or marketplace; MCP tool
+schemas in discovery come from the manager's connected-server inventory at
+admission time (M5.5 owns refresh notifications and versioned catalog
+snapshots); regex search cost is bounded by the ≤200-char pattern and the
+admitted inventory size.
+
+## Remaining M5.2 work (after increment 5)
+
+1. **The qwen3.8 fine-tuned router compatibility carve-out** — the route keeps
    `legacy_compat=True` until its trained weights are refreshed to the
    canonical vocabulary; migration is a fine-tune-cycle task, not a code
    alias (the carve-out is one parameter at one parse site and cannot widen
@@ -454,10 +533,14 @@ and client preview behavior are unchanged.
    lives in the handlers, not parsing, so the carve-out behavior is
    unchanged; a future canonical-vocabulary fine-tune needs no code change
    beyond dropping the one `legacy_compat` flag.
-3. **Real-provider exit-gate matrix** — read/search/edit/patch/shell on at
+2. **Real-provider exit-gate matrix** — read/search/edit/patch/shell on at
    least two provider API protocols (the exit gate below), which has not run
    against live providers yet.
-4. **Filesystem security redesign follow-ups** — streaming/large-file
+3. **Filesystem security redesign follow-ups** — streaming/large-file
    contracts for the baseline (oversized existing destinations are refused
    fail-closed today), concurrent-shell residual race narrowing, and
    background-job write windows after launch invalidation.
+4. **Canonical-spelling denylist translation** — denylist entries written in
+   canonical spellings (e.g. `Read`) do not yet translate to handler ids in
+   every gate; the settings surfaces write handler ids today. Track the
+   full alias-set translation for a follow-up.

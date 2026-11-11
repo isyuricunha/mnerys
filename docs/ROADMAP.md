@@ -437,6 +437,22 @@ M5.2: `ToolSearch`/`Skill` implementations, the qwen3.8 fine-tune-cycle
 vocabulary refresh, and the real-provider exit-gate matrix (read/search/
 edit/patch/shell on at least two provider API protocols).
 
+**Increment 5 status (verified):** `ToolSearch` and `Skill` are real
+canonical registry tools (`src/agent_tools/discovery_tools.py`). ToolSearch
+ranks the turn's policy-admitted inventory snapshot (frozen in the turn
+contract) by case-insensitive regex over names/descriptions/arguments with
+deterministic bounded results; MCP tools keep their original identities;
+policy-hidden tools never leak schemas. Activation is server-side
+(`activate_discovered_tools`): it widens only the model-visible offer inside
+the already-admitted executable set, never the policy or request authority,
+and the loop reads the live contract so a discovered tool is genuinely
+invocable. Skill activates installed SKILL.md skills owner-scoped through the
+existing library with the shared approval/audit gate (`activation_eligible`),
+loads bounded instructions and confined references, and treats skill content
+as untrusted instructions — no permission changes, no automatic execution.
+Focused tests cover discovery, activation, isolation, refusals, traversal,
+protocol conversion and an end-to-end discovered-tool dispatch.
+
 **Exit gate:** real provider-backed read/search/edit/patch/shell tests;
 unread/stale file edits rejected; exact tool calls, permissions and
 results agree between the model trace, Gateway and client UI. Verify
