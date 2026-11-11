@@ -1242,11 +1242,9 @@
           </button>
         </div>
         <div class="chat-input-right">
-          <!-- Agent / Chat mode toggle -->
-          <div class="mode-toggle">
-            <button type="button" class="mode-toggle-btn active" id="mode-agent-btn" aria-pressed="true">Agent</button>
-            <button type="button" class="mode-toggle-btn" id="mode-chat-btn" aria-pressed="false">Chat</button>
-          </div>
+          <!-- M5.3 increment 5: the Chat/Agent mode toggle was removed —
+               Agent-first is the single unified experience for every new
+               turn; authorization (not a mode label) governs tools. -->
           <button type="submit" form="chat-form" class="send-btn newchat-mode" data-mode="newchat" aria-label="New chat">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><span class="send-btn-label">+ New</span>
           </button>

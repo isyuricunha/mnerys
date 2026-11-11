@@ -45,19 +45,14 @@ export function handleUIControl(uiData) {
       Storage.setJSON(Storage.KEYS.TOGGLES, ts);
 
     } else if (uiEvent === 'set_mode' || uiData.ui_event === 'set_mode') {
+      // M5.3 increment 5: the Chat/Agent toggle was removed — agent-first is
+      // the single experience. Keep the legacy state write for compatibility
+      // with in-flight cards; tool-visibility buttons are no longer hidden
+      // by a mode label (the server authorizes every tool).
       var modeVal = uiData.mode;
-      var agentBtn = document.getElementById('mode-agent-btn');
-      var chatBtn = document.getElementById('mode-chat-btn');
-      if (agentBtn && chatBtn) {
-        agentBtn.classList.toggle('active', modeVal === 'agent');
-        chatBtn.classList.toggle('active', modeVal !== 'agent');
-      }
       var ts2 = Storage.getJSON(Storage.KEYS.TOGGLES, {});
       ts2.mode = modeVal;
       Storage.setJSON(Storage.KEYS.TOGGLES, ts2);
-      document.querySelectorAll('[data-mode-tool]').forEach(function(b) {
-        b.style.display = modeVal === 'agent' ? '' : 'none';
-      });
 
     } else if (uiEvent === 'switch_model' || uiData.ui_event === 'switch_model') {
       var modelDisplay = document.querySelector('.current-model-name, #current-model');

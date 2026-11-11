@@ -258,7 +258,10 @@ async def test_real_existing_web_route_only_selects_exact_text_ids(
         # consumed, then invokes the original model inside its iterator.
         assert "build_context" in captures
         _ = [frame async for frame in reply.body_iterator]
-        assert "chat" in captures
+        # M5.3 increment 5: the fallback runs the UNIFIED agent-first path
+        # (the legacy mode/profile value never selects a separate engine
+        # once the strict compatibility route was not selected).
+        assert "agent" in captures
 
 
 
@@ -333,4 +336,6 @@ async def test_existing_json_http_profile_requires_explicit_no_memory_and_rag_fl
         assert not invoked
         assert "build_context" in captured
         _ = [frame async for frame in result.body_iterator]
-        assert "chat" in captured
+        # M5.3 increment 5: the fallback runs the UNIFIED agent-first path
+        # (the legacy mode value never selects the separate chat engine).
+        assert "agent" in captured

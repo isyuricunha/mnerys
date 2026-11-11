@@ -811,6 +811,12 @@ def test_frontend_always_sends_explicit_allow_bash():
 
 
 def test_frontend_generic_web_prose_does_not_grant_shell_authority():
+    """M5.3 increment 5: the composer no longer computes shell authority from
+    prose AT ALL. The unified send always posts the agent-first mode; shell
+    authority is the server-side request authority plus the visible Bash
+    toggle (allow_bash) — generic words like "source", "system", "app" in the
+    user's text can never widen it, because the frontend forwards intent-free
+    form data only."""
     source = _CHAT_JS.read_text(encoding="utf-8")
     workspace_line = next(
         line for line in source.splitlines()
@@ -818,7 +824,12 @@ def test_frontend_generic_web_prose_does_not_grant_shell_authority():
     )
     for generic in ("source", "system", "app", "change", "review", "server", "api"):
         assert generic not in workspace_line, generic
-    assert "_explicitWorkspaceTarget" in workspace_line
+    # No prose-derived intents remain in the composer at all.
+    assert "workspaceAgentIntent = true" in workspace_line
+    assert "_explicitWorkspaceTarget" not in source
+    assert "_directCodingIntent" not in source
+    # And the visible Bash toggle remains the only shell opt-in.
+    assert "allow_bash', el('bash-toggle').checked ? 'true' : 'false'" in source
 
 
 def test_frontend_sends_explicit_allow_web_search_false_in_agent_mode():

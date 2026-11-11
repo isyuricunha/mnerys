@@ -2441,7 +2441,24 @@ def setup_chat_routes(
                 raise HTTPException(400, "temperature must be a number between 0 and 2")
         incognito = str(form_data.get("incognito", "")).lower() == "true"
         plan_mode = str(form_data.get("plan_mode") or (body or {}).get("plan_mode") or "").lower() == "true"
-        chat_mode = str(form_data.get("mode", "")).lower()  # 'chat' or 'agent'
+        chat_mode = str(form_data.get("mode", "")).lower()  # legacy 'chat' or 'agent'
+        # M5.3 increment 5 (Agent-first unification): ONE interactive
+        # execution path. The legacy mode wire value is accepted for
+        # compatibility but never selects a separate engine and never changes
+        # authorization; the admitted policy's demotion (below) still forces
+        # unauthorized callers to the text-only ceiling. The RAW value is
+        # preserved for the explicitly opted-in strict text-profile check
+        # below (that compatibility route legitimately requires a plain-chat
+        # declaration).
+        from src.gateway_execution_policy import resolve_unified_chat_mode
+
+        chat_mode_raw = chat_mode
+        chat_mode = resolve_unified_chat_mode(
+            chat_mode,
+            allow_agent=bool(_request_privileges(
+                request, effective_user(request),
+            ).get("can_use_agent", True)),
+        )
         # A JSON-only request explicitly selecting the experimental text
         # profile must still be classified as Chat before post-session
         # reconciliation. Do not reinterpret other legacy JSON clients.
@@ -3182,12 +3199,15 @@ def setup_chat_routes(
             # text without tools, media, memory, RAG, research or editor state.
             # Normal Web sessions keep the inherited path. Admission, writer and
             # model selection still belong to their original Gateway/Loop.
+            # The RAW legacy mode value decides this compatibility route: the
+            # strict profile is an explicit plain-chat declaration, so the
+            # Agent-first normalization above must not qualify it.
             if eligible_strict_web_text_turn(
                 server_enabled=os.environ.get("MNERYS_M21_WEB_TEXT_ROUTING") == "1",
                 form_values=form_data,
                 json_values=body,
                 message=message,
-                chat_mode=chat_mode,
+                chat_mode=chat_mode_raw,
                 no_memory=_strict_no_memory,
                 use_rag=_strict_use_rag,
                 use_web=use_web,

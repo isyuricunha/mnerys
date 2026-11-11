@@ -92,6 +92,25 @@ class FinalTurnToolPolicy:
     chat_mode: str
 
 
+def resolve_unified_chat_mode(
+    raw_mode: str | None, *, allow_agent: bool
+) -> str:
+    """The Agent-first mode normalization (M5.3 increment 5).
+
+    ONE interactive execution path: an agent-permitted caller always runs the
+    agent-first loop — the historical ``mode=chat`` wire value is accepted for
+    compatibility but never selects a separate execution engine and never
+    changes authorization (the tool surface comes from tool policy, request
+    authority and privileges). A caller whose privileges demote the turn is
+    forced to the ``chat`` text-only ceiling by the admitted policy below —
+    an Agent label alone grants nothing, and a Chat label alone grants
+    nothing. Unknown/legacy values normalize the same way.
+    """
+    if not allow_agent:
+        return "chat"
+    return "agent"
+
+
 def finalize_admitted_turn_tool_policy(
     admission: AdmittedSession,
     session: Any,

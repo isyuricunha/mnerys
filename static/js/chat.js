@@ -2742,48 +2742,29 @@ import { invalidateSettings } from './appConfig.js';
 	      // intent gate.
 	      const toggleState = Storage.loadToggleState();
 	      const isPlanMode = !!toggleState.plan_mode && !(el('research-toggle') && el('research-toggle').checked);
-	      let isAgentMode = (toggleState.mode || 'chat') === 'agent';
+	      // M5.3 increment 5: Agent-first unification — every send runs the
+	      // unified agent-first path; the server authorizes tools (policy,
+	      // privileges, request authority), never a mode label. The legacy
+	      // localStorage value is no longer read for engine selection.
+	      const isAgentMode = true;
 	      const isIncognito = isIncognitoForSend;
 	      const _messageText = String(msg || '');
-	      const _explanatoryQuestion = /^\s*(?:how\s+(?:do|can)\s+i|can\s+you\s+explain|what\s+about|tell\s+me\s+how|show\s+me\s+how)\b/i.test(_messageText);
-	      const _directCodeFileTarget = /\b[A-Za-z0-9_./-]+\.(?:py|pyi|js|jsx|ts|tsx|mjs|cjs|vue|svelte|html|css|scss|sass|less|sql|rs|go|java|kt|kts|swift|rb|php|sh|bash|zsh|fish|c|h|cc|cpp|cxx|hpp|json|jsonl|yaml|yml|toml|xml|graphql|proto)\b/i.test(_messageText);
-	      const _directCodingIntent = !_explanatoryQuestion && (/\b(?:write|create|add|edit|modify|code|program|implement|build)\b[\s\S]{0,160}\b(?:code|function|class|script|module|component|snippet|program|app|feature|file|command[- ]line|repo(?:sitory)?|codebase|project|website|web\s+app|python|javascript|typescript|html|css|sql|rust|java|go)\b/i.test(_messageText) || (/\b(?:write|create|add|edit|modify|code|program|implement|build)\b/i.test(_messageText) && _directCodeFileTarget));
-	      // Shell access is request authority. Generic words such as "source",
-	      // "system", "app", "change", or "review" occur in ordinary web and
-	      // personal-tool questions. Workspace intent can select Agent mode,
-	      // but shell authority still comes from the visible Bash toggle.
-	      const _explicitWorkspaceTarget = _directCodeFileTarget || /\b(?:bash|shell|terminal|tmux|pytest|git|docker|container|codebase|repo(?:sitory)?|stacktrace|traceback)\b/i.test(_messageText);
-	      const workspaceAgentIntent = !isIncognito && !_explanatoryQuestion && (_directCodingIntent || _explicitWorkspaceTarget);
+	      const workspaceAgentIntent = true;
 	      if (isPlanMode || _pendingApprovedPlan) {
-	        isAgentMode = true;
+	        // (plan mode is a server-side modifier; kept for the composer state)
 	      }
-	      if (!isAgentMode && workspaceAgentIntent) {
-	        isAgentMode = true;
-	      }
-	      // Auto-escalate to agent mode when a document is open — the user expects
-	      // the AI to see the document and have tools to edit it
-	      if (!isIncognito && !isAgentMode && documentModule && activeDocIdForSend) {
-	        isAgentMode = true;
-	      }
-	      fd.append('mode', isAgentMode ? 'agent' : 'chat');
+	      fd.append('mode', 'agent');
 	      fd.append('plan_mode', isPlanMode ? 'true' : 'false');
 	      if (!isPlanMode && _pendingApprovedPlan) {
 	        fd.append('approved_plan', _pendingApprovedPlan.slice(0, 8192));
 	        _pendingApprovedPlan = '';
 	      }
 	      if (el('web-toggle').checked) {
-	        if (!isAgentMode) {
 	          fd.append('use_web', 'true');
-        }
-      }
-      if (isAgentMode) {
-        fd.append('allow_web_search', el('web-toggle').checked ? 'true' : 'false');
-      }
+	      }
+	      fd.append('allow_web_search', el('web-toggle').checked ? 'true' : 'false');
 	      if (!approvalForSend && el('research-toggle').checked) {
 	        fd.append('use_research', 'true');
-	        // Research always runs in chat mode — override agent if set
-	        fd.set('mode', 'chat');
-	        fd.set('plan_mode', 'false');
 	      }
       fd.append('allow_bash', el('bash-toggle').checked ? 'true' : 'false');
       const ragChk = el('rag-toggle');
@@ -3006,23 +2987,9 @@ import { invalidateSettings } from './appConfig.js';
           if (m) errText = m[1].replace(/\\"/g, '"');
           else if (errBody.length < 200) errText = errBody;
         } catch {}
-        // Auto-switch to chat mode for tool-related errors
-        if (errText.includes('tool') || errText.includes('auto')) {
-          errText = 'This model doesn\'t support agent tools — switched to Chat mode. Try again.';
-          const _ab = document.getElementById('mode-agent-btn');
-          const _cb = document.getElementById('mode-chat-btn');
-          if (_ab && _cb) {
-            _ab.classList.remove('active');
-            _cb.classList.add('active');
-            const _toggle = _ab.closest('.mode-toggle');
-            if (_toggle) _toggle.classList.add('mode-chat');
-          }
-          if (typeof Storage !== 'undefined' && Storage.KEYS) {
-            const _st = Storage.getJSON(Storage.KEYS.TOGGLES, {});
-            _st.mode = 'chat';
-            Storage.setJSON(Storage.KEYS.TOGGLES, _st);
-          }
-        }
+        // M5.3 increment 5: no mode switch on tool errors — the unified
+        // agent-first runtime handles model tool capability honestly; report
+        // the real error without flipping any mode state.
         typewriterInto(holder.querySelector('.body'), errText);
         enableResearchBtn();
         return;

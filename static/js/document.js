@@ -1062,13 +1062,11 @@ import { attachColorPicker } from './colorPicker.js?v=20260910eyedropper1';
     }
   }
 
-  /** Switch chat to agent mode if not already */
+  /** Agent-first unification: every session runs the unified agent path —
+   * the removed Chat/Agent toggle makes this a no-op; documents are simply
+   * visible to the agent's tools as before. */
   function _ensureAgentMode() {
-    const ab = document.getElementById('mode-agent-btn');
-    const cb = document.getElementById('mode-chat-btn');
-    if (ab && !ab.classList.contains('active')) {
-      ab.click();
-    }
+    /* intentionally empty (M5.3 increment 5) */
   }
 
   export function init(apiBase) {
