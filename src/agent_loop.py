@@ -21260,6 +21260,7 @@ async def stream_agent_loop(
     workload: str = "foreground",
     external_untrusted_context_seen: bool = False,
     delegated_credential: bool = False,
+    yolo_enabled: bool = False,
     exact_approval: Optional[ExactToolApproval] = None,
     client_runtime_context: Optional[Dict[str, Any]] = None,
     _is_teacher_run: bool = False,
@@ -21418,6 +21419,9 @@ async def stream_agent_loop(
             exact_approval and exact_approval.allow_remaining_actions
         ),
         delegated_credential=bool(delegated_credential),
+        # M5.3 increment 4: server-owned session state threaded from the
+        # admitted session — never caller options and never model text.
+        yolo_enabled=bool(yolo_enabled),
     )
     _has_tui_host_bridge = _tui_host_bridge_is_usable(client_runtime_context)
     if (
@@ -22653,7 +22657,7 @@ async def stream_agent_loop(
             # tools (intersection with the plan-mode read-only allowlist) so the
             # agent can investigate; write/shell tools stay out until the request
             # actually calls for them (RAG retrieval adds those on a real ask).
-            _relevant_tools = set(ALWAYS_AVAILABLE)
+            _relevant_tools = set(ALWAYS_AVAILABLE) | set(relevant_tools or ())
             from src.tool_security import PLAN_MODE_READONLY_TOOLS
             _relevant_tools |= (_DOMAIN_TOOL_MAP["files"] & PLAN_MODE_READONLY_TOOLS)
             _relevant_tools.difference_update({"bash", "python"})
@@ -22677,7 +22681,7 @@ async def stream_agent_loop(
                     _TOOL_SELECTION_TIMEOUT_SECONDS,
                 )
                 tool_idx = None
-                _relevant_tools = set(ALWAYS_AVAILABLE)
+                _relevant_tools = set(ALWAYS_AVAILABLE) | set(relevant_tools or ())
             if tool_idx:
                 if mcp_mgr:
                     try:
@@ -22717,7 +22721,7 @@ async def stream_agent_loop(
     # instead of sending ALL tools (which overwhelms the model).
     if not guide_only and not _relevant_tools and _retrieval_query:
         from src.tool_index import ALWAYS_AVAILABLE, ToolIndex
-        _relevant_tools = set(ALWAYS_AVAILABLE)
+        _relevant_tools = set(ALWAYS_AVAILABLE) | set(relevant_tools or ())
         ql = _retrieval_query.lower()
         for keywords, tools in ToolIndex._KEYWORD_HINTS.items():
             if any(kw in ql for kw in keywords):

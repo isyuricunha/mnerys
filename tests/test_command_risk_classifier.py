@@ -257,3 +257,73 @@ def test_risk_fingerprint_keeps_rules_narrow(tmp_path):
     finally:
         rules_module._rules_path = monkey_rules
         reset()
+
+
+def test_cold_tool_index_preserves_caller_routed_tools(monkeypatch):
+    """Deterministic regression for a real flake: when the embedding index
+    init/retrieval exceeds its timeout on a loaded machine, the fallbacks must
+    still honor the caller's explicitly routed tools (a cold index must not
+    strip a requested mutating tool out of the offered surface — that flipped
+    a gated approval into an authority refusal)."""
+    import asyncio
+    import json as jsonlib
+    from types import SimpleNamespace
+
+    import src.agent_loop as agent_loop
+
+    monkeypatch.setattr(agent_loop, "_TOOL_SELECTION_TIMEOUT_SECONDS", 0.0001)
+    monkeypatch.setattr(agent_loop, "get_setting", lambda key, default=None: default, raising=False)
+    monkeypatch.setattr(agent_loop, "get_mcp_manager", lambda: None, raising=False)
+    monkeypatch.setattr(agent_loop, "estimate_tokens", lambda *a, **k: 10)
+
+    async def fake_stream(*args, **kwargs):
+        yield "data: " + jsonlib.dumps({"delta": "```update_document\nreplacement\n```"}) + "\n\n"
+        yield "data: [DONE]\n\n"
+
+    async def should_not_execute(*args, **kwargs):
+        raise AssertionError("unapproved document edit reached executor")
+
+    monkeypatch.setattr(agent_loop, "stream_llm_with_fallback", fake_stream)
+    monkeypatch.setattr(agent_loop, "execute_tool_block", should_not_execute)
+    active_document = SimpleNamespace(
+        id="document-9", title="Draft", language="markdown",
+        current_content="original", version_count=2,
+    )
+    from src.prompt_security import untrusted_context_message
+    from src.tool_approvals import document_content_digest
+
+    async def collect():
+        events = []
+        async for chunk in agent_loop.stream_agent_loop(
+            "http://local.test/v1", "small-local-model",
+            [
+                {"role": "user", "content": "update this document"},
+                untrusted_context_message("stored context", "untrusted"),
+            ],
+            active_document=active_document,
+            session_id="cold-index-session",
+            owner="alice",
+            max_rounds=1,
+            relevant_tools={"update_document"},
+        ):
+            if isinstance(chunk, str) and chunk.startswith("data: ") and chunk != "data: [DONE]\n\n":
+                try:
+                    events.append(jsonlib.loads(chunk[6:]))
+                except ValueError:
+                    pass
+        return events
+
+    events = asyncio.run(collect())
+    approvals = [
+        e["ask_user"] for e in events
+        if e.get("ask_user", {}).get("kind") == "tool_approval"
+    ]
+    assert approvals, "the gated document edit must raise its approval prompt"
+    pending = agent_loop.tool_approval_store.peek(approvals[0]["approval_id"])
+    assert pending is not None
+    assert pending.document_id == "document-9"
+    assert pending.document_digest == document_content_digest("original")
+    agent_loop.tool_approval_store.consume(
+        pending.approval_id, decision="deny",
+        owner="alice", session_id="cold-index-session",
+    )
