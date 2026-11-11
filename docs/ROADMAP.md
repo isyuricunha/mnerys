@@ -547,6 +547,24 @@ No YOLO, no LLM reviewer, no new permission engine. Evidence:
 `tests/test_command_risk_classifier.py` (68 deterministic tests) plus every
 gate/approval suite (190+) and the subprocess/background suites (102+).
 
+**Increment 4 status (verified): secure opt-in YOLO mode.** Server-owned,
+owner-scoped, session-scoped, revision-fenced state (`sessions.yolo_enabled`,
+default OFF, idempotent migration) toggled ONLY by an authenticated user
+action with an explicit confirmation (never model text, never an environment
+variable, never inherited by new sessions). It suppresses ONLY discretionary
+prompts — the risk classifier's REQUIRES_APPROVAL and the external-untrusted-
+context gate for understood tools — while delegated boundaries, tool-policy
+denials, DENIED risk classifications, request authority, confinement,
+read-before-edit, artifact publication, unknown-tool fail-closed refusals,
+auditing, cancellation and replay stay fully enforced. The classifier still
+classifies everything when YOLO is on (truthful audit); saved rules keep
+their narrow semantics; a YOLO operation never creates a permanent rule.
+Wired from the admitted session only (protected server-owned field). Web:
+`/yolo` command with a confirmation dialog + a persistent visible indicator
+synchronized from server state; CLI/TUI: the same API/semantics. Evidence:
+`tests/test_yolo_mode.py` (13 deterministic tests) plus the session/gate/
+approval suites.
+
 - No mandatory per-chat workspace. Local CLI/TUI begin in the invoking
   shell's current directory; local Web and Telegram begin in the
   configured execution account's home. Remote CLI/TUI use the server's
