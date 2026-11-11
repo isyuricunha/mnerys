@@ -133,6 +133,29 @@ def update_source_commit(contents: str, sha: str) -> str:
     return contents[:match.start()] + "ODYSSEUS_SOURCE_COMMIT=" + sha + contents[match.end():]
 
 
+def revision_release_version(repo: Path, revision: str) -> str:
+    """Derive the display version from an exact release tag, never a stale constant."""
+    if not re.fullmatch(r"[a-f0-9]{40}", revision):
+        raise DeployError("Invalid source revision for release metadata")
+    tags = call(["git", "tag", "--points-at", revision], cwd=repo, timeout=15).splitlines()
+    semver = [tag[1:] for tag in tags if re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag)]
+    if len(semver) > 1:
+        raise DeployError("Ambiguous exact release tags for source revision")
+    return semver[0] if semver else f"0.0.0-dev.{revision[:12]}"
+
+
+def update_release_version(contents: str, version: str) -> str:
+    """Bind the runtime Web version to the selected Git release at deployment."""
+    if not re.fullmatch(r"(?:[0-9]+\.[0-9]+\.[0-9]+|0\.0\.0-dev\.[a-f0-9]{12})", version):
+        raise DeployError("Invalid release version")
+    lines = contents.splitlines(keepends=True)
+    lines = [line for line in lines if not line.startswith("MNERYS_RELEASE_VERSION=")]
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    lines.append(f"MNERYS_RELEASE_VERSION={version}\n")
+    return "".join(lines)
+
+
 def effective_cutover_active(service_name: str, proc_root: Path = Path("/proc")) -> bool:
     """Whether the running service process has the Web cutover enabled.
 
@@ -515,7 +538,10 @@ def deploy(repo: Path, home: Path, dry_run: bool = False) -> dict:
         if backend == "postgresql":
             verified_postgresql_backup(private, backup)
         newunit = update_unit(before_unit, prior, candidate, python)
-        newenv = update_source_commit(before_env, revision)
+        newenv = update_release_version(
+            update_source_commit(before_env, revision),
+            revision_release_version(repo, revision),
+        )
 
         # Restart once. Roll back CODE + service config on failure only if
         # database schema remained compatible. Never blindly restore state.

@@ -40,10 +40,7 @@ publication, a new release or the complete hosted CI matrix. General Web
 stream replay remains process-local; see the authority contract and M4
 acceptance for the durable-event limitation.
 
-The native runtime reports the development baseline `version=0.1.0` when
-`MNERYS_RELEASE_VERSION` is not set; its `source_commit` identifies the
-actual snapshot. The latest repository release tag at this validation was
-`v0.16.0`. The maintenance commits were not a newly published release.
+The native runtime historically reported the development baseline `version=0.1.0` when `MNERYS_RELEASE_VERSION` was not set. The native promotion runner now derives the actual version from an exact verified `vX.Y.Z` Git tag of the selected release and injects `MNERYS_RELEASE_VERSION` into the private runtime environment during promotion. Untagged snapshots are labeled `0.0.0-dev.<commit>` instead of claiming a stable release. The separate `source_commit` and `HARNESS_VERSION` build fields remain truthful and independently reported. No private version values are committed to source or hardcoded into the frontend.
 
 The M4 milestone rollout deployed commit `7eb313d4dbe4` (release v0.15.2),
 its necessary validated successor `v0.15.3` (single-save turn persistence,
