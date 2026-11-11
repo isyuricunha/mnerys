@@ -582,3 +582,63 @@ def test_formatter_renders_discovery_details_for_the_model():
     text = format_tool_result(desc, result)
     assert "WebFetch" in text
     assert "url" in text  # argument schema reached the model feedback
+
+
+def test_canonical_prescriptions_derive_the_same_grants_as_handler_phrasing():
+    # M5.2 increment 7: the allow-side counterpart of the denylist boundary —
+    # "call the Glob tool" derives the same grant as "find files matching"…
+    # while bare English words never narrow anything.
+    from src.agent_runtime.authority import create_request_authority
+
+    a = create_request_authority(
+        "call the Glob tool with pattern **/*.md", owner="o", session_id="s",
+        workspace="", policy=None,
+    )
+    granted = {g.tool for g in a.grants}
+    assert "glob" in granted and "tool_search" in granted
+    a = create_request_authority(
+        "use the Read tool then the Edit tool", owner="o", session_id="s",
+        workspace="", policy=None,
+    )
+    granted = {g.tool for g in a.grants}
+    assert {"read_file", "edit_file"} <= granted
+    bare = create_request_authority(
+        "read the article online about glob patterns", owner="o", session_id="s",
+        workspace="", policy=None,
+    )
+    bare_granted = {g.tool for g in bare.grants}
+    assert "web_search" in bare_granted
+    assert "read_file" not in bare_granted and "glob" not in bare_granted
+
+
+def test_discovered_and_prescribed_tool_executes_through_real_dispatch(tmp_path, monkeypatch):
+    """End-to-end: ToolSearch discovers glob, activation offers it, the
+    prescribed request authority grants it, dispatch runs the real handler."""
+    import src.tool_execution as te
+
+    monkeypatch.setattr(te, "_owner_is_admin", lambda owner: True)
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / "found-me.md").write_text("real file\n", encoding="utf-8")
+    contract = _contract(["read_file", "tool_search"], SNAPSHOT, INVENTORY)
+
+    async def steps():
+        _d, result = await ToolSearchTool().execute(
+            json.dumps({"pattern": "glob"}),
+            {"owner": OWNER, "session_id": SESSION})
+        assert result["activated"] == ["glob"]
+        assert active_turn_contract().permits("glob")
+        authority = RequestAuthority("req", OWNER, SESSION, str(workspace), (
+            OperationGrant("tool_search"), OperationGrant("glob"),
+        ))
+        desc, executed = await execute_tool_block(
+            ToolBlock("glob", json.dumps({"pattern": "**/*.md"})),
+            session_id=SESSION, owner=OWNER, workspace=str(workspace),
+            request_authority=authority,
+            security_context=NO_TOOL_SECURITY_CONTEXT,
+        )
+        return desc, executed
+
+    desc, executed = _scenario(contract, steps)
+    assert executed.get("exit_code") == 0
+    assert "found-me.md" in json.dumps(executed)

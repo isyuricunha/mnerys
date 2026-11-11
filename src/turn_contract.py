@@ -1010,6 +1010,31 @@ def _routing_email_scope(message: str) -> str:
     )
 
 
+_CANONICAL_TOOL_PRESCRIPTION_RE = re.compile(
+    r"\b(Read|Write|Edit|Glob|Grep|Bash|WebFetch|WebSearch|ToolSearch|Skill)\s+tools?\b",
+)
+
+
+def _explicitly_prescribed_canonical_tools(text: str) -> set[str]:
+    """Handler ids for canonical tool names the request explicitly prescribes.
+
+    The allow-side counterpart of the denylist normalization boundary
+    (``src.tool_registry.policy_spellings``): "use the Glob tool" /
+    "call the Read tool" must derive the SAME grant that "glob" / "read_file"
+    phrasing derives, so a model that only knows the canonical names loses no
+    capability. Narrowing requires the explicit ``<Name> tool`` phrase —
+    bare English words ("read the article") never narrow anything.
+    """
+    from src.tool_registry import handler_for_canonical
+
+    names: set[str] = set()
+    for match in _CANONICAL_TOOL_PRESCRIPTION_RE.finditer(str(text or "")):
+        handler = handler_for_canonical(match.group(1))
+        if handler:
+            names.add(handler)
+    return names
+
+
 def selected_tools_for_request(message: str) -> frozenset[str] | None:
     """Narrow only a complete, explicit operation; None retains family scope.
 
@@ -1049,6 +1074,9 @@ def selected_tools_for_request(message: str) -> frozenset[str] | None:
     }
     if explicitly_named:
         return frozenset(explicitly_named)
+    canonical_prescribed = _explicitly_prescribed_canonical_tools(raw_text)
+    if canonical_prescribed:
+        return frozenset(canonical_prescribed)
     container_tool = creation_container_tool(text)
     if container_tool:
         return frozenset({container_tool})
