@@ -37758,6 +37758,19 @@ async def stream_agent_loop(
                 + "\n\n"
             )
 
+    # The live response accumulator also contains pre-tool narration. Select
+    # the authoritative last MODEL round before any terminal policy changes:
+    # the later cleanup cannot reliably reconstruct this boundary from text.
+    _selected_post_tool_model_answer = ""
+    if tool_events:
+        from src.agent_runtime.tool_output_presentation import completed_tool_round_answer
+        _model_round_answer = completed_tool_round_answer(
+            full_response, round_texts, tool_events,
+        )
+        if _model_round_answer is not None:
+            full_response = _model_round_answer
+            _selected_post_tool_model_answer = _model_round_answer
+
     if _tui_project_discovery_summary_text:
         # Project inventory is already authoritative. Replace blank or
         # hallucinated router prose with the bounded structured result.
@@ -38411,22 +38424,31 @@ async def stream_agent_loop(
         full_response = _linkify_note_titles_from_tool_events(full_response, tool_events)
         full_response = _linkify_email_titles_from_tool_events(full_response, tool_events)
         full_response = _linkify_calendar_titles_from_tool_events(full_response, tool_events)
-        if round_texts and full_response.strip():
-            for _idx in range(len(round_texts) - 1, -1, -1):
-                if _visible_response_text(str(round_texts[_idx] or "")):
-                    round_texts[_idx] = full_response.strip()
-                    break
+        # Never overwrite the last *model round* with the cumulative answer.
+        # If a server-synthesized response supersedes it, that reply is held
+        # separately in full_response and emitted with structured ownership.
+        # The round ledger remains an immutable record of model output.
 
-    if (
-        not _preemptive_calendar_final_emitted
-        and
-        tool_events
-        and full_response.strip()
-        and full_response.strip() != (_response_before_tool_summary or "").strip()
-        and full_response.strip() not in (_response_before_tool_summary or "")
+    from src.agent_runtime.tool_output_presentation import should_emit_post_tool_final
+    if should_emit_post_tool_final(
+        full_response, _response_before_tool_summary,
+        selected_model_round=bool(_selected_post_tool_model_answer),
+        has_tool_events=bool(tool_events),
+        preemptive_final_already_sent=bool(_preemptive_calendar_final_emitted),
     ):
         _final_delta = full_response.strip()
-        yield f"data: {json.dumps({'type': 'final_response', 'content': _final_delta})}\n\n"
+        _model_round_authoritative = bool(
+            _selected_post_tool_model_answer
+            and _final_delta == _selected_post_tool_model_answer.strip()
+        )
+        yield (
+            "data: " + json.dumps({
+                "type": "final_response",
+                "content": _final_delta,
+                "render_owner": "streamed" if _model_round_authoritative else "structured",
+                "replacement_scope": "round" if _model_round_authoritative else "turn",
+            }) + "\n\n"
+        )
     elif (
         (_ody_qwen_finetune_model or _qwen38_tool_router)
         and _web_search_completed

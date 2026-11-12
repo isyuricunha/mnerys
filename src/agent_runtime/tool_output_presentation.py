@@ -104,19 +104,40 @@ def summarize_repeated_tool_output(
     return "\n".join(lines)
 
 
+def should_emit_post_tool_final(
+    response: str,
+    before_summary: str,
+    *,
+    selected_model_round: bool,
+    has_tool_events: bool,
+    preemptive_final_already_sent: bool,
+) -> bool:
+    """Require a terminal reconciliation event when earlier round prose streamed.
+
+    An authoritative model final is a separate round even when subsequent
+    postprocessing made no changes. Without this event the Web client keeps
+    the earlier streamed planning text as the apparent final answer.
+    """
+    if preemptive_final_already_sent or not has_tool_events or not str(response).strip():
+        return False
+    if selected_model_round:
+        return True
+    final = str(response).strip()
+    previous = str(before_summary or "").strip()
+    return final != previous and final not in previous
+
+
 def completed_tool_round_answer(
     response: str,
     round_texts: Sequence[str],
     tool_events: Sequence[Mapping[str, Any]],
 ) -> str | None:
-    """Select the actual final model round without replaying earlier tool plans.
+    """Select a proven post-tool model round from a cumulative response.
 
-    The Agent Core retains each round separately for history and also keeps a
-    cumulative text accumulator. A terminal answer must use the post-tool
-    round, never concatenate pre-tool progress into the answer.  Only select
-    a final round when numbered tool receipts prove an earlier round invoked
-    tools and its complete text is the suffix of the accumulator. All other
-    cases (including tool-only, overwritten or ambiguous finals) stay intact.
+    Run before the terminal policy transformations: only then can the
+    unmodified stream accumulator be compared with the model's distinct
+    final round. Strict suffix equality protects server-authored policy
+    replacements elsewhere in the Agent lifecycle.
     """
     if (
         not isinstance(response, str)
@@ -140,12 +161,13 @@ def completed_tool_round_answer(
     if max(numbered) >= len(round_texts):
         return None
     clean_final = final.strip()
+    # Never replace a server-authored denial, correction, or content that
+    # differs from the exact last model round.
     if not response.strip().endswith(clean_final):
         return None
-    # Do not rewrite an already-final answer or a result with no preceding
-    # model prose. A complete final round is authoritative in its own right.
-    if response.strip() == clean_final:
-        return None
+    # Even if the Core has already discarded the pre-tool prose, those
+    # earlier deltas may have streamed into the browser. An explicit scoped
+    # final event is still necessary to reconcile its visible turn.
     return clean_final
 
 

@@ -231,8 +231,18 @@ class _AgentRenderState:
                 incoming = "streamed" if self._last_round_answer(content) is not None else "structured"
             self.owner = incoming if incoming in {"streamed", "structured"} else "structured"
             self.content = content
+            # The Agent Core now marks an authenticated, post-tool model
+            # final_response with its exact round ownership. No need to
+            # reconstruct its identity by matching arbitrary text suffixes.
+            core_round_final = (
+                self.owner == "streamed"
+                and event.get("replacement_scope") == "round"
+                and self.last_tool_round > 0
+                and self.round > self.last_tool_round
+            )
             last_round = (
-                self._last_round_answer(content)
+                content if core_round_final
+                else self._last_round_answer(content)
                 if self.owner == "streamed" else None
             )
             if last_round is not None:
@@ -5008,12 +5018,14 @@ def setup_chat_routes(
                                     or _final_round_text
                                     or "Done."
                                 )
-                                if _response_to_save and _round_texts:
-                                    for _idx in range(len(_round_texts) - 1, -1, -1):
-                                        if _visible_response_text_for_save(_round_texts[_idx]):
-                                            _round_texts[_idx] = _response_to_save
-                                            _metrics_to_save["round_texts"] = _round_texts
-                                            break
+                                # Never copy the cumulative reply into the
+                                # last model round. Round texts are evidence of
+                                # when the provider actually spoke; replacing
+                                # one with a turn-wide accumulator made history
+                                # replay show every pre-tool plan as final text.
+                                # Saved assistant content is already authoritative
+                                # for the final answer; the renderer reconciles
+                                # it separately with the last round on reload.
                                 if thinking_response.strip() and not _metrics_to_save.get("thinking"):
                                     _metrics_to_save["thinking"] = thinking_response.strip()
                                 _saved_id = gateway_turns.save_assistant_response(

@@ -226,19 +226,28 @@ Original tool events and exit codes are never rewritten.
 The Agent Core keeps two representations: a cumulative live-text accumulator
 for streaming progress, and independent `round_texts` with numbered tool
 receipts for history. Earlier assistant narration before or between tool
-calls is **not** part of the terminal answer. At completion, if tool-event
-round numbers prove that a separate model round followed those calls, and
-the corresponding full round text is an exact suffix of the cumulative
-response, the Agent selects only that last round as the canonical reply.
-Earlier narration stays in its chronological round; original tool output,
-call IDs, execution state and approval authority are unchanged.
+calls is **not** part of the terminal answer. The selector must run **before**
+terminal safety and presentation postprocessors change the accumulator.
+When tool-event round numbers prove that a separate model round followed
+those calls and its original text matches the end of the unmodified stream,
+that final round becomes the canonical reply. Earlier narration stays
+attached to its real round; call IDs, tool output, execution status and
+approval authority do not change.
 
-The selector is based on event provenance, **not** a list of provider phrases
-like "I'll start" or heuristics about a model's language. No rewrite occurs
-when the final round is absent, a tool was called in the last round, the
-accumulator has been replaced by a separate policy answer, or tool rounds
-cannot be verified. The Web adapter's last-round replacement and persisted
-history retain the same chronological boundaries.
+The Agent Core emits a scoped `final_response` for that canonical model
+round **even if its accumulator already contains exactly that round** and no
+later postprocessor changes the text. This is necessary because the browser
+may already have received earlier streamed progress.
+The Gateway accepts the explicit round scope, and neither the Core nor
+the Web persistence step overwrites the last model round with the
+cumulative reply. This also protects the reloaded chronological history.
+A genuinely server-authored replacement remains a distinct structured
+whole-turn response, not a fabricated model round.
+
+The selector uses numbered event provenance and an exact stream suffix,
+**not** a list of provider phrases like "I'll start" or language heuristics.
+No rewrite occurs for missing or unnumbered tool rounds, absent model
+synthesis, server policy overrides or incomplete chronology.
 
 This does not reclassify native `reasoning_content`: the provider's thinking
 transport must remain distinct from visible `content`. Model-authored

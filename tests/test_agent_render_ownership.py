@@ -106,6 +106,38 @@ class AgentRenderOwnershipTests(unittest.TestCase):
         self.assertEqual(state.metadata()["replacement_scope"], "round")
         self.assertEqual(state.message_saved(12)["replacement_scope"], "round")
 
+    def test_core_explicit_round_scope_preserves_final_when_cleaned_text_is_not_suffix(self):
+        state = State()
+        state.consume({"delta": "I will inspect project files."})
+        state.consume({"type": "tool_start", "round": 1})
+        state.consume({"type": "tool_output", "round": 1, "exit_code": 0})
+        state.consume({"type": "agent_step", "round": 2})
+        state.consume({"delta": "Draft with provider artifact formatting."})
+        event = state.consume({
+            "type": "final_response",
+            "content": "Final clean project summary.",
+            "render_owner": "streamed",
+            "replacement_scope": "round",
+        })
+        self.assertEqual(event["content"], "Final clean project summary.")
+        self.assertEqual(event["replacement_scope"], "round")
+        self.assertEqual(state.content, "Final clean project summary.")
+        self.assertEqual(state.metadata()["replacement_scope"], "round")
+        self.assertEqual(state.message_saved(1)["replacement_scope"], "round")
+
+    def test_unproven_explicit_round_scope_does_not_override_no_tool_or_last_tool(self):
+        for tool_in_last_round in (False, True):
+            state = State()
+            if tool_in_last_round:
+                state.consume({"type": "tool_start", "round": 1})
+            event = state.consume({
+                "type": "final_response",
+                "content": "A replacement.",
+                "render_owner": "streamed",
+                "replacement_scope": "round",
+            })
+            self.assertEqual(event["replacement_scope"], "turn")
+
     def test_done_without_cumulative_snapshot_preserves_last_round_only(self):
         state = State()
         state.consume({"delta": "Running pwd..."})
