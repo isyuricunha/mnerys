@@ -37,6 +37,7 @@ import {
 } from './chatModelProvenance.js';
 import { createTerminalStreamError, isRecoverableStreamError } from './chatStreamErrors.js';
 import { toolEventCallId, toolNodeForEvent } from './toolEventIdentity.mjs';
+import { toolReceiptStatus, toolOutputHeading } from './toolReceiptPresentation.mjs';
 import { loadPanel } from './panels.js?v=20260909movepicklayer1';
 import { invalidateSettings } from './appConfig.js';
 
@@ -5014,7 +5015,7 @@ import { invalidateSettings } from './appConfig.js';
                   const cmd = json.command || '';
                   let outHtml = '';
                   if (!_suppressRawToolOutput(json.tool, ok) && json.output && json.output.trim()) {
-                    outHtml = `<details class="agent-tool-output"><summary>Output</summary><pre>${esc(json.output)}</pre></details>`;
+                    outHtml = `<details class="agent-tool-output"><summary>${toolOutputHeading(json.output)}</summary><pre>${esc(json.output)}</pre></details>`;
                   }
                   // File-write diff (write_file): show a before/after unified diff.
                   let diffHtml = '';
@@ -5057,7 +5058,7 @@ import { invalidateSettings } from './appConfig.js';
                   }
 	                  const _wasOpen = outputToolBubble.classList.contains('open') || browserTool;
                   outputToolBubble.className = 'agent-thread-node' + (ok ? '' : ' error') + (_wasOpen ? ' open' : '') + (browserTool ? ' browser-preview-node' : '');
-                  outputToolBubble.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${approvalStatus ? '\u2026' : ok ? '\u2713' : '\u2717'}</span>${toolIcon2}<span class="agent-thread-tool">${esc(toolInfo2.label || json.tool)}</span>${toolHeaderAction2}<span class="agent-thread-status">${approvalStatus || (ok ? 'done' : 'failed')}</span><span class="agent-thread-chevron" aria-hidden="true"></span></div><div class="agent-thread-content">${cmdHtml2}${outHtml}${diffHtml}</div>`;
+                  outputToolBubble.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${approvalStatus ? '\u2026' : ok ? '\u2713' : '\u2717'}</span>${toolIcon2}<span class="agent-thread-tool">${esc(toolInfo2.label || json.tool)}</span>${toolHeaderAction2}<span class="agent-thread-status">${toolReceiptStatus(json, approvalStatus)}</span><span class="agent-thread-chevron" aria-hidden="true"></span></div><div class="agent-thread-content">${cmdHtml2}${outHtml}${diffHtml}</div>`;
                   // Reset so thinking spinner between tools says "Thinking" not the old tool's label
                   _lastToolName = '';
                   uiModule.scrollHistory();

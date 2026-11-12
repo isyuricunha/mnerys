@@ -147,5 +147,36 @@ enforcing containment backend: the selected directory is a CWD, not a grant to
 escape required process/filesystem isolation. Missing filesystem entries are
 reported as missing; they are never synthesized.
 
+## Tool-output presentation and Markdown code examples
+
+Native tool calls and tool results are distinct, correlated events. The Agent
+Core parses and executes actual calls under its authority/containment gates;
+the final reply cleanup is **not** a second tool-dispatch pass. Native-mode
+final prose therefore preserves literal Markdown code fences such as
+```bash examples copied from a README, while explicit tool-call envelopes
+(DSML/XML and other supported transports) remain removed. Legacy textual
+fenced-tool compatibility retains its separately tested execution behavior.
+
+A real output belongs to the tool receipt in the chronological timeline.
+For multi-command inspections the model is instructed to report the observed
+status and concise finding for every command, without reprinting long
+files/logs already shown. When a model instead repeats almost all of one
+large read-only tool output as its entire final message, a conservative
+presentation guard replaces **only that duplicate assistant answer** with
+actual per-call exit codes. Its matching requires substantial two-way line
+overlap, multiple completed read-only calls, and an existing long output;
+short excerpts, substantive synthesis, effectful commands and uncertain
+receipts are not modified. Raw tool evidence is never deleted or truncated
+by this guard, and no further calls are made.
+
+Live tool cards and history replay share one status/output-label formatter
+that displays actual `exit N` codes and output line counts. The full content
+remains available through the same expandable result card, not copied into
+unrelated assistant prose. Approval and error states remain distinct.
+
+This is a corrective presentation increment, not a new Agent engine or
+permission mechanism. Authenticating to the Web preview and exercising a
+configured model is still required for end-to-end confirmation.
+
 No secrets, private endpoints, server identifiers or real user transcripts
 should be added to published documentation.
