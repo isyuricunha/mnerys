@@ -79,6 +79,67 @@ _PT_LOCAL_FOLLOWUP = re.compile(
 )
 
 
+_PT_LOCAL_READ_ACTION = re.compile(
+    r"^\s*(?:execute|executa|executar|rode|roda|run|"
+    r"encontre|encontrar|pesquise|procure|localize|"
+    r"liste|listar|leia|ler|inspecione|verifique)\b",
+    re.IGNORECASE,
+)
+_PT_LOCAL_COMMAND = re.compile(
+    r"\b(?:pwd|ls|whoami|hostname|uname|date|cat|"
+    r"git\s+(?:status|log|diff|show|branch|rev-parse))\b",
+    re.IGNORECASE,
+)
+_PT_LOCAL_FILE_TARGET = re.compile(
+    r"\b(?:arquivos?|pastas?|diret[oó]rios?|reposit[oó]rios?|"
+    r"projetos?)\b|(?<![\w/])(?:pyproject\.toml|README\.md)\b|"
+    r"\.(?:py|toml|md)\b",
+    re.IGNORECASE,
+)
+_PT_LOCAL_MUTATION = re.compile(
+    r"\b(?:apague|apagar|delete|deletei|remova|remover|"
+    r"altere|alterar|escreva|escrever|crie|criar|salve|salvar|"
+    r"mova|mover|edite|editar|modifique|modificar|instale|instalar)\b",
+    re.IGNORECASE,
+)
+
+
+def explicit_local_read_intent(message: str) -> frozenset[str] | None:
+    """Recognize a trusted, direct PT-BR local inspection request.
+
+    This recognizes *intent*, never an executable or path grant on its own.
+    The request authority, dynamic command-risk gate, roots and policy still
+    guard every actual invocation. Mixed read/write requests stay on the
+    normal product-intent route.
+    """
+    text = str(message or "").strip()
+    if not text or len(text) > 1400:
+        return None
+    if re.match(r"^(?:n[aã]o|never|do\s+not|don't)\s+", text, re.I):
+        return None
+    if not _PT_LOCAL_READ_ACTION.match(text) or _PT_LOCAL_MUTATION.search(text):
+        return None
+    # A file mentioned as a Web/tool workflow output is not evidence for
+    # local inspection authorization. A direct "run/execute" request must
+    # actually name one of the recognized shell-inspection commands.
+    if re.search(
+        r"\b(?:web_search|web_fetch|search_hf_models|"
+        r"create_document|write_file|edit_file|apply_patch)\b",
+        text, re.I,
+    ):
+        return None
+    if re.match(r"^(?:run|execute|executa|executar|rode|roda)\b", text, re.I):
+        if not _PT_LOCAL_COMMAND.search(text):
+            return None
+    if _PT_LOCAL_FILE_TARGET.search(text):
+        # A named file may legitimately be inspected with Read/Glob/Grep even
+        # when the request spells "cat" or "ls" as shell commands.
+        return frozenset({"bash", "ls", "glob", "grep", "read_file", "get_workspace"})
+    if _PT_LOCAL_COMMAND.search(text):
+        return frozenset({"bash"})
+    return None
+
+
 def local_filesystem_intent(message: str, history: Iterable = ()) -> str | None:
     """Return 'list' or 'copy' for an explicit, trusted local task.
 
@@ -171,7 +232,8 @@ def _mentions_under_budget(text: str) -> bool:
 _FAMILY_WORDS = {
     "calendar": r"\b(?:calendar|calender|events?|appointments?|meetings?|agenda)\b",
     "notes": r"\b(?:notes?|checklists?|groceries|remind\s+me)\b",
-    "tasks": r"\b(?:tasks?|todos?|schedul(?:ed|d)\s+jobs?|automations?)\b",
+    # Portuguese "todos os arquivos" is a determiner, NOT a to-do list.
+    "tasks": r"\b(?:tasks?|todos?(?!\s+(?:o|a|os|as)\b)|schedul(?:ed|d)\s+jobs?|automations?)\b",
     "skills": r"\bskills?\b",
     "memory": r"\b(?:memory|memories|memores|remember|forget|past\s+chats?|previous\s+conversations?)\b",
     "documents": r"\b(?:documents?|documets?|docs?|editor)\b",
@@ -1112,6 +1174,9 @@ def selected_tools_for_request(message: str) -> frozenset[str] | None:
         return frozenset({"ls", "get_workspace", "glob"})
     if local_intent == "copy":
         return frozenset({"bash", "ls", "read_file", "write_file"})
+    explicit_read_tools = explicit_local_read_intent(raw_text)
+    if explicit_read_tools is not None:
+        return explicit_read_tools
     if inline_text_transformation(raw_text):
         return frozenset()
     text = _normalize_request_lead(message)
@@ -4847,6 +4912,8 @@ def requested_capabilities(message: str, history: Iterable = (), *, active_docum
     message = _routing_email_scope(editor_request_instructions(message))
     raw_text = str(message or "").strip()
     if local_filesystem_intent(raw_text, history):
+        return frozenset({"shell_files"})
+    if explicit_local_read_intent(raw_text) is not None:
         return frozenset({"shell_files"})
     text = _normalize_request_lead(message)
     if lead := _CONVERSATIONAL_ACTION_LEAD.fullmatch(text):

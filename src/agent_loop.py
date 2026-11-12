@@ -35430,6 +35430,15 @@ async def stream_agent_loop(
                 # reload, chatRenderer can restore the card; a later user
                 # message removes it as answered.
                 tool_event["ask_user"] = _pending_ask_user_event
+            if (
+                _blocked_redundant_read
+                and result.get("blocked")
+                and result.get("policy") == "repeated_read_only_call"
+            ):
+                # This label is authored by the server guard, not taken from
+                # arbitrary model/tool output. Preserve the exact distinction
+                # between an unexecuted duplicate and a failed first attempt.
+                tool_event["policy"] = "repeated_read_only_call"
             tool_events.append(tool_event)
 
             if (
@@ -38358,9 +38367,23 @@ async def stream_agent_loop(
             full_response,
         )
 
-    if tool_events and full_response.strip():
-        from src.agent_runtime.tool_output_presentation import summarize_repeated_tool_output
-        _echo_notice = summarize_repeated_tool_output(full_response, tool_events, user_request=_last_user)
+    if tool_events:
+        from src.agent_runtime.tool_output_presentation import (
+            summarize_repeated_tool_output,
+            summarize_incomplete_local_inspection,
+        )
+        # Only for an explicitly requested multi-command read inspection:
+        # the model may stop on its last stdout or a redundant-read warning.
+        # Use independently verified receipts, never replay an operation or
+        # turn a policy denial into a fabricated success.
+        _inspection_final = summarize_incomplete_local_inspection(
+            full_response, tool_events, user_request=_last_user,
+        )
+        if _inspection_final is not None:
+            full_response = _inspection_final
+        _echo_notice = summarize_repeated_tool_output(
+            full_response, tool_events, user_request=_last_user,
+        ) if full_response.strip() else None
         if _echo_notice is not None:
             # The model returned an entire tool result instead of a final
             # synthesis. Raw stdout/stderr is already on the exact tool cards;

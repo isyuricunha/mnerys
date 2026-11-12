@@ -102,3 +102,110 @@ def summarize_repeated_tool_output(
         label = f"`{cmd}`" if simple else f"`{name}`"
         lines.append(f"- Tool {index} ({label}): exit code `{code}`")
     return "\n".join(lines)
+
+
+def summarize_incomplete_local_inspection(
+    response: str,
+    tool_events: Sequence[Mapping[str, Any]],
+    *,
+    user_request: str,
+) -> str | None:
+    """Recover an incomplete explicit read-only inspection from actual receipts.
+
+    Only the terminal answer may be synthesized. Tool events are immutable,
+    failed commands remain failed, and a blocked repeat is never called a new
+    execution. Unknown/effectful/approval actions abort this fallback.
+    """
+    from src.turn_contract import explicit_local_read_intent
+
+    if not isinstance(response, str) or not isinstance(tool_events, (tuple, list)):
+        return None
+    if explicit_local_read_intent(user_request) is None:
+        return None
+    if not re.search(
+        r"\b(?:resultados? reais?|resultado real|c[oó]digos? de sa[ií]da|"
+        r"apresente o resultado|informe a branch|informe os tr[eê]s commits)\b",
+        user_request, re.I,
+    ):
+        return None
+
+    def read_only_receipt(event: Mapping[str, Any]) -> bool:
+        tool = str(event.get("tool") or "")
+        if tool not in _READ_ONLY_TOOLS or type(event.get("exit_code")) is not int:
+            return False
+        if event.get("blocked") or event.get("approval_required"):
+            return False
+        if tool in {"bash", "host_shell"}:
+            from src.command_risk import classify_shell_command
+            return classify_shell_command(str(event.get("command") or "")).is_low_risk
+        return True
+
+    receipts: list[Mapping[str, Any]] = []
+    for event in tool_events:
+        if not isinstance(event, Mapping) or not event.get("tool"):
+            continue
+        if (
+            event.get("blocked")
+            and event.get("policy") == "repeated_read_only_call"
+            and any(
+                previous.get("tool") == event.get("tool")
+                and previous.get("command") == event.get("command")
+                and previous.get("exit_code") == 0
+                for previous in receipts
+            )
+        ):
+            continue
+        if not read_only_receipt(event):
+            return None
+        receipts.append(event)
+    if not 2 <= len(receipts) <= 8:
+        return None
+
+    answer = response.strip()
+    # Existing terminal summarizers may wrap a single command's stdout
+    # in a plaintext Markdown fence; this is still only one tool's result.
+    fenced = re.fullmatch(r"```(?:text|plaintext)?\n([\s\S]*?)\n```", answer)
+    if fenced:
+        answer = fenced.group(1).strip()
+    if not answer:
+        incomplete = True
+    elif re.search(
+        r"Blocked an exact repeat of a successful read-only call|"
+        r"The exact operation is outside server request authority",
+        answer, re.I,
+    ):
+        incomplete = True
+    else:
+        # A provider that returns only the last stdout (e.g. "ubuntu") has
+        # not answered a request to report several independently run commands.
+        incomplete = any(
+            answer == str(e.get("output") or e.get("stdout") or "").strip()
+            for e in receipts
+        )
+    if not incomplete:
+        return None
+
+    lines = ["Resultados observados das ferramentas:", ""]
+    for index, event in enumerate(receipts, 1):
+        tool = str(event["tool"])
+        command = str(event.get("command") or "").strip()
+        # Never interpolate arbitrary shell input or resource payload as a
+        # Markdown label. The full command is still visible on its own card.
+        label = (
+            command if tool in {"bash", "host_shell"}
+            and len(command) <= 80
+            and re.fullmatch(r"[A-Za-z0-9_./~ -]+", command)
+            else tool
+        )
+        lines.append(f"{index}. `{label}`: exit `{event['exit_code']}`")
+        output = str(
+            event.get("output") or event.get("stderr")
+            or event.get("stdout") or event.get("error") or ""
+        ).strip()
+        if output:
+            short = output.replace("\r", "").splitlines()
+            if len(short) <= 3 and len(output) <= 220:
+                lines.append("   " + " | ".join(short).replace("`", "'"))
+            else:
+                lines.append("   Saída completa disponível na etapa da ferramenta.")
+    return "\n".join(lines)

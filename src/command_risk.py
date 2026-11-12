@@ -466,6 +466,11 @@ def _classify_simple_command(argv: list[str], segment: str) -> CommandRiskClassi
             return _approval("moderate", "Potentially destructive git operation.", matched=segment)
         if "rm" in argv:
             return _approval("moderate", "git rm removes tracked files.", matched=segment)
+        # Git branch can list OR mutate. Only the exact, parameter-free
+        # listing forms are safe; branch creation/deletion/rename, including
+        # ambiguous flags or arguments, continue to require authorization.
+        if argv[1:] in (["branch"], ["branch", "--show-current"], ["branch", "--list"]):
+            return _low("Read-only Git branch inspection.", matched=segment)
         if len(argv) > 1 and argv[1] in _GIT_SAFE_SUBCOMMANDS:
             return _low("Read-only git inspection.", matched=segment)
         return _approval("moderate", "Git operation may modify repository state.", matched=segment)

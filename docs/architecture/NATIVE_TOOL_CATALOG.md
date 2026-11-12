@@ -178,5 +178,37 @@ This is a corrective presentation increment, not a new Agent engine or
 permission mechanism. Authenticating to the Web preview and exercising a
 configured model is still required for end-to-end confirmation.
 
+## PT-BR local inspection and truthful completion
+
+Gateway request admission recognizes explicitly phrased PT-BR read-only shell
+inspection (for example `whoami`, `hostname`, `uname`, `date`) and
+workspace-file discovery (`Glob`, `Grep`, `Read`) as the same local-read
+capability class used by equivalent English commands. An explicit request
+selects only the needed read/tool family; no model text, tool stdout or
+session history grants new operations. In Portuguese `todos os arquivos`,
+`todos` is a determiner rather than an English to-do noun and must not
+select the Tasks product. Every call still passes independently through
+owner/session binding, request authorization, sandbox, resource identity,
+risk classification, policy and audit. Mixed edits and negatives are not
+reclassified as read-only.
+
+The risk classifier identifies the exact Git inspection
+`git branch --show-current` as low-risk, including a harmless `echo` of
+its exit code. Branch creation/deletion/rename and compound commands with
+side effects still require review. This classification only suppresses
+ordinary approval; it never supplies missing operation authority.
+
+A read-only multi-command inspection can finish with an incomplete provider
+answer (e.g. only the last command's stdout), or with the model quoting a
+blocked duplicate inspection. A bounded, provider-neutral finalizer then
+uses previously **executed** read-only receipts to report actual exit codes
+and concise observed output. It does not run any command, claim that a
+blocked/unknown call succeeded, erase errors, or reproduce long file output.
+Server-authored repeated-read policy is retained in the persisted tool
+event so an exact duplicate can be distinguished from the original
+successful receipt. This fallback runs only for explicit, observed
+multi-step read-inspection requests whose final answer is provably
+incomplete; a legitimate synthesis remains untouched.
+
 No secrets, private endpoints, server identifiers or real user transcripts
 should be added to published documentation.
