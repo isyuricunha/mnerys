@@ -221,5 +221,30 @@ subjects are included directly in the bounded final receipt (up to four
 lines / 640 characters), while longer outputs remain in expandable cards.
 Original tool events and exit codes are never rewritten.
 
+## Canonical final round after tool use
+
+The Agent Core keeps two representations: a cumulative live-text accumulator
+for streaming progress, and independent `round_texts` with numbered tool
+receipts for history. Earlier assistant narration before or between tool
+calls is **not** part of the terminal answer. At completion, if tool-event
+round numbers prove that a separate model round followed those calls, and
+the corresponding full round text is an exact suffix of the cumulative
+response, the Agent selects only that last round as the canonical reply.
+Earlier narration stays in its chronological round; original tool output,
+call IDs, execution state and approval authority are unchanged.
+
+The selector is based on event provenance, **not** a list of provider phrases
+like "I'll start" or heuristics about a model's language. No rewrite occurs
+when the final round is absent, a tool was called in the last round, the
+accumulator has been replaced by a separate policy answer, or tool rounds
+cannot be verified. The Web adapter's last-round replacement and persisted
+history retain the same chronological boundaries.
+
+This does not reclassify native `reasoning_content`: the provider's thinking
+transport must remain distinct from visible `content`. Model-authored
+mistakes in a substantive final summary (such as misstating a file count)
+require their own evidence or model-level validation and must not be
+silently rewritten as if the tool had returned different data.
+
 No secrets, private endpoints, server identifiers or real user transcripts
 should be added to published documentation.

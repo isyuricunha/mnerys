@@ -38372,7 +38372,18 @@ async def stream_agent_loop(
             summarize_repeated_tool_output,
             summarize_incomplete_local_inspection,
             strip_completed_inspection_preamble,
+            completed_tool_round_answer,
         )
+        # The accumulator carries live commentary from earlier tool rounds.
+        # Once a distinct final model round exists AFTER those tool calls,
+        # present only that round as the answer. Keep preceding rounds in
+        # round_texts and their correlated tool receipts for chronological
+        # history; never run a textual heuristic over intermediate planning.
+        _final_round_answer = completed_tool_round_answer(
+            full_response, round_texts, tool_events,
+        )
+        if _final_round_answer is not None:
+            full_response = _final_round_answer
         # A planning sentence in normal model text is not a separate
         # reasoning-channel event. Keep the completed answer without that
         # preparatory sentence when real local-read evidence is available.

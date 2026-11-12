@@ -104,6 +104,51 @@ def summarize_repeated_tool_output(
     return "\n".join(lines)
 
 
+def completed_tool_round_answer(
+    response: str,
+    round_texts: Sequence[str],
+    tool_events: Sequence[Mapping[str, Any]],
+) -> str | None:
+    """Select the actual final model round without replaying earlier tool plans.
+
+    The Agent Core retains each round separately for history and also keeps a
+    cumulative text accumulator. A terminal answer must use the post-tool
+    round, never concatenate pre-tool progress into the answer.  Only select
+    a final round when numbered tool receipts prove an earlier round invoked
+    tools and its complete text is the suffix of the accumulator. All other
+    cases (including tool-only, overwritten or ambiguous finals) stay intact.
+    """
+    if (
+        not isinstance(response, str)
+        or not isinstance(round_texts, (list, tuple))
+        or not isinstance(tool_events, (list, tuple))
+        or not round_texts
+    ):
+        return None
+    final = round_texts[-1]
+    if not isinstance(final, str) or not final.strip():
+        return None
+    numbered = [
+        event.get("round")
+        for event in tool_events
+        if isinstance(event, Mapping) and event.get("tool")
+    ]
+    if not numbered or any(type(value) is not int or value < 1 for value in numbered):
+        # Never ignore an unnumbered tool receipt; it could belong to the
+        # actual final round and make the chronology ambiguous.
+        return None
+    if max(numbered) >= len(round_texts):
+        return None
+    clean_final = final.strip()
+    if not response.strip().endswith(clean_final):
+        return None
+    # Do not rewrite an already-final answer or a result with no preceding
+    # model prose. A complete final round is authoritative in its own right.
+    if response.strip() == clean_final:
+        return None
+    return clean_final
+
+
 def strip_completed_inspection_preamble(
     response: str,
     tool_events: Sequence[Mapping[str, Any]],
