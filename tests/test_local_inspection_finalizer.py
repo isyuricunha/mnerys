@@ -1,5 +1,8 @@
 """Terminal text fallback only when model ignores already completed local reads."""
-from src.agent_runtime.tool_output_presentation import summarize_incomplete_local_inspection
+from src.agent_runtime.tool_output_presentation import (
+    summarize_incomplete_local_inspection,
+    strip_completed_inspection_preamble,
+)
 
 REQUEST = (
     "Execute whoami, hostname, uname -a e date. "
@@ -11,6 +14,83 @@ READS = [
     {"tool": "bash", "command": "uname -a", "output": "Linux example", "exit_code": 0},
     {"tool": "bash", "command": "date", "output": "Thu Nov 12", "exit_code": 0},
 ]
+
+
+def test_completed_inspection_strips_leaked_plan_without_touching_summary():
+    visible = (
+        "I'll work through each step in parallel where possible."
+        "Segue o resumo, indicando a ferramenta usada em cada etapa: "
+        "Glob encontrou arquivos Python; Grep localizou os pontos de entrada; "
+        "Read examinou o pyproject.toml."
+    )
+    message = (
+        "Encontre todos os arquivos .py do projeto. Pesquise por def main e "
+        "leia o arquivo pyproject.toml. Apresente um resumo do que encontrou."
+    )
+    cleaned = strip_completed_inspection_preamble(
+        visible, READS, user_request=message,
+    )
+    assert cleaned.startswith("Segue o resumo")
+    assert "Glob encontrou" in cleaned
+    assert "I'll work" not in cleaned
+
+
+def test_preamble_is_not_removed_without_verified_read_or_answer():
+    message = "Execute whoami, hostname, uname -a e date. Apresente resultados reais."
+    plan = "I'll work through each step in parallel where possible."
+    assert strip_completed_inspection_preamble(
+        plan, READS, user_request=message,
+    ) == plan
+    answer = plan + " O resultado não está disponível."
+    assert strip_completed_inspection_preamble(
+        answer, [], user_request=message,
+    ) == answer
+    assert strip_completed_inspection_preamble(
+        answer, [dict(tool="bash", command="rm x", output="", exit_code=0)],
+        user_request=message,
+    ) == answer
+
+
+def test_inspection_preamble_is_not_removed_after_blocked_or_effectful_call():
+    message = "Execute whoami, hostname, uname -a e date. Apresente resultados reais."
+    answer = (
+        "I'll work through each step in parallel where possible."
+        "Os resultados observados mostram os quatro comandos e respectivos códigos."
+    )
+    for extra in (
+        {"tool": "bash", "command": "mkdir reports", "output": "", "exit_code": 0},
+        {"tool": "bash", "command": "hostname", "output": "", "exit_code": 1, "blocked": True},
+        {"tool": "unknown_tool", "output": "x", "exit_code": 0},
+    ):
+        assert strip_completed_inspection_preamble(
+            answer, READS + [extra], user_request=message,
+        ) == answer
+
+
+def test_complete_git_log_is_reported_when_three_lines_fit():
+    message = (
+        "Execute git status --short, git branch --show-current e "
+        "git log -3 --oneline. Informe a branch e os três commits mais recentes."
+    )
+    commits = (
+        "1a2b3c4 feat(example): introduce a deterministic multi-step code inspection flow\\n"
+        "2b3c4d5 fix(example): enforce consistent completion evidence across platform clients\\n"
+        "3c4d5e6 docs(example): document reliable and isolated workspace command reporting"
+    )
+    assert len(commits) > 220
+    assert commits.count("\\n") == 2
+    events = [
+        {"tool": "bash", "command": "git status --short", "output": "", "exit_code": 0},
+        {"tool": "bash", "command": "git branch --show-current", "output": "master", "exit_code": 0},
+        {"tool": "bash", "command": "git log -3 --oneline", "output": commits, "exit_code": 0},
+    ]
+    result = summarize_incomplete_local_inspection(
+        "", events, user_request=message,
+    )
+    assert result is not None
+    assert "1a2b3c4" in result and "2b3c4d5" in result and "3c4d5e6" in result
+    assert "Saída completa disponível" not in result
+    assert "    1a2b3c4" in result
 
 
 def test_last_stdout_echo_is_replaced_by_actual_multi_command_receipts():

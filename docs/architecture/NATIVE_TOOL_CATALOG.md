@@ -210,5 +210,16 @@ successful receipt. This fallback runs only for explicit, observed
 multi-step read-inspection requests whose final answer is provably
 incomplete; a legitimate synthesis remains untouched.
 
+If a provider emits a visible one-sentence work-plan opener immediately
+followed by a substantive local inspection result, the terminal response
+removes only that opener when multiple authorized read tool receipts are
+present and none is blocked or effectful. This is distinct from native
+thinking: provider reasoning/thinking events are routed by transport and
+must never be reclassified by text heuristics. A completed answer is not
+replaced. Short multiline inspection results such as three Git commit
+subjects are included directly in the bounded final receipt (up to four
+lines / 640 characters), while longer outputs remain in expandable cards.
+Original tool events and exit codes are never rewritten.
+
 No secrets, private endpoints, server identifiers or real user transcripts
 should be added to published documentation.

@@ -38371,6 +38371,13 @@ async def stream_agent_loop(
         from src.agent_runtime.tool_output_presentation import (
             summarize_repeated_tool_output,
             summarize_incomplete_local_inspection,
+            strip_completed_inspection_preamble,
+        )
+        # A planning sentence in normal model text is not a separate
+        # reasoning-channel event. Keep the completed answer without that
+        # preparatory sentence when real local-read evidence is available.
+        full_response = strip_completed_inspection_preamble(
+            full_response, tool_events, user_request=_last_user,
         )
         # Only for an explicitly requested multi-command read inspection:
         # the model may stop on its last stdout or a redundant-read warning.

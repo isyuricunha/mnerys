@@ -104,6 +104,64 @@ def summarize_repeated_tool_output(
     return "\n".join(lines)
 
 
+def strip_completed_inspection_preamble(
+    response: str,
+    tool_events: Sequence[Mapping[str, Any]],
+    *,
+    user_request: str,
+) -> str:
+    """Remove an isolated work-plan opener from an already completed read answer.
+
+    This is not a reasoning-channel parser: providers must route explicit
+    thinking separately. A visible text preamble can still precede a real
+    answer, often without a space after the opening period. Preserve every
+    subsequent word and do not strip an opener when no answer follows.
+    """
+    from src.turn_contract import explicit_local_read_intent
+
+    if (not isinstance(response, str)
+            or explicit_local_read_intent(user_request) is None
+            or not isinstance(tool_events, (list, tuple))):
+        return response
+
+    observed = [
+        event for event in tool_events
+        if isinstance(event, Mapping) and event.get("tool")
+    ]
+    if len(observed) < 2 or not any(
+        event.get("exit_code") == 0 and not event.get("blocked")
+        for event in observed
+    ):
+        return response
+    for event in observed:
+        tool = str(event.get("tool"))
+        if (tool not in _READ_ONLY_TOOLS or event.get("blocked")
+                or event.get("approval_required") or event.get("error")):
+            return response
+        if tool in {"bash", "host_shell"}:
+            from src.command_risk import classify_shell_command
+            if not classify_shell_command(str(event.get("command") or "")).is_low_risk:
+                return response
+
+    preamble = re.match(
+        r"^\s*(?:I['’]ll|I will|Let me)\s+"
+        r"(?:(?:work|go) through (?:each|the|these) steps?|"
+        r"(?:start|begin) by (?:checking|inspecting|reading|listing)|"
+        r"(?:first )?(?:check|inspect|read|list) (?:the|these) files?)"
+        r"[^.!?\n]{0,160}[.!?]\s*",
+        response,
+        re.IGNORECASE,
+    )
+    if preamble is None:
+        return response
+    remainder = response[preamble.end():].lstrip()
+    if len(remainder) < 50 or re.match(
+        r"^(?:I['’]ll|I will|Let me)\s+", remainder, re.I,
+    ):
+        return response
+    return remainder
+
+
 def summarize_incomplete_local_inspection(
     response: str,
     tool_events: Sequence[Mapping[str, Any]],
@@ -204,8 +262,12 @@ def summarize_incomplete_local_inspection(
         ).strip()
         if output:
             short = output.replace("\r", "").splitlines()
-            if len(short) <= 3 and len(output) <= 220:
-                lines.append("   " + " | ".join(short).replace("`", "'"))
+            if len(short) <= 4 and len(output) <= 640:
+                # Short multi-line output (e.g. three git commits) is evidence
+                # the user explicitly requested; do not hide it behind the
+                # long-output placeholder. Indentation preserves lines as
+                # literal Markdown code instead of interpreting their content.
+                lines.extend("    " + line for line in short)
             else:
                 lines.append("   Saída completa disponível na etapa da ferramenta.")
     return "\n".join(lines)
